@@ -13,6 +13,8 @@ import {
   BotDeliveryEntity,
   BotRoomBindingEntity,
   DevicePairingEntity,
+  FILING_ALERT_INELIGIBLE,
+  filingAlertIsEligible,
   MessengerDeviceEntity,
 } from '@orsem/database';
 import { createHash, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
@@ -287,13 +289,24 @@ export class BotService {
           deviceId: device.id,
         });
       const rows = await qb.orderBy('delivery.availableAt', 'ASC').take(limit).getMany();
+      const eligible: BotDeliveryEntity[] = [];
       for (const row of rows) {
+        const alert = row.alertId
+          ? await manager.getRepository(AlertEntity).findOneBy({ id: row.alertId })
+          : null;
+        if (row.alertId && (!alert || !(await filingAlertIsEligible(manager, alert)))) {
+          row.status = AlertStatus.CANCELLED;
+          row.leaseUntil = null;
+          row.lastError = FILING_ALERT_INELIGIBLE;
+          continue;
+        }
         row.status = AlertStatus.SENDING;
         row.leaseUntil = leaseUntil;
         row.attempts += 1;
+        eligible.push(row);
       }
       await manager.getRepository(BotDeliveryEntity).save(rows);
-      return { items: rows.map((row) => toWireDelivery(row)), leaseSeconds };
+      return { items: eligible.map((row) => toWireDelivery(row)), leaseSeconds };
     });
   }
 

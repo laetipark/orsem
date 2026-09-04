@@ -9,6 +9,7 @@ import type {
   EventDetail,
   EventSummary,
   OperationRun,
+  ParseIntegrityMetrics,
   QueueMetric,
   ReviewItem,
   ReviewResolution,
@@ -214,7 +215,10 @@ export const api = {
     request<void>(`/watchlist/${encodeURIComponent(companyId)}`, {
       method: 'DELETE',
     }),
-  reviews: () => request<CursorPage<ReviewItem>>('/reviews'),
+  reviews: (cursor?: string) =>
+    request<CursorPage<ReviewItem>>(
+      `/reviews${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`,
+    ),
   resolveReview: (
     id: string,
     resolution: ReviewResolution['resolution'],
@@ -227,5 +231,6 @@ export const api = {
     }),
   operationSources: () => request<CursorPage<SourceFreshness>>('/operations/sources'),
   operationRuns: () => request<CursorPage<OperationRun>>('/operations/runs'),
+  parseIntegrity: () => request<ParseIntegrityMetrics>('/operations/parse-integrity'),
   operationQueues: () => request<CursorPage<QueueMetric>>('/operations/queues'),
 };

@@ -39,6 +39,8 @@ npm run dev:worker
 
 ## 실제 데이터 소스 설정
 
+OpenDART 재검증과 UTC 이관, 현재 검토 수치 및 CSV 내보내기는 [파싱 무결성 운영 절차](docs/PARSER_INTEGRITY.md)를 참고하세요.
+
 1. OpenDART 키를 추가하고 기업 코드 동기화를 초기화합니다.
 2. 최초 관심 목록은 비워 둡니다. 화면에서 P1/P2 보유·관찰 기업을 추가합니다.
 3. 일봉·분봉 차트와 현재가는 [토스 설정 절차](docs/OPERATIONS.md#toss-securities-chart-setup)를 따릅니다. 가격 공급자는 토스만 사용합니다. SEC 공시, Alpaca 기업 식별 정보, 선택적인 뉴스 소스는 필요에 따라 각각 설정합니다.

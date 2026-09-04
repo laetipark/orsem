@@ -19,7 +19,7 @@
     "lint": "eslint .",
     "test": "npm run build:packages && npm run test:scripts && npm run test --workspaces --if-present",
     "test:unit": "npm run build:packages && npm run test:unit --workspaces --if-present",
-    "test:scripts": "node --test scripts/*.test.mjs",
+    "test:scripts": "node --test scripts/*.test.mjs scripts/*.test.cjs",
     "test:e2e": "npm run test:e2e --workspaces --if-present",
     "test:boot": "node --test scripts/start-at-boot.test.mjs",
     "test:doctor": "node --test scripts/check-kakao-config.test.mjs",

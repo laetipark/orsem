@@ -155,6 +155,7 @@ export const ReviewTaskStatus = {
   OPEN: 'OPEN',
   RESOLVED: 'RESOLVED',
   DISMISSED: 'DISMISSED',
+  SUPERSEDED: 'SUPERSEDED',
 } as const;
 export type ReviewTaskStatus = (typeof ReviewTaskStatus)[keyof typeof ReviewTaskStatus];
 /** @deprecated ReviewTaskStatus를 사용하세요. */

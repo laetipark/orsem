@@ -12,6 +12,8 @@ import {
   type OpenDartXmlCandidate,
 } from './types';
 
+export const MAX_ZIP_COMPRESSION_RATIO = 200;
+
 function sha256(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex');
 }
@@ -294,6 +296,17 @@ async function readEntries(
           throw new OpenDartPayloadError(
             'ZIP 전체 압축해제 크기가 제한을 초과했습니다.',
             'ZIP_TOTAL_TOO_LARGE',
+          );
+        }
+        // Reject highly compressed entries before opening their inflation stream.
+        if (
+          entry.uncompressedSize > 0 &&
+          (entry.compressedSize === 0 ||
+            entry.uncompressedSize / entry.compressedSize > MAX_ZIP_COMPRESSION_RATIO)
+        ) {
+          throw new OpenDartPayloadError(
+            `ZIP 엔트리 압축률이 ${MAX_ZIP_COMPRESSION_RATIO}:1 제한을 초과했습니다: ${entry.fileName}`,
+            'ZIP_COMPRESSION_RATIO_LIMIT',
           );
         }
         const stream = await openEntry(zipFile, entry);

@@ -23,6 +23,8 @@ import {
   candleSourceSchema,
   matchesRegion,
   marketsForRegion,
+  hasParseTypeInvariant,
+  isSupportedFilingType,
   type Region,
   type CandleSource,
   type Company,
@@ -65,6 +67,9 @@ import {
   BotDeliveryEntity,
   IngestionRunEntity,
   dateToIso,
+  PARSE_INTEGRITY_METRICS_SQL,
+  mapParseIntegrityMetrics,
+  type ParseIntegrityMetrics,
 } from '@orsem/database';
 import { createHash, randomUUID } from 'node:crypto';
 import {
@@ -557,6 +562,9 @@ export class OrsemDataService {
     }
     const cursor = decodeCursor(query.cursor);
     const qb = this.source().getRepository(FilingEntity).createQueryBuilder('filing');
+    qb.andWhere(
+      "(filing.canonical_type IS NULL OR filing.canonical_type IN ('D001','D002','D005'))",
+    );
     if (query.region && query.region !== 'all') {
       qb.andWhere('filing.source = :regionFilingSource', {
         regionFilingSource: query.region === 'kr' ? 'OPENDART' : 'SEC',
@@ -564,7 +572,11 @@ export class OrsemDataService {
     }
     if (query.q)
       qb.andWhere('(filing.reportName LIKE :q OR filing.filerName LIKE :q)', { q: `%${query.q}%` });
-    for (const field of ['detailType', 'submissionKind', 'effectiveState'] as const) {
+    if (query.detailType)
+      qb.andWhere('COALESCE(filing.canonical_type,filing.detail_type) = :detailType', {
+        detailType: query.detailType,
+      });
+    for (const field of ['submissionKind', 'effectiveState'] as const) {
       if (query[field]) qb.andWhere(`filing.${field} = :${field}`, { [field]: query[field] });
     }
     if (query.parseStatus) {
@@ -623,19 +635,28 @@ export class OrsemDataService {
       .where('filing.id = :value OR filing.rceptNo = :value', { value: idOrRceptNo })
       .getOne();
     if (!filing) throw new NotFoundException('공시를 찾을 수 없습니다.');
+    if (filing.canonicalType && !isSupportedFilingType(filing.canonicalType)) {
+      throw new NotFoundException('현재 지원 범위에 포함되지 않는 공시입니다.');
+    }
     const summary = await this.mapFilingSummary(filing);
     const parse = await this.activeParseRun(filing);
-    const reporter = await source
-      .getRepository(InsiderReportEntity)
-      .findOne({ where: { filingId: filing.id }, order: { createdAt: 'ASC' } });
+    const reporter =
+      parse?.resultType === 'D002'
+        ? await source
+            .getRepository(InsiderReportEntity)
+            .findOne({ where: { filingId: filing.id }, order: { createdAt: 'ASC' } })
+        : null;
     const transactions = reporter
       ? await source
           .getRepository(InsiderTransactionEntity)
           .find({ where: { insiderReportId: reporter.id }, order: { eventDate: 'ASC' } })
       : [];
-    const plan = await source
-      .getRepository(TradePlanEntity)
-      .findOne({ where: { filingId: filing.id }, order: { createdAt: 'ASC' } });
+    const plan =
+      parse?.resultType === 'D005'
+        ? await source
+            .getRepository(TradePlanEntity)
+            .findOne({ where: { filingId: filing.id }, order: { createdAt: 'ASC' } })
+        : null;
     const planItem = plan
       ? await source
           .getRepository(TradePlanItemEntity)
@@ -751,6 +772,11 @@ export class OrsemDataService {
     }
     const cursor = decodeCursor(query.cursor);
     const qb = this.source().getRepository(EventClusterEntity).createQueryBuilder('event');
+    qb.andWhere(`NOT EXISTS (SELECT 1 FROM event_cluster_items integrity_item
+      JOIN filings integrity_filing ON integrity_filing.id = integrity_item.item_id
+      WHERE integrity_item.event_cluster_id = event.id AND integrity_item.item_type = 'FILING'
+        AND integrity_filing.canonical_type IS NOT NULL
+        AND integrity_filing.canonical_type NOT IN ('D001','D002','D005'))`);
     if (query.region && query.region !== 'all') {
       qb.andWhere(
         `(
@@ -801,7 +827,7 @@ export class OrsemDataService {
           `EXISTS (
             SELECT 1 FROM event_cluster_items edi
             JOIN filings edf ON edf.id = edi.item_id
-            WHERE edi.event_cluster_id = event.id AND edi.item_type = 'FILING' AND edf.detail_type = :detailType
+            WHERE edi.event_cluster_id = event.id AND edi.item_type = 'FILING' AND COALESCE(edf.canonical_type, edf.detail_type) = :detailType
           )`,
           { detailType: query.detailType },
         );
@@ -856,6 +882,17 @@ export class OrsemDataService {
     }
     const row = await this.source().getRepository(EventClusterEntity).findOneBy({ id });
     if (!row) throw new NotFoundException('이벤트를 찾을 수 없습니다.');
+    const memberships = await this.source()
+      .getRepository(EventClusterItemEntity)
+      .findBy({ eventClusterId: id, itemType: 'FILING' });
+    for (const membership of memberships) {
+      const filing = await this.source()
+        .getRepository(FilingEntity)
+        .findOneBy({ id: membership.itemId });
+      if (filing?.canonicalType && !isSupportedFilingType(filing.canonicalType)) {
+        throw new NotFoundException('현재 지원 범위에 포함되지 않는 공시입니다.');
+      }
+    }
     return this.mapEvent(row);
   }
 
@@ -1286,19 +1323,102 @@ export class OrsemDataService {
     const items = await Promise.all(
       page.items.map(async (review) => {
         const event = await this.eventForReview(review);
-        const filing = event?.filing ? await this.getFiling(event.filing.id) : null;
+        const storedFiling =
+          !this.fixtureMode && event?.filing
+            ? await this.source().getRepository(FilingEntity).findOneBy({ id: event.filing.id })
+            : null;
+        const unsupported =
+          storedFiling?.canonicalType && !isSupportedFilingType(storedFiling.canonicalType);
+        const filing = event?.filing && !unsupported ? await this.getFiling(event.filing.id) : null;
         const relation = await this.filingRelationReviewContext(review);
         const transaction = filing?.transactions[0] ?? null;
+        const storedReview =
+          !this.fixtureMode && review.subjectType === 'FILING'
+            ? await this.source().getRepository(ReviewEntity).findOneBy({ id: review.id })
+            : null;
+        const runId =
+          storedReview?.parseRunId ??
+          /^parse:([a-f0-9-]{36})(?::failed)?$/u.exec(storedReview?.dedupeKey ?? '')?.[1];
+        const candidate =
+          !this.fixtureMode && runId && review.subjectType === 'FILING'
+            ? await this.source()
+                .getRepository(ParseRunEntity)
+                .findOneBy({ id: runId, filingId: review.subjectId })
+            : null;
+        const candidateParsed = candidate?.resultJson?.parsed as
+          Record<string, unknown> | undefined;
+        const candidateRows =
+          candidateParsed?.transactions ?? candidateParsed?.changes ?? candidateParsed?.planItems;
+        const candidateEvidence = Array.isArray(candidateRows)
+          ? candidateRows.slice(0, 5).map((value: unknown) => {
+              if (!value || typeof value !== 'object' || Array.isArray(value))
+                return '행 형식 검증 필요';
+              const row = value as Record<string, unknown>;
+              const labels: Record<string, string> = {
+                eventDate: '변동일',
+                plannedStartDate: '계획 시작',
+                plannedEndDate: '계획 종료',
+                quantity: '수량',
+                plannedQuantity: '계획 수량',
+                unitPrice: '단가',
+                amount: '금액',
+                methodRaw: '원문 방법',
+              };
+              return [
+                'eventDate',
+                'plannedStartDate',
+                'plannedEndDate',
+                'quantity',
+                'plannedQuantity',
+                'unitPrice',
+                'amount',
+                'methodRaw',
+              ]
+                .filter((key) => row[key] !== null && row[key] !== undefined)
+                .map((key) => `${labels[key]}: ${String(row[key]).slice(0, 300)}`)
+                .join(' · ');
+            })
+          : [];
+        const crosscheck = candidate?.resultJson?.crosscheck as Record<string, unknown> | undefined;
+        const staged = candidate?.resultJson?.staging as Record<string, unknown> | undefined;
+        const crosscheckReady =
+          candidate?.resultType === 'D005'
+            ? crosscheck?.status === 'NOT_APPLICABLE'
+            : crosscheck?.status === 'OK' &&
+              Array.isArray(crosscheck.exactReceiptMatches) &&
+              crosscheck.exactReceiptMatches.some(
+                (row: unknown) =>
+                  row &&
+                  typeof row === 'object' &&
+                  (row as Record<string, unknown>).rcept_no === storedFiling?.rceptNo,
+              );
         return {
           id: review.id,
           eventId: event?.id ?? review.subjectId,
           companyName: event?.company?.nameKo ?? filing?.company.nameKo ?? '회사 미확인',
           detailType: filing?.detailType ?? (event?.canonicalEventType === 'NEWS' ? 'NEWS' : 'SEC'),
+          canonicalType: storedFiling?.canonicalType ?? filing?.detailType ?? null,
+          classificationStatus: storedFiling?.classificationStatus ?? null,
+          staged:
+            staged?.mode === 'OFFLINE_INACTIVE' &&
+            candidate?.resultJson?.projectionApplied === false,
+          validationStatus: candidate?.validationStatus ?? null,
+          crosscheckStatus: typeof crosscheck?.status === 'string' ? crosscheck.status : null,
+          crosscheckReady,
+          candidateRowCount: Array.isArray(candidateRows) ? candidateRows.length : 0,
+          candidateEvidence,
+          candidateWarnings: candidate?.warningsJson ?? [],
+          crosscheckEvidence: crosscheck?.exactReceiptMatches ?? null,
+          officialUrl: storedFiling
+            ? `https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${encodeURIComponent(storedFiling.rceptNo)}`
+            : null,
           reason: review.reason,
           methodRaw: transaction?.methodRaw ?? filing?.tradePlan?.methodRaw ?? null,
           extractedText: transaction?.methodRaw ?? null,
           proposedNature: transaction?.nature ?? 'UNKNOWN',
-          parserConfidence: transaction?.parserConfidence ?? filing?.parserConfidence ?? 0,
+          parserConfidence: candidate
+            ? Number(candidate.confidence)
+            : (transaction?.parserConfidence ?? filing?.parserConfidence ?? 0),
           createdAt: review.createdAt,
           status: review.status,
           relationType: relation?.relationType ?? null,
@@ -1735,6 +1855,7 @@ export class OrsemDataService {
       this.listEventViews({ evidenceGrade: EvidenceGrade.A, limit: 4 }),
       this.connectorSourceViews(),
     ]);
+    const integrity = await this.parseIntegrityMetrics();
     const [parserFailures, alertOutboxFailures, alertDeliveryFailures] = this.fixtureMode
       ? [0, 0, 0]
       : await Promise.all([
@@ -1752,10 +1873,59 @@ export class OrsemDataService {
       priorities: { P1: p1.items, P2: p2.items },
       reviewPending: base.counts.reviewRequired,
       parserFailures,
+      integrity,
       alertFailures: alertOutboxFailures + alertDeliveryFailures,
       sources,
       recentlyVerified: verified.items,
     };
+  }
+
+  async parseIntegrityMetrics(): Promise<ParseIntegrityMetrics> {
+    if (this.fixtureMode) {
+      const open = this.fixtures.reviews.filter(
+        (review) => review.status === ReviewTaskStatus.OPEN,
+      );
+      return {
+        asOf: new Date().toISOString(),
+        totalParseRuns: 0,
+        failedParseRuns: 0,
+        openReviewRows: open.length,
+        currentReviewSubjects: new Set(
+          open.map((review) => `${review.subjectType}:${review.subjectId}`),
+        ).size,
+        currentUnrecoveredFilings: open.filter((review) => review.subjectType === 'FILING').length,
+        currentFailedFilings: 0,
+        staleOpenParseReviews: 0,
+        supersededReviews: 0,
+        documentUnavailableReviews: 0,
+        relationReviews: open.filter((review) => review.subjectType === 'FILING_RELATION').length,
+        currentTypeMismatches: 0,
+        futureCreatedRows: 0,
+      };
+    }
+    const runner = this.source().createQueryRunner();
+    await runner.connect();
+    try {
+      await runner.query('SET TRANSACTION READ ONLY');
+      await runner.startTransaction('REPEATABLE READ');
+      // Establish the MVCC snapshot before taking its presentation timestamp.
+      await runner.query('SELECT id FROM parse_runs LIMIT 1');
+      const [clock] = (await runner.query('SELECT UTC_TIMESTAMP(3) AS snapshot_at')) as Array<{
+        snapshot_at: Date;
+      }>;
+      const asOf = clock!.snapshot_at;
+      const [row] = (await runner.query(PARSE_INTEGRITY_METRICS_SQL, [asOf, asOf])) as Array<
+        Record<string, unknown>
+      >;
+      const result = mapParseIntegrityMetrics(row!, asOf);
+      await runner.commitTransaction();
+      return result;
+    } catch (error) {
+      if (runner.isTransactionActive) await runner.rollbackTransaction();
+      throw error;
+    } finally {
+      await runner.release();
+    }
   }
 
   async listOperationRuns(query: ListQuery): Promise<CursorPage<Record<string, unknown>>> {
@@ -2289,8 +2459,46 @@ export class OrsemDataService {
       filingId: review.subjectId,
     });
     if (!parseRun || parseRun.resultJson?.projectionApplied !== false) return false;
+    const filing = await manager.getRepository(FilingEntity).findOneBy({ id: review.subjectId });
+    const parsed = parseRun.resultJson?.parsed as { detailType?: string } | undefined;
+    if (
+      !filing ||
+      (parseRun.status !== 'SUCCEEDED' && parseRun.status !== 'PARTIAL') ||
+      parseRun.resultType !== parsed?.detailType ||
+      !hasParseTypeInvariant({
+        canonicalType: filing.canonicalType,
+        classificationStatus: filing.classificationStatus,
+        inputType: parseRun.inputType,
+        extractorType: parseRun.extractorType,
+        resultType: parsed?.detailType,
+      }) ||
+      parseRun.validationStatus === 'REJECTED'
+    ) {
+      throw new BadRequestException(
+        '공시 유형 또는 파싱 검증이 일치하지 않아 결과를 활성화할 수 없습니다.',
+      );
+    }
     const repository = manager.getRepository(JobOutboxEntity);
     const dedupeKey = `manual-apply-projection:${parseRun.id}`;
+    const staging = parseRun.resultJson?.staging as Record<string, unknown> | undefined;
+    const crosscheck = parseRun.resultJson?.crosscheck as Record<string, unknown> | undefined;
+    const crosscheckReady =
+      parseRun.resultType === 'D005'
+        ? crosscheck?.status === 'NOT_APPLICABLE'
+        : crosscheck?.status === 'OK' &&
+          Array.isArray(crosscheck.exactReceiptMatches) &&
+          crosscheck.exactReceiptMatches.some(
+            (row: unknown) =>
+              row &&
+              typeof row === 'object' &&
+              (row as Record<string, unknown>).rcept_no === filing.rceptNo,
+          );
+    const payloadJson = {
+      filingId: review.subjectId,
+      parseRunId: parseRun.id,
+      requestedByAdminId: adminId,
+      crosscheckOnly: staging?.mode === 'OFFLINE_INACTIVE' && !crosscheckReady,
+    };
     const existing = await repository
       .createQueryBuilder('outbox')
       .setLock('pessimistic_write')
@@ -2310,6 +2518,7 @@ export class OrsemDataService {
         existing.availableAt = new Date();
         existing.lockedAt = null;
         existing.lastError = null;
+        existing.payloadJson = payloadJson;
         await repository.save(existing);
       }
       return true;
@@ -2318,11 +2527,7 @@ export class OrsemDataService {
       repository.create({
         kind: 'APPLY_PARSE_PROJECTION',
         dedupeKey,
-        payloadJson: {
-          filingId: review.subjectId,
-          parseRunId: parseRun.id,
-          requestedByAdminId: adminId,
-        },
+        payloadJson,
         status: ProcessingStatus.PENDING,
         availableAt: new Date(),
         attempts: 0,
@@ -2779,7 +2984,7 @@ export class OrsemDataService {
     return {
       id: row.id,
       rceptNo: row.rceptNo,
-      detailType: row.detailType,
+      detailType: isSupportedFilingType(row.canonicalType) ? row.canonicalType : row.detailType,
       reportName: row.reportName,
       filerName: row.filerName,
       rceptDate: row.rceptDate,
@@ -2818,17 +3023,32 @@ export class OrsemDataService {
         return sourceRow ? mapSourceItem(sourceRow) : null;
       }),
     );
+    const canonicalEventTypes = {
+      D001: 'LARGE_HOLDER',
+      D002: 'INSIDER_OWNERSHIP',
+      D005: 'TRADE_PLAN',
+    } as const;
+    const requiresParseReview = Boolean(filingRow && !parse);
     return {
       id: row.id,
-      canonicalEventType: row.canonicalEventType,
+      canonicalEventType: filingRow
+        ? isSupportedFilingType(filingRow.canonicalType)
+          ? canonicalEventTypes[filingRow.canonicalType]
+          : 'OTHER'
+        : row.canonicalEventType,
       occurredAt: dateToIso(row.occurredAt),
       publishedAt: dateToIso(row.publishedAt),
       firstObservedAt: row.firstObservedAt.toISOString(),
       processedAt: dateToIso(row.processedAt),
-      state: row.state,
+      state:
+        requiresParseReview &&
+        row.state !== EventState.CANCELLED &&
+        row.state !== EventState.SUPERSEDED
+          ? EventState.REVIEW_REQUIRED
+          : row.state,
       evidenceGrade: row.evidenceGrade,
       classificationResult: parse?.classificationResult ?? null,
-      summary: row.summary,
+      summary: requiresParseReview ? `원문 검증 대기 — ${filingRow!.reportName}` : row.summary,
       company: company ? mapCompany(company) : null,
       filing,
       sourceItems: sourceItems.filter((item): item is SourceItem => item !== null),
@@ -2842,12 +3062,27 @@ export class OrsemDataService {
         id: filing.activeParseRunId,
         filingId: filing.id,
       });
-      if (active) return active;
+      if (active) return this.isValidActiveParse(filing, active) ? active : null;
     }
-    // active_parse_run_id 도입 전에 수집한 행을 위한 호환 처리입니다.
-    // 새로 지연 생성하는 조회용 데이터는 관리자가 교체를 승인할 때까지
-    // 이전에 승인된 실행을 가리키는 명시적 포인터를 유지합니다.
-    return repository.findOne({ where: { filingId: filing.id }, order: { createdAt: 'DESC' } });
+    // A newer shadow or failed run must never become active merely by being latest.
+    return null;
+  }
+
+  private isValidActiveParse(filing: FilingEntity, parse: ParseRunEntity): boolean {
+    const parsed = parse.resultJson?.parsed as { detailType?: string } | undefined;
+    return (
+      (parse.status === ParseStatus.SUCCEEDED || parse.status === ParseStatus.PARTIAL) &&
+      parse.resultJson?.projectionApplied === true &&
+      parse.validationStatus === 'PASSED' &&
+      parse.resultType === parsed?.detailType &&
+      hasParseTypeInvariant({
+        canonicalType: filing.canonicalType,
+        classificationStatus: filing.classificationStatus,
+        inputType: parse.inputType,
+        extractorType: parse.extractorType,
+        resultType: parsed?.detailType,
+      })
+    );
   }
 
   private async mapWatchlist(row: WatchlistItemEntity): Promise<WatchlistItem> {

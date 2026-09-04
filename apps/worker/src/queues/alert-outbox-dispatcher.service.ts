@@ -8,6 +8,8 @@ import {
   BotDeliveryEntity,
   BotRoomBindingEntity,
   EventClusterEntity,
+  FILING_ALERT_INELIGIBLE,
+  filingAlertIsEligible,
   WatchlistItemEntity,
 } from '@orsem/database';
 import { DataSource, IsNull, LessThanOrEqual, type EntityManager } from 'typeorm';
@@ -160,6 +162,14 @@ export class AlertOutboxDispatcherService {
         outbox.status = AlertStatus.CANCELLED;
         outbox.lastError = 'Alert was cancelled before fan-out.';
         await manager.getRepository(AlertOutboxEntity).save(outbox);
+        return;
+      }
+      if (!(await filingAlertIsEligible(manager, alert))) {
+        outbox.status = AlertStatus.CANCELLED;
+        outbox.lastError = FILING_ALERT_INELIGIBLE;
+        alert.status = AlertStatus.CANCELLED;
+        await manager.getRepository(AlertOutboxEntity).save(outbox);
+        await manager.getRepository(AlertEntity).save(alert);
         return;
       }
 

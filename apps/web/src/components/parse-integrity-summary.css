@@ -1,0 +1,31 @@
+.parse-integrity-summary dl {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin: 0;
+}
+.parse-integrity-summary dl > div {
+  min-width: 0;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.parse-integrity-summary dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+.parse-integrity-summary dd {
+  margin: 4px 0 0;
+  font-size: 23px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.parse-integrity-summary p,
+.parse-integrity-summary small {
+  color: var(--muted);
+  font-size: 12px;
+}
+@media (max-width: 700px) {
+  .parse-integrity-summary dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

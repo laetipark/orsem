@@ -316,6 +316,17 @@ test('실제 TypeORM SQL은 입력을 바인딩하고 원문·권리 제한 데�
     assert.match(query.sql, /LIMIT 6$/u);
     assert.ok(!query.sql.includes('raw_object_uri'));
     assert.ok(!query.sql.includes('raw_list_json'));
+    if (query.sql.includes('FROM `filings`')) {
+      assert.match(
+        query.sql,
+        /COALESCE\(`filing`\.`canonical_type`, `filing`\.`detail_type`\) AS detailType/u,
+      );
+      assert.match(
+        query.sql,
+        /canonical_type` IS NULL OR `filing`\.`canonical_type` IN \('D001','D002','D005'\)/u,
+      );
+      assert.ok(query.sql.indexOf('canonical_type` IN') < query.sql.indexOf('ORDER BY'));
+    }
     if (query.sql.includes('source_items')) {
       assert.match(query.sql, /translation_json/u);
       assert.match(query.sql, /\$\.inputHash/u);

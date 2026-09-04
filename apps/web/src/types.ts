@@ -188,9 +188,26 @@ export interface DashboardData {
   };
   reviewPending: number;
   parserFailures: number;
+  integrity?: ParseIntegrityMetrics;
   alertFailures: number;
   sources: SourceFreshness[];
   recentlyVerified: EventSummary[];
+}
+
+export interface ParseIntegrityMetrics {
+  asOf: string;
+  totalParseRuns: number;
+  failedParseRuns: number;
+  openReviewRows: number;
+  currentReviewSubjects: number;
+  currentUnrecoveredFilings: number;
+  currentFailedFilings: number;
+  staleOpenParseReviews: number;
+  supersededReviews: number;
+  documentUnavailableReviews: number;
+  relationReviews: number;
+  currentTypeMismatches: number;
+  futureCreatedRows: number;
 }
 
 export interface CompanySummary {
@@ -300,13 +317,24 @@ export interface ReviewItem {
   eventId: string;
   companyName: string;
   detailType: DisclosureType;
+  canonicalType?: string | null;
+  classificationStatus?: string | null;
+  officialUrl?: string | null;
+  staged?: boolean;
+  validationStatus?: string | null;
+  crosscheckStatus?: string | null;
+  crosscheckReady?: boolean;
+  candidateRowCount?: number;
+  candidateEvidence?: string[];
+  candidateWarnings?: string[];
+  crosscheckEvidence?: unknown;
   reason: string;
   methodRaw: string | null;
   extractedText: string | null;
   proposedNature: TransactionNature;
   parserConfidence: number;
   createdAt: string;
-  status: 'OPEN' | 'RESOLVED' | 'DISMISSED';
+  status: 'OPEN' | 'RESOLVED' | 'DISMISSED' | 'SUPERSEDED';
   planExecutionCandidates?: PlanExecutionCandidate[];
 }
 

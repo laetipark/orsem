@@ -44,6 +44,7 @@ import {
   type OpenDartCorpCodeItem,
   type OpenDartDisclosureItem,
 } from './opendart.client';
+import { canProcessFiling, updateFilingClassification } from './filing-classification';
 
 const CONNECTOR = 'OPENDART';
 const RATE_LIMIT_STREAM = 'GLOBAL_RATE_LIMIT';
@@ -471,7 +472,6 @@ export class OpenDartIngestionService {
       } else {
         const authoritativeEffectiveState = filing.effectiveState;
         filing.companyId = company.id;
-        filing.detailType = detailType;
         filing.reportName = item.report_nm.slice(0, MAX_TEXT_COLUMN_CHARACTERS);
         filing.filerName = item.flr_nm.slice(0, 255);
         filing.rceptDate = item.rcept_dt;
@@ -487,6 +487,7 @@ export class OpenDartIngestionService {
         filing.lastSeenAt = observedAt;
         filing.rawListJson = rawDisclosureItem(item);
       }
+      updateFilingClassification(filing, item.report_nm, detailType);
       filing = await filingRepository.save(filing);
       await manager.getRepository(FilingListObservationEntity).save({
         filingId: filing.id,
@@ -496,8 +497,11 @@ export class OpenDartIngestionService {
         ingestionRunId,
       });
 
+      // Unsupported/ambiguous documents remain auditable observations, never D005 events.
+      if (!canProcessFiling(filing)) return created;
+
       const outboxRepository = manager.getRepository(ProcessingOutboxEntity);
-      const dedupeKey = `opendart:${detailType}:${item.rcept_no}:enrich:v1`;
+      const dedupeKey = `opendart:${filing.canonicalType}:${item.rcept_no}:enrich:${filing.classifierVersion}`;
       if (!(await outboxRepository.findOne({ where: { kind: 'ENRICH_FILING', dedupeKey } }))) {
         await outboxRepository.save({
           kind: 'ENRICH_FILING',
@@ -505,7 +509,7 @@ export class OpenDartIngestionService {
           payloadJson: {
             filingId: filing.id,
             rceptNo: filing.rceptNo,
-            detailType,
+            detailType: filing.detailType,
             suppressAlerts,
           },
           status: ProcessingStatus.PENDING,
@@ -569,6 +573,7 @@ export class OpenDartIngestionService {
     companyName: string,
     suppressAlerts: boolean,
   ): Promise<void> {
+    if (!canProcessFiling(filing)) return;
     const eventRepository = manager.getRepository(EventClusterEntity);
     const dedupeKey = `opendart:filing:${filing.id}`;
     let event = await eventRepository.findOne({ where: { dedupeKey } });
@@ -618,6 +623,7 @@ export class OpenDartIngestionService {
     if (await alertRepository.findOne({ where: { idempotencyKey } })) return;
     const payload = {
       phase: 'DETECTED',
+      filingId: filing.id,
       detailType: filing.detailType,
       companyName,
       reportName: filing.reportName,

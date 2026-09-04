@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowUpRight,
   Braces,
@@ -73,6 +73,9 @@ export function ReviewCard({
   const [selectedMatchId, setSelectedMatchId] = useState(
     review.planExecutionCandidates?.[0]?.matchId,
   );
+  const unsupported = review.classificationStatus === 'UNSUPPORTED';
+  const cannotActivate = unsupported || review.validationStatus === 'REJECTED';
+  const crosscheckPending = review.staged && !cannotActivate && review.crosscheckReady !== true;
   return (
     <article className="review-card">
       <div className="review-card__heading">
@@ -81,19 +84,35 @@ export function ReviewCard({
         </span>
         <div>
           <div>
-            <EventTypeBadge type={review.detailType} />
+            {unsupported ? (
+              <Badge>지원 범위 밖 공시</Badge>
+            ) : (
+              <EventTypeBadge type={review.detailType} />
+            )}
             <Badge tone="orange">검토 필요</Badge>
           </div>
           <h3>{review.companyName}</h3>
           <p>{displayDomainText(review.reason)}</p>
         </div>
-        <Link
-          to={`/events/${review.eventId}`}
-          title="이벤트 근거 열기"
-          aria-label={`${review.companyName} 이벤트 근거 열기`}
-        >
-          <ArrowUpRight size={18} />
-        </Link>
+        {unsupported && review.officialUrl ? (
+          <a
+            href={review.officialUrl}
+            target="_blank"
+            rel="noreferrer"
+            title="공시 원문 열기"
+            aria-label={`${review.companyName} 공시 원문 열기`}
+          >
+            <ArrowUpRight size={18} />
+          </a>
+        ) : (
+          <Link
+            to={`/events/${review.eventId}`}
+            title="이벤트 근거 열기"
+            aria-label={`${review.companyName} 이벤트 근거 열기`}
+          >
+            <ArrowUpRight size={18} />
+          </Link>
+        )}
       </div>
       <div className="review-evidence-grid">
         <div>
@@ -113,6 +132,37 @@ export function ReviewCard({
           <Progress value={review.parserConfidence * 100} label="파서 확신도" />
         </div>
       </div>
+      {review.staged ? (
+        <details className="review-candidate-evidence" open={crosscheckPending}>
+          <summary>비활성 추출 근거 · {review.candidateRowCount ?? 0}행</summary>
+          <p>
+            공식 요약 검증: {review.crosscheckStatus ?? '미실행'}. 먼저 공식 요약을 조회하고, 원문
+            전체와 추출 값을 확인한 뒤 다시 확정하세요.
+          </p>
+          {review.candidateEvidence?.map((line, index) => (
+            <p key={index}>{line}</p>
+          ))}
+          {(review.candidateRowCount ?? 0) > 5 ? (
+            <p>앞의 5행만 표시합니다. 전체 행은 원문과 파싱 감사 결과에서 확인하세요.</p>
+          ) : null}
+          {review.officialUrl ? (
+            <a href={review.officialUrl} target="_blank" rel="noreferrer">
+              공시 원문 확인
+            </a>
+          ) : null}
+          {review.crosscheckEvidence ? (
+            <pre>{JSON.stringify(review.crosscheckEvidence, null, 2)}</pre>
+          ) : null}
+          {review.candidateWarnings?.length ? (
+            <details>
+              <summary>추출·검증 유의사항</summary>
+              {review.candidateWarnings.map((warning, index) => (
+                <p key={index}>{warning}</p>
+              ))}
+            </details>
+          ) : null}
+        </details>
+      ) : null}
       {review.planExecutionCandidates?.length ? (
         <fieldset className="review-match-candidates">
           <legend>
@@ -179,9 +229,13 @@ export function ReviewCard({
         />
         <Button
           onClick={() => onResolve(selected, note.trim() || null, selectedMatchId)}
-          disabled={pending}
+          disabled={pending || (cannotActivate && selected === 'CONFIRMED')}
         >
-          검토 확정
+          {cannotActivate && selected === 'CONFIRMED'
+            ? '추출 검증 필요'
+            : crosscheckPending && selected === 'CONFIRMED'
+              ? '공식 요약 검증'
+              : '검토 확정'}
         </Button>
       </div>
       <time>생성 {formatKst(review.createdAt)}</time>
@@ -191,7 +245,15 @@ export function ReviewCard({
 
 export function ReviewsPage() {
   const queryClient = useQueryClient();
-  const reviews = useQuery({ queryKey: ['reviews'], queryFn: api.reviews });
+  const reviews = useInfiniteQuery({
+    queryKey: ['reviews'],
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam }) => api.reviews(pageParam),
+    getNextPageParam: (page) => page.nextCursor ?? undefined,
+    refetchInterval: 15_000,
+  });
+  const integrity = useQuery({ queryKey: ['parse-integrity'], queryFn: api.parseIntegrity });
+  const items = reviews.data?.pages.flatMap((page) => page.items) ?? [];
   const resolve = useMutation({
     mutationFn: ({
       id,
@@ -208,6 +270,7 @@ export function ReviewsPage() {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['reviews'] }),
         queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
+        queryClient.invalidateQueries({ queryKey: ['parse-integrity'] }),
       ]);
     },
   });
@@ -226,7 +289,10 @@ export function ReviewsPage() {
         <CardHeader>
           <div>
             <span className="section-kicker">HUMAN-IN-THE-LOOP</span>
-            <h2>분류 검토 대기 {reviews.data ? `${reviews.data.items.length}건` : ''}</h2>
+            <h2>
+              분류 검토 대기 {integrity.data ? `${integrity.data.currentReviewSubjects}건` : ''}
+            </h2>
+            {reviews.data ? <p>현재 {items.length}건 표시</p> : null}
           </div>
           <Badge tone="orange">자동 시그널 생성 안 함</Badge>
         </CardHeader>
@@ -235,7 +301,7 @@ export function ReviewsPage() {
           {reviews.isError ? (
             <ErrorState message={reviews.error.message} onRetry={() => void reviews.refetch()} />
           ) : null}
-          {reviews.data?.items.map((review) => (
+          {items.map((review) => (
             <ReviewCard
               key={review.id}
               review={review}
@@ -250,7 +316,15 @@ export function ReviewsPage() {
               }
             />
           ))}
-          {reviews.data && !reviews.data.items.length ? (
+          {reviews.hasNextPage ? (
+            <Button
+              disabled={reviews.isFetchingNextPage}
+              onClick={() => void reviews.fetchNextPage()}
+            >
+              {reviews.isFetchingNextPage ? '불러오는 중…' : '검토 항목 더 보기'}
+            </Button>
+          ) : null}
+          {reviews.data && !items.length ? (
             <EmptyState
               title="검토 대기열이 비었습니다"
               description="규칙으로 확정할 수 없거나 근거가 부족한 항목이 들어오면 여기에 표시됩니다."

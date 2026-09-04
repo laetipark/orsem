@@ -87,7 +87,12 @@ test('approved rights, evidence and review vocabularies do not drift', () => {
     'AI_SUGGESTED',
     'REVIEW_REQUIRED',
   ]);
-  assert.deepEqual(Object.values(ReviewTaskStatus), ['OPEN', 'RESOLVED', 'DISMISSED']);
+  assert.deepEqual(Object.values(ReviewTaskStatus), [
+    'OPEN',
+    'RESOLVED',
+    'DISMISSED',
+    'SUPERSEDED',
+  ]);
 });
 
 test('filing submission and effective state are independent axes', () => {

@@ -1,6 +1,7 @@
+import type { XmlNormalizationAudit, ParseCandidateError } from './parse-audit';
 import type { Direction, DisclosureDetailType, TransactionNature } from '@orsem/contracts';
 
-export const OPENDART_PARSER_VERSION = 'opendart-xml-v1';
+export const OPENDART_PARSER_VERSION = 'opendart-xml-v2';
 
 export interface ArchiveLimits {
   readonly maxArchiveBytes: number;
@@ -32,11 +33,30 @@ export interface OpenDartArchive {
 }
 
 export interface CanonicalCell {
+  readonly tag: 'TD' | 'TH' | 'TE' | 'TU';
+  readonly sourceRowIndex: number;
+  readonly sourceColumnIndex: number;
+  /** XML text before entity decoding and whitespace normalization. */
+  readonly rawText: string;
   readonly text: string;
   readonly rowSpan: number;
   readonly colSpan: number;
   readonly attributes: Readonly<Record<string, string>>;
 }
+
+export interface FieldProvenance {
+  readonly sourcePath: readonly string[];
+  readonly sourceEntryName: string;
+  readonly tableIndex: number;
+  readonly rowIndex: number;
+  readonly columnIndex: number;
+  readonly sourceRowIndex: number;
+  readonly sourceColumnIndex: number;
+  readonly headerPath: readonly string[];
+  readonly rawText: string;
+}
+
+export type FieldProvenanceMap = Readonly<Record<string, FieldProvenance>>;
 
 export interface CanonicalTable {
   readonly index: number;
@@ -44,6 +64,7 @@ export interface CanonicalTable {
   readonly path: readonly string[];
   readonly caption: string | null;
   readonly rows: readonly (readonly string[])[];
+  readonly grid: readonly (readonly (CanonicalCell | null)[])[];
   readonly sourceRows: readonly (readonly CanonicalCell[])[];
 }
 
@@ -57,6 +78,9 @@ export interface ParserWarning {
 }
 
 export interface ParseSource {
+  readonly normalizerVersion?: string;
+  readonly normalizationAudits?: readonly XmlNormalizationAudit[];
+  readonly candidateErrors?: readonly ParseCandidateError[];
   readonly archiveSha256: string;
   readonly archiveByteLength: number;
   readonly selectedEntryName: string | null;
@@ -64,6 +88,7 @@ export interface ParseSource {
 }
 
 export interface ParsedInsiderTransaction {
+  readonly provenance?: FieldProvenanceMap;
   readonly rowIndex: number;
   readonly eventDate: string | null;
   readonly securityTypeRaw: string;
@@ -82,6 +107,8 @@ export interface ParsedInsiderTransaction {
 }
 
 export interface ParsedD002Report {
+  readonly confidence?: number;
+  readonly provenance?: FieldProvenanceMap;
   readonly detailType: 'D002';
   readonly parserVersion: string;
   readonly source: ParseSource;
@@ -94,6 +121,8 @@ export interface ParsedD002Report {
 }
 
 export interface ParsedLargeHoldingChange {
+  readonly confidence?: number;
+  readonly provenance?: FieldProvenanceMap;
   readonly rowIndex: number;
   readonly eventDate: string | null;
   readonly securityTypeRaw: string;
@@ -104,6 +133,8 @@ export interface ParsedLargeHoldingChange {
 }
 
 export interface ParsedD001Report {
+  readonly confidence?: number;
+  readonly provenance?: FieldProvenanceMap;
   readonly detailType: 'D001';
   readonly parserVersion: string;
   readonly source: ParseSource;
@@ -120,6 +151,11 @@ export interface ParsedD001Report {
 }
 
 export interface ParsedTradePlanItem {
+  readonly plannedUnitPrice?: string | null;
+  readonly plannedAmount?: string | null;
+  readonly currency?: string | null;
+  readonly confidence?: number;
+  readonly provenance?: FieldProvenanceMap;
   readonly rowIndex: number;
   readonly plannedStartDate: string | null;
   readonly plannedEndDate: string | null;
@@ -134,6 +170,8 @@ export interface ParsedTradePlanItem {
 }
 
 export interface ParsedD005Report {
+  readonly confidence?: number;
+  readonly provenance?: FieldProvenanceMap;
   readonly detailType: 'D005';
   readonly parserVersion: string;
   readonly source: ParseSource;

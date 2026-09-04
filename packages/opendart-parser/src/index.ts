@@ -6,3 +6,5 @@ export * from './parse';
 export * from './security';
 export * from './types';
 export * from './xml-tables';
+export * from './parse-audit';
+export * from './xml-normalizer';

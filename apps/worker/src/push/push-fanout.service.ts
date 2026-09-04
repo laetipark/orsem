@@ -6,6 +6,7 @@ import {
   EventClusterEntity,
   EventClusterItemEntity,
   FilingEntity,
+  filingAlertIsEligible,
   MemberEntity,
   NewsItemEntity,
   NotificationPreferenceEntity,
@@ -199,6 +200,7 @@ export class PushFanoutService {
     manager: EntityManager,
     alert: AlertEntity,
   ): Promise<{ topic: PushTopic | null; companyId: string | null }> {
+    if (!(await filingAlertIsEligible(manager, alert))) return { topic: null, companyId: null };
     const event = alert.eventClusterId
       ? await manager.getRepository(EventClusterEntity).findOneBy({ id: alert.eventClusterId })
       : null;

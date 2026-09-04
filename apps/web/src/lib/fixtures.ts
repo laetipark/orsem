@@ -1045,6 +1045,22 @@ export async function fixtureRequest<T>(path: string, init?: RequestInit): Promi
 
   if (pathname === '/operations/sources') return { items: sources, nextCursor: null } as T;
   if (pathname === '/operations/runs') return { items: runs, nextCursor: null } as T;
+  if (pathname === '/operations/parse-integrity')
+    return {
+      asOf: new Date().toISOString(),
+      totalParseRuns: 0,
+      failedParseRuns: 0,
+      openReviewRows: reviews.filter((review) => review.status === 'OPEN').length,
+      currentReviewSubjects: reviews.filter((review) => review.status === 'OPEN').length,
+      currentUnrecoveredFilings: reviews.filter((review) => review.status === 'OPEN').length,
+      currentFailedFilings: 0,
+      staleOpenParseReviews: 0,
+      supersededReviews: 0,
+      documentUnavailableReviews: 0,
+      relationReviews: 0,
+      currentTypeMismatches: 0,
+      futureCreatedRows: 0,
+    } as T;
   if (pathname === '/operations/queues') return { items: queues, nextCursor: null } as T;
 
   throw new Error(`Fixture route가 없습니다: ${method} ${pathname}`);

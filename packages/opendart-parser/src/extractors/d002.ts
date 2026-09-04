@@ -8,10 +8,21 @@ import {
   parseInteger,
   scaleNumeric,
 } from '../normalizers';
-import type { CanonicalTable, ParsedInsiderTransaction, ParserWarning } from '../types';
+import type {
+  CanonicalTable,
+  ParsedInsiderTransaction,
+  ParserWarning,
+  FieldProvenanceMap,
+} from '../types';
 import {
   cellAt,
-  findLabelValue,
+  disclosureBodyTables,
+  missingRequiredRowWarnings,
+  findLabelCell,
+  hasSourceValue,
+  emptyExtractionWarning,
+  rowProvenance,
+  summaryProvenance,
   headerScaleForColumn,
   isDataRow,
   locateHeader,
@@ -23,10 +34,10 @@ type D002Field = 'eventDate' | 'securityType' | 'method' | 'quantity' | 'unitPri
 const HEADERS: HeaderAliases<D002Field> = {
   eventDate: ['소유상황변동일', '변동일자', '변동일', '거래일'],
   securityType: ['특정증권등의종류', '특정증권등 종류', '증권의종류', '주식등의종류', '증권종류'],
-  method: ['취득/처분방법', '취득처분방법', '변동사유', '거래종류'],
-  quantity: ['취득/처분수량', '취득처분수량', '변동수량', '증감수량'],
-  unitPrice: ['주당거래단가', '거래단가', '주당단가', '단가'],
-  sharesAfter: ['변동후수량', '거래후보유수량', '소유수량', '잔고'],
+  method: ['취득/처분방법', '취득처분방법', '변동사유', '거래종류', '보고사유'],
+  quantity: ['취득/처분수량', '취득처분수량', '변동수량', '증감수량', '소유주식수>증감'],
+  unitPrice: ['취득/처분단가', '취득처분단가', '주당거래단가', '거래단가', '주당단가', '단가'],
+  sharesAfter: ['변동후수량', '거래후보유수량', '소유수량', '잔고', '소유주식수>변동후'],
 };
 
 function warningForInvalidDate(
@@ -64,6 +75,8 @@ const AMOUNT_BEARING_NATURES = new Set<TransactionNature>([
 ]);
 
 export interface D002Extraction {
+  readonly provenance: FieldProvenanceMap;
+  readonly confidence: number;
   readonly reporterName: string | null;
   readonly relationshipRaw: string | null;
   readonly positionRaw: string | null;
@@ -73,11 +86,15 @@ export interface D002Extraction {
 }
 
 export function extractD002(tables: readonly CanonicalTable[]): D002Extraction {
+  tables = disclosureBodyTables(tables);
   const warnings: ParserWarning[] = [];
+  let headersFound = 0;
+  let rowsFound = 0;
   const transactions: ParsedInsiderTransaction[] = [];
   for (const table of tables) {
     const header = locateHeader<D002Field>(table, HEADERS, ['method', 'quantity']);
     if (!header) continue;
+    headersFound += 1;
     const quantityHeaderUnit = headerScaleForColumn(
       table,
       header.headerEndRow,
@@ -103,7 +120,8 @@ export function extractD002(tables: readonly CanonicalTable[]): D002Extraction {
       const securityTypeRaw = cellAt(row, header.columns, 'securityType');
       const methodRaw = cellAt(row, header.columns, 'method');
       const quantityRaw = cellAt(row, header.columns, 'quantity');
-      if (!methodRaw && !quantityRaw) continue;
+      if (!hasSourceValue(methodRaw) && !hasSourceValue(quantityRaw)) continue;
+      rowsFound += 1;
       const quantity = parseInteger(quantityRaw, 'quantity');
       const unitPrice = parseDecimal(cellAt(row, header.columns, 'unitPrice'), 'unitPrice');
       const sharesAfter = parseInteger(cellAt(row, header.columns, 'sharesAfter'), 'sharesAfter');
@@ -118,6 +136,7 @@ export function extractD002(tables: readonly CanonicalTable[]): D002Extraction {
         : scaleNumeric(sharesAfter.value, sharesAfterHeaderUnit.multiplier);
       const classification = classifyTransactionMethod(methodRaw, quantityValue);
       const rowWarnings: ParserWarning[] = [
+        ...missingRequiredRowWarnings(quantityValue, methodRaw, table.index, rowIndex),
         quantity.warning,
         unitPrice.warning,
         sharesAfter.warning,
@@ -183,6 +202,7 @@ export function extractD002(tables: readonly CanonicalTable[]): D002Extraction {
       }
       const transaction: ParsedInsiderTransaction = {
         rowIndex,
+        provenance: rowProvenance(table, header, rowIndex),
         eventDate: normalizeDateOnly(eventDateRaw),
         securityTypeRaw,
         methodRaw,
@@ -196,19 +216,38 @@ export function extractD002(tables: readonly CanonicalTable[]): D002Extraction {
         currency: currencyFromUnit(unitPrice.unitRaw) ?? (priceHeaderUnit.unitRaw ? 'KRW' : null),
         sharesAfter: sharesAfterValue,
         confidence:
-          rowWarnings.length === 0
-            ? classification.confidence
-            : Math.min(classification.confidence, 0.75),
+          quantityValue === null || !hasSourceValue(methodRaw)
+            ? 0
+            : rowWarnings.length === 0
+              ? classification.confidence
+              : Math.min(classification.confidence, 0.75),
         warnings: rowWarnings,
       };
       transactions.push(transaction);
       warnings.push(...rowWarnings);
     }
   }
-  const reporterName = findLabelValue(tables, ['보고자', '성명', '보고자성명']);
-  const relationshipRaw = findLabelValue(tables, ['발행회사와의관계', '발행회사관계', '관계']);
-  const positionRaw = findLabelValue(tables, ['직위', '임원직위']);
+  const located = {
+    reporterName: findLabelCell(tables, ['보고자', '보고자성명', '성명']),
+    relationshipRaw: findLabelCell(tables, [
+      '임원(등기여부)',
+      '주요주주',
+      '발행회사와의관계',
+      '발행회사관계',
+      '관계',
+    ]),
+    positionRaw: findLabelCell(tables, ['직위명', '임원직위', '직위']),
+  };
+  const reporterName = located.reporterName?.value ?? null;
+  const relationshipRaw = located.relationshipRaw?.value ?? null;
+  const positionRaw = located.positionRaw?.value ?? null;
+  const validRows = transactions.filter((row) => (row.confidence ?? 0) > 0);
+  if (validRows.length === 0)
+    warnings.push(emptyExtractionWarning(tables, headersFound, rowsFound));
   return {
+    provenance: summaryProvenance(located),
+    confidence:
+      validRows.length === 0 ? 0 : Math.min(...transactions.map((row) => row.confidence ?? 0)),
     reporterName,
     relationshipRaw,
     positionRaw,

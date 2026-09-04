@@ -13,6 +13,7 @@ import { formatKst } from '../lib/format';
 import { disclosureDescriptions, disclosureLabels, priorityLabels } from '../lib/domain-labels';
 import { DashboardMarkets } from '../components/dashboard-markets';
 import { DashboardNews } from '../components/market-news';
+import { ParseIntegritySummary } from '../components/parse-integrity-summary';
 import { EventCompactRow } from '../components/event-row';
 import { ObservationDisclaimer } from '../components/disclaimer';
 import { Button, Card, CardContent, CardHeader, ErrorState, LoadingState } from '../components/ui';
@@ -110,8 +111,8 @@ export function DashboardPage() {
                   <ShieldQuestion size={18} />
                 </span>
                 <div>
-                  <strong>{data.reviewPending}</strong>
-                  <span>분류 검토 대기</span>
+                  <strong>{data.integrity?.currentReviewSubjects ?? data.reviewPending}</strong>
+                  <span>현재 검토 대상</span>
                 </div>
                 <ChevronRight size={16} />
               </Link>
@@ -120,8 +121,8 @@ export function DashboardPage() {
                   <FileWarning size={18} />
                 </span>
                 <div>
-                  <strong>{data.parserFailures}</strong>
-                  <span>파서 실패</span>
+                  <strong>{data.integrity?.currentFailedFilings ?? data.parserFailures}</strong>
+                  <span>파싱 실패 공시</span>
                 </div>
                 <ChevronRight size={16} />
               </Link>
@@ -136,11 +137,18 @@ export function DashboardPage() {
                 <ChevronRight size={16} />
               </Link>
             </CardContent>
+            {data.integrity ? (
+              <CardContent>
+                <ParseIntegritySummary data={data.integrity} />
+              </CardContent>
+            ) : null}
           </Card>
         </section>
       ) : null}
 
-      {isAdmin && (data.parserFailures > 0 || data.alertFailures > 0) ? (
+      {isAdmin &&
+      ((data.integrity?.currentFailedFilings ?? data.parserFailures) > 0 ||
+        data.alertFailures > 0) ? (
         <div className="operational-note">
           <AlertOctagon size={17} />
           <span>

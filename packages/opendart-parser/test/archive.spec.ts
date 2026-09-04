@@ -4,6 +4,7 @@ import { zipSync, strToU8 } from 'fflate';
 import iconv from 'iconv-lite';
 import {
   DEFAULT_ARCHIVE_LIMITS,
+  MAX_ZIP_COMPRESSION_RATIO,
   OpenDartApiError,
   OpenDartPayloadError,
   readOpenDartArchive,
@@ -12,6 +13,15 @@ import {
 const fixture = (name: string) => readFile(path.join(__dirname, 'fixtures', name));
 
 describe('readOpenDartArchive', () => {
+  it('rejects highly compressed XML before inflation but allows the same stored XML', async () => {
+    const xml = strToU8(`<x>${'a'.repeat(100_000)}</x>`);
+    expect(MAX_ZIP_COMPRESSION_RATIO).toBe(200);
+    await expect(readOpenDartArchive(zipSync({ 'repeated.xml': xml }))).rejects.toMatchObject({
+      code: 'ZIP_COMPRESSION_RATIO_LIMIT',
+    });
+    const stored = await readOpenDartArchive(zipSync({ 'repeated.xml': [xml, { level: 0 }] }));
+    expect(stored.xmlCandidates[0]?.byteLength).toBe(xml.byteLength);
+  });
   it('locks the approved archive safety envelope', () => {
     expect(DEFAULT_ARCHIVE_LIMITS).toEqual({
       maxArchiveBytes: 50 * 1024 * 1024,

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { AlertStatus } from '@orsem/contracts';
+import { AlertEntity, BotDeliveryEntity } from '@orsem/database';
 import { BotService } from './bot.service';
 import { loadAppConfig } from '../config/app-config';
 import { FixtureStoreService } from '../fixtures/fixture-store.service';
@@ -72,4 +73,54 @@ test('Messenger commands always include a human-readable message', async () => {
     query: '',
   });
   assert.equal(typeof result.message, 'string');
+});
+
+test('bot pull cancels old cancelled alerts before leasing while preserving operational deliveries', async () => {
+  const config = loadAppConfig({ NODE_ENV: 'test', FIXTURE_MODE: 'false' });
+  const rows = [
+    { id: 'stale', alertId: 'stale-alert', status: AlertStatus.PENDING, attempts: 0, payload: {} },
+    {
+      id: 'valid',
+      alertId: 'operation-alert',
+      status: AlertStatus.PENDING,
+      attempts: 0,
+      payload: { content: '운영 상태' },
+    },
+  ];
+  const alerts = [
+    { id: 'stale-alert', status: AlertStatus.CANCELLED, eventClusterId: null, payloadJson: {} },
+    {
+      id: 'operation-alert',
+      status: AlertStatus.PENDING,
+      eventClusterId: null,
+      payloadJson: { phase: 'OPERATIONAL' },
+    },
+  ];
+  const builder: Record<string, unknown> = {};
+  for (const method of ['setLock', 'setOnLocked', 'where', 'andWhere', 'orderBy', 'take'])
+    builder[method] = () => builder;
+  builder.getMany = async () => rows;
+  const manager = {
+    getRepository(entity: unknown) {
+      if (entity === BotDeliveryEntity)
+        return { createQueryBuilder: () => builder, save: async () => rows };
+      assert.equal(entity, AlertEntity);
+      return { findOneBy: async ({ id }: { id: string }) => alerts.find((row) => row.id === id) };
+    },
+  };
+  const database = {
+    requireDataSource: () => ({
+      transaction: async (work: (value: typeof manager) => unknown) => work(manager),
+    }),
+  } as unknown as DatabaseRuntimeService;
+  const fixtures = new FixtureStoreService();
+  const data = new OrsemDataService(config, database, fixtures);
+  const result = await new BotService(config, database, fixtures, data).pull('DISCORD', 10, 60);
+  assert.deepEqual(
+    result.items.map((item) => item.deliveryId),
+    ['valid'],
+  );
+  assert.equal(rows[0]?.status, AlertStatus.CANCELLED);
+  assert.equal(rows[0]?.attempts, 0);
+  assert.equal(rows[1]?.status, AlertStatus.SENDING);
 });

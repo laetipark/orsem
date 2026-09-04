@@ -64,3 +64,53 @@ describe('plan execution review', () => {
     expect(onResolve).toHaveBeenCalledWith('CONFIRMED', null, 'match-b');
   });
 });
+
+describe('staged parse review', () => {
+  it('asks for official evidence first and leaves final activation as a separate action', () => {
+    const onResolve = vi.fn();
+    render(
+      <MemoryRouter>
+        <ReviewCard
+          review={{
+            ...review,
+            planExecutionCandidates: [],
+            staged: true,
+            crosscheckStatus: 'NOT_RUN',
+            crosscheckReady: false,
+            validationStatus: 'REVIEW_REQUIRED',
+            candidateRowCount: 8,
+            candidateEvidence: ['수량: 4500 · 원문 방법: 장내매수'],
+          }}
+          onResolve={onResolve}
+          pending={false}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText(/앞의 5행만 표시/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '검토 확정' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '공식 요약 검증' }));
+    expect(onResolve).toHaveBeenCalledWith('CONFIRMED', null, undefined);
+  });
+
+  it('does not allow rejected extraction to be confirmed but preserves an unknown review decision', () => {
+    const onResolve = vi.fn();
+    render(
+      <MemoryRouter>
+        <ReviewCard
+          review={{
+            ...review,
+            planExecutionCandidates: [],
+            staged: true,
+            validationStatus: 'REJECTED',
+          }}
+          onResolve={onResolve}
+          pending={false}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole('button', { name: '추출 검증 필요' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('radio', { name: /UNKNOWN 유지/ }));
+    fireEvent.click(screen.getByRole('button', { name: '검토 확정' }));
+    expect(onResolve).toHaveBeenCalledWith('UNKNOWN', null, undefined);
+  });
+});

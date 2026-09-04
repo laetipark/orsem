@@ -296,6 +296,18 @@ export class FilingEntity extends EntityBase {
   @Column({ name: 'rcept_no', type: 'varchar', length: 32 }) rceptNo!: string;
   @Column({ name: 'company_id', type: 'char', length: 36 }) companyId!: string;
   @Column({ name: 'detail_type', type: 'char', length: 4 }) detailType!: DisclosureDetailType;
+  @Column({ name: 'source_detail_type', type: 'varchar', length: 32, nullable: true })
+  sourceDetailType!: string | null;
+  @Column({ name: 'title_detected_type', type: 'varchar', length: 32, nullable: true })
+  titleDetectedType!: string | null;
+  @Column({ name: 'canonical_type', type: 'varchar', length: 32, nullable: true })
+  canonicalType!: string | null;
+  @Column({ name: 'classification_status', type: 'varchar', length: 32, default: 'UNKNOWN' })
+  classificationStatus!: 'CONFIRMED' | 'UNKNOWN' | 'UNSUPPORTED' | 'MANUAL_OVERRIDE' | 'CONFLICT';
+  @Column({ name: 'classifier_version', type: 'varchar', length: 64, nullable: true })
+  classifierVersion!: string | null;
+  @Column({ name: 'classification_provenance_json', type: 'json', nullable: true })
+  classificationProvenanceJson!: Record<string, unknown> | null;
   @Column({ name: 'report_name', type: 'text' }) reportName!: string;
   @Column({ name: 'filer_name', type: 'varchar', length: 255 }) filerName!: string;
   @Column({ name: 'rcept_date', type: 'date' }) rceptDate!: string;
@@ -358,12 +370,32 @@ export class FilingRelationEntity extends EntityBase {
 }
 
 @Entity({ name: 'parse_runs' })
-@Unique('ux_parse_run_input', ['filingId', 'parserVersion', 'rawSha256'])
+@Unique('ux_parse_run_fingerprint', ['filingId', 'reuseFingerprint'])
 @Index('ix_parse_runs_filing_created', ['filingId', 'createdAt'])
 export class ParseRunEntity extends EntityBase {
   @Column({ name: 'filing_id', type: 'char', length: 36 }) filingId!: string;
   @Column({ name: 'parser_version', type: 'varchar', length: 64 }) parserVersion!: string;
   @Column({ name: 'raw_sha256', type: 'char', length: 64 }) rawSha256!: string;
+  @Column({ name: 'input_type', type: 'varchar', length: 32, nullable: true }) inputType!:
+    string | null;
+  @Column({ name: 'extractor_type', type: 'varchar', length: 32, nullable: true }) extractorType!:
+    string | null;
+  @Column({ name: 'result_type', type: 'varchar', length: 32, nullable: true }) resultType!:
+    string | null;
+  @Column({ name: 'normalizer_version', type: 'varchar', length: 64, nullable: true })
+  normalizerVersion!: string | null;
+  @Column({ name: 'classifier_version', type: 'varchar', length: 64, nullable: true })
+  classifierVersion!: string | null;
+  @Column({ name: 'reuse_fingerprint', type: 'char', length: 64, nullable: true })
+  reuseFingerprint!: string | null;
+  @Column({ name: 'candidate_errors_json', type: 'json', nullable: true })
+  candidateErrorsJson!: Array<Record<string, unknown>> | null;
+  @Column({ name: 'normalization_audits_json', type: 'json', nullable: true })
+  normalizationAuditsJson!: Array<Record<string, unknown>> | null;
+  @Column({ name: 'supersedes_run_id', type: 'char', length: 36, nullable: true })
+  supersedesRunId!: string | null;
+  @Column({ name: 'validation_status', type: 'varchar', length: 32, default: 'LEGACY' })
+  validationStatus!: 'LEGACY' | 'PENDING' | 'PASSED' | 'REVIEW_REQUIRED' | 'REJECTED';
   @Column({ type: 'varchar', length: 16 }) status!: ParseStatus;
   @Column({ ...confidenceColumn, nullable: true }) confidence!: string | null;
   @Column({ name: 'classification_result', type: 'varchar', length: 32, nullable: true })
@@ -720,6 +752,14 @@ export class ReviewEntity extends EntityBase {
   @Column({ name: 'subject_type', type: 'varchar', length: 64 }) subjectType!: string;
   @Column({ name: 'subject_id', type: 'char', length: 36 }) subjectId!: string;
   @Column({ name: 'dedupe_key', type: 'varchar', length: 255 }) dedupeKey!: string;
+  @Column({ name: 'review_group', type: 'varchar', length: 32, nullable: true }) reviewGroup!:
+    string | null;
+  @Column({ name: 'parse_run_id', type: 'char', length: 36, nullable: true }) parseRunId!:
+    string | null;
+  @Column({ name: 'superseded_by_review_id', type: 'char', length: 36, nullable: true })
+  supersededByReviewId!: string | null;
+  @Column({ name: 'reopened_from_review_id', type: 'char', length: 36, nullable: true })
+  reopenedFromReviewId!: string | null;
   @Column({ type: 'text' }) reason!: string;
   @Column({ type: 'varchar', length: 16 }) status!: ReviewTaskStatus;
   @Column({ name: 'classification_result', type: 'varchar', length: 32, nullable: true })

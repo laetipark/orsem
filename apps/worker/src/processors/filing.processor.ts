@@ -48,7 +48,7 @@ export class FilingProcessor extends WorkerHost {
         throw new DelayedError();
       }
       if (error instanceof OpenDartPayloadError) {
-        // 내려받은 바이트와 파서 버전이 같으면 입력 데이터 오류도 동일하게 발생합니다.
+        // 원문·파서·정규화·분류 버전과 extractor 유형이 같으면 입력 오류도 동일합니다.
         // 같은 작업의 재시도는 큐의 시도 횟수만 소모하므로, 이후 파서 버전이나
         // 새로 내려받은 공시를 통해 복구합니다.
         throw new UnrecoverableError(`${error.code}: ${error.message}`);

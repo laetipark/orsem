@@ -29,6 +29,7 @@ export const applyParseProjectionJobSchema = z.object({
   filingId: z.string().uuid(),
   parseRunId: z.string().uuid(),
   requestedByAdminId: z.string().uuid(),
+  crosscheckOnly: z.boolean().optional(),
 });
 export type ApplyParseProjectionJob = z.infer<typeof applyParseProjectionJobSchema>;
 

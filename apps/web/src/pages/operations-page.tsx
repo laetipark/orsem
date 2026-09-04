@@ -8,6 +8,7 @@ import type { OperationRun } from '../types';
 import { DataTable } from '../components/data-table';
 import { RightsBadge } from '../components/domain-badges';
 import { MemberApproval } from '../components/member-approval';
+import { ParseIntegritySummary } from '../components/parse-integrity-summary';
 import {
   Badge,
   Button,
@@ -28,6 +29,11 @@ const runStatusLabel = {
 } as const;
 
 export function OperationsPage() {
+  const integrity = useQuery({
+    queryKey: ['parse-integrity'],
+    queryFn: api.parseIntegrity,
+    refetchInterval: 30_000,
+  });
   const sources = useQuery({
     queryKey: ['operation-sources'],
     queryFn: api.operationSources,
@@ -45,7 +51,7 @@ export function OperationsPage() {
   });
 
   async function refetchAll() {
-    await Promise.all([sources.refetch(), runs.refetch(), queues.refetch()]);
+    await Promise.all([sources.refetch(), runs.refetch(), queues.refetch(), integrity.refetch()]);
   }
 
   const runColumns = useMemo<Array<ColumnDef<OperationRun>>>(
@@ -135,6 +141,19 @@ export function OperationsPage() {
         </Button>
       </div>
       <MemberApproval />
+      {integrity.data ? (
+        <Card>
+          <CardHeader>
+            <h2>공시 파싱·검토 현황</h2>
+          </CardHeader>
+          <CardContent>
+            <ParseIntegritySummary data={integrity.data} />
+          </CardContent>
+        </Card>
+      ) : null}
+      {integrity.error ? (
+        <ErrorState message={integrity.error.message} onRetry={() => void integrity.refetch()} />
+      ) : null}
       {isPending ? <LoadingState label="수집기와 큐 상태를 확인하는 중입니다." /> : null}
       {firstError ? (
         <ErrorState message={firstError.message} onRetry={() => void refetchAll()} />

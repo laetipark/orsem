@@ -44,7 +44,12 @@ const sampleAlert = (): AlertEntity =>
     idempotencyKey: 'test-alert',
     alertVersion: 1,
     updatedAt: earlier,
-    payloadJson: { phase: 'DETECTED', companyName: '테스트 회사', reportName: '공식 공시' },
+    payloadJson: {
+      phase: 'DETECTED',
+      detailType: 'D002',
+      companyName: '테스트 회사',
+      reportName: '임원ㆍ주요주주특정증권등소유상황보고서',
+    },
   }) as AlertEntity;
 const sampleEvent = (): EventClusterEntity =>
   ({
@@ -103,7 +108,20 @@ function harness() {
       EventClusterItemEntity,
       [{ eventClusterId: uuid(3), itemType: 'FILING', itemId: uuid(6), isPrimary: true }],
     ],
-    [FilingEntity, [{ id: uuid(6), submissionKind: SubmissionKind.INITIAL }]],
+    [
+      FilingEntity,
+      [
+        {
+          id: uuid(6),
+          source: 'OPENDART',
+          reportName: '임원ㆍ주요주주특정증권등소유상황보고서',
+          canonicalType: 'D002',
+          classificationStatus: 'CONFIRMED',
+          sourceDetailType: null,
+          submissionKind: SubmissionKind.INITIAL,
+        },
+      ],
+    ],
     [PushDeliveryEntity, []],
     [NewsItemEntity, []],
     [SourceItemEntity, []],
@@ -376,7 +394,7 @@ describe('durable Web Push sender', () => {
     ).toHaveBeenCalledWith('skip_locked');
   });
 
-  it.each(['preference', 'owner', 'subscription', 'correction'])(
+  it.each(['preference', 'owner', 'subscription', 'correction', 'classification', 'type'])(
     'cancels before send when %s eligibility changes after fan-out',
     async (reason) => {
       const h = harness();
@@ -386,6 +404,9 @@ describe('durable Web Push sender', () => {
       if (reason === 'subscription') h.tables.get(PushSubscriptionEntity)!.length = 0;
       if (reason === 'correction')
         h.tables.get(EventClusterEntity)![0]!.state = EventState.CANCELLED;
+      if (reason === 'classification')
+        h.tables.get(FilingEntity)![0]!.classificationStatus = 'UNSUPPORTED';
+      if (reason === 'type') h.tables.get(AlertEntity)![0]!.payloadJson.detailType = 'D005';
       const send = jest.fn();
       const service = new PushDeliveryService(h.db, new PushFanoutService(), {
         enabled: true,

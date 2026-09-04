@@ -1869,6 +1869,27 @@ a:focus-visible,
   gap: 8px;
   margin-top: 10px;
 }
+
+.review-candidate-evidence {
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.review-candidate-evidence summary {
+  cursor: pointer;
+  font-weight: 650;
+}
+
+.review-candidate-evidence pre {
+  max-height: 260px;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: 12px;
+}
 .review-card > time {
   display: block;
   margin-top: 9px;

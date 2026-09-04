@@ -236,12 +236,15 @@ export class ReviewsController {
   list(@Query() query: unknown) {
     const parsed = parseWith(
       cursorQuerySchema.extend({
-        status: z.enum(['OPEN', 'RESOLVED', 'DISMISSED']).optional(),
-        reviewStatus: z.enum(['OPEN', 'RESOLVED', 'DISMISSED']).optional(),
+        status: z.enum(['OPEN', 'RESOLVED', 'DISMISSED', 'SUPERSEDED']).optional(),
+        reviewStatus: z.enum(['OPEN', 'RESOLVED', 'DISMISSED', 'SUPERSEDED']).optional(),
       }),
       query,
     );
-    return this.data.listReviewViews({ ...parsed, status: parsed.status ?? parsed.reviewStatus });
+    return this.data.listReviewViews({
+      ...parsed,
+      status: parsed.status ?? parsed.reviewStatus ?? 'OPEN',
+    });
   }
 
   @Patch(':id')

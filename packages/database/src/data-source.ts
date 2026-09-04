@@ -12,6 +12,9 @@ import { AddNewsTranslation1788395000000 } from './migrations/1788395000000-AddN
 import { AddMarketIndicators1788396000000 } from './migrations/1788396000000-AddMarketIndicators';
 import { AddWebPush1788397000000 } from './migrations/1788397000000-AddWebPush';
 import { AllowSharedCompanyCik1788398000000 } from './migrations/1788398000000-AllowSharedCompanyCik';
+import { AddParseIntegrity1788399000000 } from './migrations/1788399000000-AddParseIntegrity';
+import { RepairLegacyParserClock1788400000000 } from './migrations/1788400000000-RepairLegacyParserClock';
+import { utcMysqlDriver } from './utc-mysql-driver';
 
 // npm workspace 스크립트의 작업 디렉터리는 packages/database입니다.
 // 현재 source/dist 디렉터리를 기준으로 경로를 구해 마이그레이션과 앱에서
@@ -21,6 +24,7 @@ loadEnv({ path: resolve(__dirname, '../../../.env'), quiet: true });
 export function createTypeOrmOptions(databaseUrl: string): DataSourceOptions {
   return {
     type: 'mysql',
+    driver: utcMysqlDriver,
     url: databaseUrl,
     charset: 'utf8mb4',
     timezone: 'Z',
@@ -41,6 +45,8 @@ export function createTypeOrmOptions(databaseUrl: string): DataSourceOptions {
       AddMarketIndicators1788396000000,
       AddWebPush1788397000000,
       AllowSharedCompanyCik1788398000000,
+      AddParseIntegrity1788399000000,
+      RepairLegacyParserClock1788400000000,
     ],
     migrationsTableName: 'typeorm_migrations',
   };

@@ -125,7 +125,7 @@ const parser = new XMLParser({
   parseTagValue: false,
   trimValues: false,
   processEntities: false,
-  allowBooleanAttributes: true,
+  allowBooleanAttributes: false,
 });
 
 function tagKeys(node: OrderedNode): string[] {
@@ -191,6 +191,25 @@ function textOf(value: unknown): string {
   return result;
 }
 
+// Decode exactly once: &amp;lt; remains the literal source text &lt;.
+function decodeXmlText(value: string): string {
+  const named: Readonly<Record<string, string>> = {
+    amp: '&',
+    lt: '<',
+    gt: '>',
+    quot: '"',
+    apos: "'",
+  };
+  return value.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos);/gi, (entity, key: string) => {
+    if (!key.startsWith('#')) return named[key] ?? entity;
+    const point =
+      key[1]?.toLowerCase() === 'x' ? Number.parseInt(key.slice(2), 16) : Number(key.slice(1));
+    return point > 0 && point <= 0x10ffff && !(point >= 0xd800 && point <= 0xdfff)
+      ? String.fromCodePoint(point)
+      : entity;
+  });
+}
+
 function collectDescendants(
   nodes: readonly OrderedNode[],
   wanted: ReadonlySet<string>,
@@ -200,7 +219,10 @@ function collectDescendants(
   const visit = (node: OrderedNode): void => {
     for (const tag of tagKeys(node)) {
       const normalized = tag.toUpperCase();
-      if (wanted.has(normalized)) found.push(node);
+      if (wanted.has(normalized)) {
+        found.push(node);
+        continue;
+      }
       if (stopAt.has(normalized) && !wanted.has(normalized)) continue;
       for (const child of childrenOf(node, tag)) visit(child);
     }
@@ -239,19 +261,26 @@ function parseSpan(
   return Number.isInteger(parsed) && parsed >= 1 && parsed <= 256 ? parsed : 1;
 }
 
-function extractCells(rowNode: OrderedNode, budget: CanonicalizationBudget): CanonicalCell[] {
+function extractCells(
+  rowNode: OrderedNode,
+  budget: CanonicalizationBudget,
+  sourceRowIndex: number,
+): CanonicalCell[] {
   const rowTag = tagKeys(rowNode).find((tag) => tag.toUpperCase() === 'TR');
   if (!rowTag) return [];
   const rowChildren = childrenOf(rowNode, rowTag);
   const cellNodes = collectDescendants(
     rowChildren,
-    new Set(['TD', 'TH', 'TE']),
+    new Set(['TD', 'TH', 'TE', 'TU']),
     new Set(['TR', 'TABLE']),
   );
-  return cellNodes.map((cellNode) => {
-    const tag = tagKeys(cellNode).find((key) => ['TD', 'TH', 'TE'].includes(key.toUpperCase()));
+  return cellNodes.map((cellNode, sourceColumnIndex) => {
+    const tag = tagKeys(cellNode).find((key) =>
+      ['TD', 'TH', 'TE', 'TU'].includes(key.toUpperCase()),
+    );
     const attributes = attributesOf(cellNode);
-    const text = normalizeWhitespace(tag ? textOf(childrenOf(cellNode, tag)) : '');
+    const rawText = tag ? textOf(childrenOf(cellNode, tag)).trim() : '';
+    const text = normalizeWhitespace(decodeXmlText(rawText));
     const attributeCharacters = Object.entries(attributes).reduce(
       (total, [key, value]) => total + key.length + value.length,
       0,
@@ -267,6 +296,10 @@ function extractCells(rowNode: OrderedNode, budget: CanonicalizationBudget): Can
     }
     return {
       text,
+      rawText,
+      tag: tag!.toUpperCase() as CanonicalCell['tag'],
+      sourceRowIndex,
+      sourceColumnIndex,
       rowSpan: parseSpan(attributes, 'ROWSPAN'),
       colSpan: parseSpan(attributes, 'COLSPAN'),
       attributes,
@@ -277,14 +310,17 @@ function extractCells(rowNode: OrderedNode, budget: CanonicalizationBudget): Can
 function expandSpans(
   sourceRows: readonly (readonly CanonicalCell[])[],
   budget: CanonicalizationBudget,
-): string[][] {
+): { rows: string[][]; grid: (CanonicalCell | null)[][] } {
   const rows: string[][] = [];
-  const carry = new Map<number, { text: string; remaining: number }>();
+  const grid: (CanonicalCell | null)[][] = [];
+  const carry = new Map<number, { cell: CanonicalCell; remaining: number }>();
   let tableWidth = 0;
   for (const sourceRow of sourceRows) {
     const row: string[] = [];
+    const gridRow: (CanonicalCell | null)[] = [];
     for (const [column, span] of [...carry.entries()].sort(([left], [right]) => left - right)) {
-      row[column] = span.text;
+      row[column] = span.cell.text;
+      gridRow[column] = span.cell;
       if (span.remaining <= 1) carry.delete(column);
       else carry.set(column, { ...span, remaining: span.remaining - 1 });
     }
@@ -296,10 +332,17 @@ function expandSpans(
       }
       for (let offset = 0; offset < cell.colSpan; offset += 1) {
         const target = column + offset;
+        if (gridRow[target]) {
+          throw new OpenDartPayloadError(
+            '겹치는 표 병합 셀을 안전하게 정렬할 수 없습니다.',
+            'INVALID_TABLE_SPAN',
+          );
+        }
         row[target] = cell.text;
+        gridRow[target] = cell;
         if (cell.rowSpan > 1) {
           carry.set(target, {
-            text: cell.text,
+            cell,
             remaining: cell.rowSpan - 1,
           });
         }
@@ -320,13 +363,17 @@ function expandSpans(
       );
     }
     rows.push(row.map((cell) => cell ?? ''));
+    grid.push(gridRow);
   }
   const width = tableWidth;
   if (width > XML_COMPLEXITY_LIMITS.maxColumnsPerTable) {
     throw complexityError(`표 열 ${XML_COMPLEXITY_LIMITS.maxColumnsPerTable}개 초과`);
   }
   budget.expandedCells += width * rows.length;
-  return rows.map((row) => Array.from({ length: width }, (_, index) => row[index] ?? ''));
+  return {
+    rows: rows.map((row) => Array.from({ length: width }, (_, index) => row[index] ?? '')),
+    grid: grid.map((row) => Array.from({ length: width }, (_, index) => row[index] ?? null)),
+  };
 }
 
 function tableCaption(tableChildren: readonly OrderedNode[]): string | null {
@@ -357,7 +404,7 @@ export function canonicalizeXmlTables(
   // 악의적으로 깊거나 큰 XML로부터 검증기와 파서 자체를 보호합니다.
   assertLexicalXmlComplexity(xml, budget);
   const validation = XMLValidator.validate(xml, {
-    allowBooleanAttributes: true,
+    allowBooleanAttributes: false,
   });
   if (validation !== true) {
     const detail = validation.err?.msg ?? 'invalid XML';
@@ -369,6 +416,7 @@ export function canonicalizeXmlTables(
   const parsed = parser.parse(xml) as OrderedNode[];
   assertTreeComplexity(parsed);
   const tables: CanonicalTable[] = [];
+  let sourceTableIndex = 0;
 
   const visit = (nodes: readonly OrderedNode[], path: readonly string[]): void => {
     for (const node of nodes) {
@@ -376,14 +424,15 @@ export function canonicalizeXmlTables(
         const children = childrenOf(node, tag);
         const nextPath = [...path, tag];
         if (tag.toUpperCase() === 'TABLE') {
+          const tableIndex = sourceTableIndex++;
           budget.tables += 1;
           if (budget.tables > XML_COMPLEXITY_LIMITS.maxTables) {
             throw complexityError(`표 ${XML_COMPLEXITY_LIMITS.maxTables}개 초과`);
           }
           const rowNodes = collectDescendants(children, new Set(['TR']), new Set(['TABLE']));
-          const sourceRows = rowNodes
-            .map((rowNode) => extractCells(rowNode, budget))
-            .filter((row) => row.length > 0);
+          const sourceRows = rowNodes.map((rowNode, rowIndex) =>
+            extractCells(rowNode, budget, rowIndex),
+          );
           budget.rows += sourceRows.length;
           budget.sourceCells += sourceRows.reduce((total, row) => total + row.length, 0);
           if (budget.rows > XML_COMPLEXITY_LIMITS.maxRows) {
@@ -394,11 +443,11 @@ export function canonicalizeXmlTables(
           }
           if (sourceRows.length > 0) {
             tables.push({
-              index: tables.length,
+              index: tableIndex,
               sourceEntryName,
               path: nextPath,
               caption: tableCaption(children),
-              rows: expandSpans(sourceRows, budget),
+              ...expandSpans(sourceRows, budget),
               sourceRows,
             });
           }

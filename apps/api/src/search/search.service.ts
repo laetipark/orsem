@@ -245,10 +245,13 @@ export class SearchService {
         'filing.source AS source',
         'filing.rceptNo AS rceptNo',
         'filing.rceptDate AS rceptDate',
-        'filing.detailType AS detailType',
+        'COALESCE(filing.canonical_type, filing.detail_type) AS detailType',
         'filing.firstObservedAt AS firstObservedAt',
       ])
       .where("filing.source = 'OPENDART'")
+      .andWhere(
+        "(filing.canonical_type IS NULL OR filing.canonical_type IN ('D001','D002','D005'))",
+      )
       .andWhere(
         `(filing.reportName LIKE :pattern ESCAPE '!' OR filing.filerName LIKE :pattern ESCAPE '!' OR filing.rceptNo LIKE :pattern ESCAPE '!' OR ${companyCondition()})`,
         parameters,

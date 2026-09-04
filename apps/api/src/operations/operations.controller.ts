@@ -93,6 +93,11 @@ export class OperationsController {
     return this.data.listOperationRuns(parseWith(cursorQuerySchema, query));
   }
 
+  @Get('parse-integrity')
+  parseIntegrity() {
+    return this.data.parseIntegrityMetrics();
+  }
+
   @Get('queues')
   queues() {
     return this.data.listQueueMetrics();

@@ -7,10 +7,21 @@ import {
   parseInteger,
   scaleNumeric,
 } from '../normalizers';
-import type { CanonicalTable, ParsedTradePlanItem, ParserWarning } from '../types';
+import type {
+  CanonicalTable,
+  ParsedTradePlanItem,
+  ParserWarning,
+  FieldProvenanceMap,
+} from '../types';
 import {
   cellAt,
-  findLabelValue,
+  disclosureBodyTables,
+  missingRequiredRowWarnings,
+  findLabelCell,
+  hasSourceValue,
+  emptyExtractionWarning,
+  rowProvenance,
+  summaryProvenance,
   headerScaleForColumn,
   isDataRow,
   locateHeader,
@@ -25,7 +36,9 @@ type D005Field =
   | 'method'
   | 'quantity'
   | 'priceMin'
-  | 'priceMax';
+  | 'priceMax'
+  | 'plannedUnitPrice'
+  | 'plannedAmount';
 
 const HEADERS: HeaderAliases<D005Field> = {
   startDate: ['거래개시일', '거래시작일', '예정시작일', '시작일'],
@@ -33,7 +46,9 @@ const HEADERS: HeaderAliases<D005Field> = {
   dateRange: ['거래예정기간', '거래기간', '예정기간'],
   securityType: ['특정증권등의종류', '증권의종류', '주식등의종류'],
   method: ['거래방법', '취득/처분방법', '취득처분방법', '거래구분'],
-  quantity: ['거래예정수량', '예정수량', '거래수량', '수량'],
+  quantity: ['거래예정수량', '예정수량', '거래수량', '특정증권등의수', '수량'],
+  plannedUnitPrice: ['취득/처분단가', '취득처분단가'],
+  plannedAmount: ['거래금액'],
   priceMin: ['최저가격', '최저단가', '가격하한'],
   priceMax: ['최고가격', '최고단가', '가격상한'],
 };
@@ -56,6 +71,8 @@ function splitDateRange(raw: string): readonly [string | null, string | null] {
 }
 
 export interface D005Extraction {
+  readonly provenance: FieldProvenanceMap;
+  readonly confidence: number;
   readonly reporterName: string | null;
   readonly relationshipRaw: string | null;
   readonly positionRaw: string | null;
@@ -65,11 +82,22 @@ export interface D005Extraction {
 }
 
 export function extractD005(tables: readonly CanonicalTable[]): D005Extraction {
+  tables = disclosureBodyTables(tables);
   const warnings: ParserWarning[] = [];
+  let headersFound = 0;
+  let rowsFound = 0;
   const planItems: ParsedTradePlanItem[] = [];
   for (const table of tables) {
     const header = locateHeader<D005Field>(table, HEADERS, ['method', 'quantity']);
-    if (!header) continue;
+    if (
+      !header ||
+      !(
+        (header.columns.startDate !== undefined && header.columns.endDate !== undefined) ||
+        header.columns.dateRange !== undefined
+      )
+    )
+      continue;
+    headersFound += 1;
     const quantityHeaderUnit = headerScaleForColumn(
       table,
       header.headerEndRow,
@@ -88,13 +116,26 @@ export function extractD005(tables: readonly CanonicalTable[]): D005Extraction {
       header.columns.priceMax,
       'MONEY',
     );
+    const plannedPriceHeaderUnit = headerScaleForColumn(
+      table,
+      header.headerEndRow,
+      header.columns.plannedUnitPrice,
+      'MONEY',
+    );
+    const plannedAmountHeaderUnit = headerScaleForColumn(
+      table,
+      header.headerEndRow,
+      header.columns.plannedAmount,
+      'MONEY',
+    );
     for (let rowIndex = header.headerEndRow + 1; rowIndex < table.rows.length; rowIndex += 1) {
       const row = table.rows[rowIndex];
       if (!row || !isDataRow(row)) continue;
       const methodRaw = cellAt(row, header.columns, 'method');
       const securityTypeRaw = cellAt(row, header.columns, 'securityType');
       const quantityRaw = cellAt(row, header.columns, 'quantity');
-      if (!methodRaw && !quantityRaw) continue;
+      if (!hasSourceValue(methodRaw) && !hasSourceValue(quantityRaw)) continue;
+      rowsFound += 1;
       const rangeRaw = cellAt(row, header.columns, 'dateRange');
       const [rangeStart, rangeEnd] = splitDateRange(rangeRaw);
       const startRaw = cellAt(row, header.columns, 'startDate');
@@ -104,6 +145,14 @@ export function extractD005(tables: readonly CanonicalTable[]): D005Extraction {
       const quantity = parseInteger(quantityRaw, 'quantity');
       const priceMin = parseDecimal(cellAt(row, header.columns, 'priceMin'), 'priceMin');
       const priceMax = parseDecimal(cellAt(row, header.columns, 'priceMax'), 'priceMax');
+      const plannedUnitPrice = parseDecimal(
+        cellAt(row, header.columns, 'plannedUnitPrice'),
+        'plannedUnitPrice',
+      );
+      const plannedAmount = parseDecimal(
+        cellAt(row, header.columns, 'plannedAmount'),
+        'plannedAmount',
+      );
       const quantityValue = quantity.unitRaw
         ? quantity.value
         : scaleNumeric(quantity.value, quantityHeaderUnit.multiplier);
@@ -113,13 +162,22 @@ export function extractD005(tables: readonly CanonicalTable[]): D005Extraction {
       const priceMaxValue = priceMax.unitRaw
         ? priceMax.value
         : scaleNumeric(priceMax.value, priceMaxHeaderUnit.multiplier);
+      const plannedUnitPriceValue = plannedUnitPrice.unitRaw
+        ? plannedUnitPrice.value
+        : scaleNumeric(plannedUnitPrice.value, plannedPriceHeaderUnit.multiplier);
+      const plannedAmountValue = plannedAmount.unitRaw
+        ? plannedAmount.value
+        : scaleNumeric(plannedAmount.value, plannedAmountHeaderUnit.multiplier);
       const classification = classifyTransactionMethod(methodRaw, quantityValue, {
         quantityIsAbsolute: true,
       });
       const rowWarnings: ParserWarning[] = [
+        ...missingRequiredRowWarnings(quantityValue, methodRaw, table.index, rowIndex),
         quantity.warning,
         priceMin.warning,
         priceMax.warning,
+        plannedUnitPrice.warning,
+        plannedAmount.warning,
         ...classification.warnings,
       ]
         .filter((warning): warning is ParserWarning => warning !== null)
@@ -145,6 +203,20 @@ export function extractD005(tables: readonly CanonicalTable[]): D005Extraction {
           priceMax.unitRaw,
           priceMaxHeaderUnit.multiplier,
           priceMaxValue,
+        ],
+        [
+          'plannedUnitPrice',
+          plannedUnitPrice.value,
+          plannedUnitPrice.unitRaw,
+          plannedPriceHeaderUnit.multiplier,
+          plannedUnitPriceValue,
+        ],
+        [
+          'plannedAmount',
+          plannedAmount.value,
+          plannedAmount.unitRaw,
+          plannedAmountHeaderUnit.multiplier,
+          plannedAmountValue,
         ],
       ] as const) {
         if (parsedValue !== null && !inlineUnit && headerMultiplier > 1 && scaledValue === null) {
@@ -177,6 +249,14 @@ export function extractD005(tables: readonly CanonicalTable[]): D005Extraction {
       }
       const item: ParsedTradePlanItem = {
         rowIndex,
+        provenance: rowProvenance(table, header, rowIndex),
+        confidence:
+          quantityValue === null ||
+          !hasSourceValue(methodRaw) ||
+          !plannedStartDate ||
+          !plannedEndDate
+            ? 0
+            : Math.min(classification.confidence, rowWarnings.length ? 0.75 : 1),
         plannedStartDate,
         plannedEndDate,
         securityTypeRaw,
@@ -186,16 +266,41 @@ export function extractD005(tables: readonly CanonicalTable[]): D005Extraction {
         quantity: quantityValue,
         priceMin: priceMinValue,
         priceMax: priceMaxValue,
+        plannedUnitPrice: plannedUnitPriceValue,
+        plannedAmount: plannedAmountValue,
+        currency:
+          (plannedUnitPrice.unitRaw &&
+            /^(억원|백만원|천원|원|krw)$/i.test(plannedUnitPrice.unitRaw)) ||
+          plannedPriceHeaderUnit.unitRaw
+            ? 'KRW'
+            : null,
         warnings: rowWarnings,
       };
       planItems.push(item);
       warnings.push(...rowWarnings);
     }
   }
-  const reporterName = findLabelValue(tables, ['보고자', '성명', '보고자성명']);
-  const relationshipRaw = findLabelValue(tables, ['발행회사와의관계', '발행회사관계', '관계']);
-  const positionRaw = findLabelValue(tables, ['직위', '임원직위']);
+  const located = {
+    reporterName: findLabelCell(tables, ['보고자', '보고자성명', '성명']),
+    relationshipRaw: findLabelCell(tables, [
+      '임원(등기여부)',
+      '주요주주',
+      '발행회사와의관계',
+      '발행회사관계',
+      '관계',
+    ]),
+    positionRaw: findLabelCell(tables, ['직위명', '임원직위', '직위']),
+  };
+  const reporterName = located.reporterName?.value ?? null;
+  const relationshipRaw = located.relationshipRaw?.value ?? null;
+  const positionRaw = located.positionRaw?.value ?? null;
+  const validRows = planItems.filter((row) => (row.confidence ?? 0) > 0);
+  if (validRows.length === 0)
+    warnings.push(emptyExtractionWarning(tables, headersFound, rowsFound));
   return {
+    provenance: summaryProvenance(located),
+    confidence:
+      validRows.length === 0 ? 0 : Math.min(...planItems.map((row) => row.confidence ?? 0)),
     reporterName,
     relationshipRaw,
     positionRaw,

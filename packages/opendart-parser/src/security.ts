@@ -10,6 +10,20 @@ export function assertSafeXml(xml: string, entryName = 'payload'): void {
       'FORBIDDEN_XML_DECLARATION',
     );
   }
+  if (
+    /\bxmlns(?::[A-Za-z_][\w.-]*)?\s*=\s*(['"])https?:\/\/www\.w3\.org\/2001\/XInclude\1/i.test(
+      xml,
+    ) ||
+    /<\/?xi:(?:include|fallback)\b/i.test(xml)
+  ) {
+    throw new OpenDartPayloadError('XInclude은 처리하지 않습니다.', 'FORBIDDEN_XML_INCLUDE');
+  }
+  if (/<\?(?!xml(?:\s|\?>))/i.test(xml)) {
+    throw new OpenDartPayloadError(
+      'XML 선언 외의 처리 명령은 허용하지 않습니다.',
+      'FORBIDDEN_XML_PROCESSING_INSTRUCTION',
+    );
+  }
 }
 
 export function assertSafeEntryName(entryName: string): void {
