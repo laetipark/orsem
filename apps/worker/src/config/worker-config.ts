@@ -2,11 +2,13 @@ import { z } from 'zod';
 import { APPROVED_GDELT_DOMAINS, APPROVED_GDELT_SOURCE_POLICIES } from '@orsem/contracts';
 import { readFileSync } from 'node:fs';
 import { loadWebPushConfig, type WebPushConfig } from '@orsem/database';
+import { DisclosureDetailType } from '@orsem/contracts';
 import {
   assertRegisteredFeedUrl,
   MAX_REGISTERED_IR_FEEDS,
   NEWS_RSS_FEED_IDS,
 } from '../connectors/connector-adapters';
+import { DEFAULT_GLOBAL_ALERT_TYPES } from '../opendart/disclosure-policy';
 
 const booleanFromEnv = z
   .enum(['true', 'false'])
@@ -121,6 +123,19 @@ const workerConfigSchema = z
     redisPrefix: z.string().default('orsem:'),
     rawDocumentDir: z.string().min(1).default('/home/laeti/orsem-data/raw'),
     openDartApiKey: optionalTrimmed,
+    openDartGlobalAlertTypes: z
+      .string()
+      .optional()
+      .transform((value) => [
+        ...new Set(
+          (value ?? DEFAULT_GLOBAL_ALERT_TYPES.join(','))
+            .split(',')
+            .map((item) => item.trim())
+            .filter(Boolean),
+        ),
+      ])
+      .pipe(z.array(z.enum(DisclosureDetailType)).max(5))
+      .transform((values) => Object.freeze(values)),
     marketDataProvider: z.literal('toss').default('toss'),
     tossClientId: optionalTrimmed,
     tossClientSecret: optionalTrimmed,
@@ -231,6 +246,7 @@ export function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerCo
     redisPrefix: env.REDIS_PREFIX,
     rawDocumentDir: env.RAW_DOCUMENT_DIR,
     openDartApiKey: env.OPENDART_API_KEY,
+    openDartGlobalAlertTypes: env.OPENDART_GLOBAL_ALERT_TYPES,
     marketDataProvider: env.MARKET_DATA_PROVIDER,
     tossClientId: env.TOSS_CLIENT_ID?.trim() || fileCredentials.clientId,
     tossClientSecret: env.TOSS_CLIENT_SECRET?.trim() || fileCredentials.clientSecret,

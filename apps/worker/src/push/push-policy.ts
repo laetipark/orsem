@@ -50,12 +50,19 @@ export function pushPreferenceAllows(input: {
   topic: PushTopic;
   watchlistOnly: boolean;
   watchlisted: boolean;
+  filingType?: string | null;
+  filingTypes?: readonly string[] | null;
 }): boolean {
   if (!input.ownerAuthorized || !input.enabled || input.ownerKey !== input.subscriptionOwnerKey)
     return false;
   if (input.topic === 'TEST') return true;
   if (!input.topics.includes(input.topic)) return false;
   if (input.topic === 'OPERATIONS') return input.ownerKey.startsWith('ADMIN:');
+  if (
+    input.filingType &&
+    !(input.filingTypes ?? ['D001', 'D002', 'D005']).includes(input.filingType)
+  )
+    return false;
   return !input.watchlistOnly || input.watchlisted;
 }
 

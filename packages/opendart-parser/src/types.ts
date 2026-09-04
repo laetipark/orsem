@@ -1,7 +1,7 @@
 import type { XmlNormalizationAudit, ParseCandidateError } from './parse-audit';
 import type { Direction, DisclosureDetailType, TransactionNature } from '@orsem/contracts';
 
-export const OPENDART_PARSER_VERSION = 'opendart-xml-v2';
+export const OPENDART_PARSER_VERSION = 'opendart-xml-v3';
 
 export interface ArchiveLimits {
   readonly maxArchiveBytes: number;
@@ -132,7 +132,12 @@ export interface ParsedLargeHoldingChange {
   readonly warnings: readonly ParserWarning[];
 }
 
+export type D001ReportReasonKind =
+  'HOLDINGS_CHANGE' | 'CONTRACT_CHANGE' | 'REPORTING_STATUS_CHANGE' | 'UNKNOWN';
+
 export interface ParsedD001Report {
+  readonly reportReasonKind: D001ReportReasonKind;
+  readonly nonTradingReport: boolean;
   readonly confidence?: number;
   readonly provenance?: FieldProvenanceMap;
   readonly detailType: 'D001';
@@ -183,7 +188,77 @@ export interface ParsedD005Report {
   readonly tablesScanned: number;
 }
 
-export type ParsedOpenDartDisclosure = ParsedD001Report | ParsedD002Report | ParsedD005Report;
+export interface DisclosureDocumentContext {
+  readonly documentName: string | null;
+  readonly companyName: string | null;
+  readonly sourceEntryName: string;
+}
+
+export interface ParsedProxyAgenda {
+  readonly ordinal: number;
+  readonly title: string;
+  readonly provenance?: FieldProvenanceMap;
+}
+
+export interface ParsedD003Report {
+  readonly detailType: 'D003';
+  readonly parserVersion: string;
+  readonly source: ParseSource;
+  readonly solicitorName: string | null;
+  readonly targetCompanyName: string | null;
+  readonly relationshipRaw: string | null;
+  readonly meetingDate: string | null;
+  readonly meetingTimeRaw: string | null;
+  readonly meetingAt: string | null;
+  readonly meetingLocation: string | null;
+  readonly solicitationStartDate: string | null;
+  readonly solicitationEndDate: string | null;
+  readonly purposeRaw: string | null;
+  readonly electronicVoting: boolean | null;
+  readonly agendas: readonly ParsedProxyAgenda[];
+  readonly confidence: number;
+  readonly provenance: FieldProvenanceMap;
+  readonly warnings: readonly ParserWarning[];
+  readonly tablesScanned: number;
+}
+
+export interface ParsedTenderOfferSecurity {
+  readonly rowIndex: number;
+  readonly securityTypeRaw: string;
+  readonly unitPrice: string | null;
+  readonly currency: string | null;
+  readonly minQuantity: string | null;
+  readonly maxQuantity: string | null;
+  readonly heldQuantity: string | null;
+  readonly expectedHoldingsMin: string | null;
+  readonly expectedHoldingsMax: string | null;
+  readonly offeredQuantity: string | null;
+  readonly acquiredQuantity: string | null;
+  readonly actualAmount: string | null;
+  readonly provenance?: FieldProvenanceMap;
+}
+
+export interface ParsedD004Report {
+  readonly detailType: 'D004';
+  readonly parserVersion: string;
+  readonly source: ParseSource;
+  readonly documentKind: 'REPORT' | 'EXPLANATION' | 'RESULT' | 'OTHER';
+  readonly offerorName: string | null;
+  readonly targetCompanyName: string | null;
+  readonly purposeRaw: string | null;
+  readonly conditionsRaw: string | null;
+  readonly subscriptionStartDate: string | null;
+  readonly subscriptionEndDate: string | null;
+  readonly settlementDate: string | null;
+  readonly securities: readonly ParsedTenderOfferSecurity[];
+  readonly confidence: number;
+  readonly provenance: FieldProvenanceMap;
+  readonly warnings: readonly ParserWarning[];
+  readonly tablesScanned: number;
+}
+
+export type ParsedOpenDartDisclosure =
+  ParsedD001Report | ParsedD002Report | ParsedD003Report | ParsedD004Report | ParsedD005Report;
 
 export interface ParseDisclosureInput {
   readonly detailType: DisclosureDetailType;

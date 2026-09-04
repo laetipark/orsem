@@ -15,6 +15,8 @@ import {
   TradePlanEntity,
   TradePlanItemEntity,
   JobOutboxEntity,
+  LargeHolderReportEntity,
+  LargeHoldingChangeEntity,
   PARSE_INTEGRITY_METRICS_SQL,
   ParseRunEntity,
   ReviewEntity,
@@ -60,6 +62,7 @@ const parseRun = (changes: Partial<ParseRunEntity> = {}) =>
     inputType: 'D002',
     extractorType: 'D002',
     resultType: 'D002',
+    rawSha256: 'a'.repeat(64),
     validationStatus: 'PASSED',
     status: ParseStatus.SUCCEEDED,
     confidence: '1',
@@ -124,6 +127,78 @@ test('a validated and explicitly activated result remains available', async () =
   const run = parseRun();
   const data = dataService({ getRepository: () => ({ findOneBy: async () => run }) });
   assert.equal(await (data as unknown as ParseMethods).activeParseRun(current), run);
+});
+
+for (const type of ['D003', 'D004'] as const) {
+  test(`${type} cannot queue activation before an administrator records source comparison`, async () => {
+    const current = filing({ canonicalType: type, detailType: type });
+    const run = parseRun({
+      inputType: type,
+      extractorType: type,
+      resultType: type,
+      resultJson: {
+        projectionApplied: false,
+        parsed: { detailType: type },
+        crosscheck: { status: 'NOT_APPLICABLE', reason: `NO_SUMMARY_API_FOR_${type}` },
+      },
+    });
+    let outboxTouched = false;
+    const manager = {
+      getRepository(entity: unknown) {
+        if (entity === ParseRunEntity) return { findOneBy: async () => run };
+        if (entity === FilingEntity) return { findOneBy: async () => current };
+        if (entity === JobOutboxEntity) outboxTouched = true;
+        throw new Error('unexpected repository');
+      },
+    } as unknown as EntityManager;
+    await assert.rejects(
+      () =>
+        (dataService({}) as unknown as ParseMethods).enqueueDeferredProjection(
+          manager,
+          { subjectId: 'filing', dedupeKey: 'parse:active', parseRunId: 'active' } as ReviewEntity,
+          '00000000-0000-4000-8000-000000000001',
+        ),
+      HttpException,
+    );
+    assert.equal(outboxTouched, false);
+  });
+}
+
+test('a source-reviewed D003 queues activation only while its exact not-applicable reason remains bound', async () => {
+  const reviewedRun = (reason: string) =>
+    parseRun({
+      status: ParseStatus.PARTIAL,
+      inputType: 'D003',
+      extractorType: 'D003',
+      resultType: 'D003',
+      resultJson: {
+        projectionApplied: false,
+        parsed: {
+          detailType: 'D003',
+          source: { archiveSha256: 'a'.repeat(64) },
+        },
+        crosscheck: { status: 'NOT_APPLICABLE', reason },
+        sourceReview: {
+          confirmedByAdminId: '00000000-0000-4000-8000-000000000001',
+          confirmedAt: '2026-09-01T00:00:00.000Z',
+          parseRunId: 'active',
+          rawSha256: 'a'.repeat(64),
+        },
+      },
+    });
+  const valid = stagedProjectionHarness(reviewedRun('NO_SUMMARY_API_FOR_D003'));
+  assert.equal(await valid.enqueue(), true);
+  assert.equal(valid.saved.length, 1);
+  assert.deepEqual(valid.saved[0]?.payloadJson, {
+    filingId: 'filing',
+    parseRunId: 'active',
+    requestedByAdminId: 'admin',
+    crosscheckOnly: false,
+  });
+
+  const changed = stagedProjectionHarness(reviewedRun('NO_SUMMARY_API_FOR_D004'));
+  await assert.rejects(() => changed.enqueue(), HttpException);
+  assert.equal(changed.saved.length, 0);
 });
 
 for (const [label, current, run] of [
@@ -304,14 +379,17 @@ test('unsupported filing and event filters execute before pagination and use can
   });
   await data.listFilings({ detailType: 'D002', limit: 1 });
   await data.listEvents({ detailType: 'D002', limit: 1 });
-  assert.match(captured[0]!, /canonical_type.*IN \('D001','D002','D005'\)/);
+  assert.match(captured[0]!, /canonical_type.*IN \('D001','D002','D003','D004','D005'\)/);
   assert.match(captured[0]!, /COALESCE\([^)]*canonical_type[^)]*\) = :detailType/);
   assert.match(captured[1]!, /COALESCE\(edf\.canonical_type,\s*edf\.detail_type\) = :detailType/);
-  assert.match(captured[1]!, /NOT EXISTS[\s\S]*canonical_type NOT IN \('D001','D002','D005'\)/);
+  assert.match(
+    captured[1]!,
+    /NOT EXISTS[\s\S]*canonical_type NOT IN \('D001','D002','D003','D004','D005'\)/,
+  );
   for (const sql of captured) assert.match(sql, /LIMIT 2$/);
 });
 
-for (const type of ['D003', 'D004']) {
+for (const type of ['D099'] as const) {
   test(`unsupported ${type} cannot reappear through a direct filing URL`, async () => {
     const current = filing({ canonicalType: type });
     const fixture = new FixtureStoreService();
@@ -395,7 +473,7 @@ test('every filing membership is checked before a direct event exposes an unsupp
             filing({
               id,
               companyId: 'company',
-              canonicalType: id === 'supported' ? 'D002' : 'D003',
+              canonicalType: id === 'supported' ? 'D002' : 'D099',
             }),
         };
       if (entity === CompanyEntity)
@@ -646,6 +724,8 @@ for (const type of ['D001', 'D002', 'D005'] as const) {
             },
           };
         if (entity === TradePlanItemEntity) return { findOne: async () => null };
+        if (entity === LargeHolderReportEntity) return { findOne: async () => null };
+        if (entity === LargeHoldingChangeEntity) return { find: async () => [] };
         throw new Error('Unexpected repository');
       },
     });

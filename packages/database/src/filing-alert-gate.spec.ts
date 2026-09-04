@@ -156,3 +156,45 @@ test('detection does not require a parsed result; non-filing news and operations
   c.alert.status = AlertStatus.CANCELLED;
   assert.equal(await filingAlertIsEligible(c.manager, c.alert), false);
 });
+
+test('D003 and D004 parsed alerts require the exact source review and summary-API reason', async () => {
+  for (const [detailType, reportName, eventType] of [
+    ['D003', '의결권대리행사권유참고서류', EventType.PROXY_SOLICITATION],
+    ['D004', '공개매수신고서', EventType.TENDER_OFFER],
+  ] as const) {
+    const c = context();
+    c.filing.detailType = detailType;
+    c.filing.canonicalType = detailType;
+    c.filing.reportName = reportName;
+    c.event.canonicalEventType = eventType;
+    c.alert.payloadJson.detailType = detailType;
+    c.alert.payloadJson.parseRunId = RUN;
+    c.run.inputType = detailType;
+    c.run.extractorType = detailType;
+    c.run.resultType = detailType;
+    c.run.rawSha256 = 'a'.repeat(64);
+    c.run.resultJson = {
+      projectionApplied: true,
+      parsed: { detailType },
+      crosscheck: { status: 'NOT_APPLICABLE', reason: `NO_SUMMARY_API_FOR_${detailType}` },
+      sourceReview: {
+        parseRunId: RUN,
+        rawSha256: c.run.rawSha256,
+        confirmedByAdminId: '22222222-2222-4222-8222-222222222222',
+        confirmedAt: '2020-09-05T00:59:00.000Z',
+      },
+    };
+    assert.equal(await filingAlertIsEligible(c.manager, c.alert), true);
+
+    delete c.run.resultJson.sourceReview;
+    assert.equal(await filingAlertIsEligible(c.manager, c.alert), false);
+    c.run.resultJson.sourceReview = {
+      parseRunId: RUN,
+      rawSha256: c.run.rawSha256,
+      confirmedByAdminId: '22222222-2222-4222-8222-222222222222',
+      confirmedAt: '2020-09-05T00:59:00.000Z',
+    };
+    c.run.resultJson.crosscheck = { status: 'NOT_APPLICABLE', reason: 'WRONG_DOMAIN' };
+    assert.equal(await filingAlertIsEligible(c.manager, c.alert), false);
+  }
+});

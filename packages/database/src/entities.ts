@@ -34,6 +34,7 @@ import type {
   NewsSourcePolicy,
 } from '@orsem/contracts';
 import { numericStringTransformer } from './transformers';
+import { DISCLOSURE_ENTITIES } from './disclosure-entities';
 import { MarketInstrumentEntity, MarketObservationEntity } from './market-entities';
 import {
   NotificationPreferenceEntity,
@@ -879,6 +880,7 @@ export class BotCommandEntity extends EntityBase {
 }
 
 export const ENTITIES = [
+  ...DISCLOSURE_ENTITIES,
   NotificationPreferenceEntity,
   PushSubscriptionEntity,
   PushDeliveryEntity,

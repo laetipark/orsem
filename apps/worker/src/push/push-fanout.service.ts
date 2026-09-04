@@ -47,6 +47,7 @@ export class PushFanoutService {
         payload: alertPushMessage(alert, context.topic),
       },
       now,
+      context.filingType,
     );
   }
 
@@ -84,6 +85,7 @@ export class PushFanoutService {
       payload: PushMessage;
     },
     now: Date,
+    filingType: string | null = null,
   ): Promise<number> {
     const preferences = await manager
       .getRepository(NotificationPreferenceEntity)
@@ -104,6 +106,7 @@ export class PushFanoutService {
             companyId,
             eventAt,
             now,
+            filingType,
           ))
         )
           continue;
@@ -148,6 +151,7 @@ export class PushFanoutService {
       .findOneBy({ ownerKey: delivery.ownerKey });
     if (!subscription || !preference || !isRecentPushEvent(delivery.createdAt, now)) return null;
     let companyId: string | null = null;
+    let filingType: string | null = null;
     let eventAt = delivery.createdAt;
     if (delivery.topic === 'TEST') {
       if (delivery.alertId !== null || delivery.eventClusterId !== null) return null;
@@ -157,6 +161,7 @@ export class PushFanoutService {
       const context = await this.alertContext(manager, alert);
       if (context.topic !== delivery.topic) return null;
       companyId = context.companyId;
+      filingType = context.filingType;
       eventAt = alert.createdAt;
     } else if (delivery.topic === 'NEWS' && !delivery.eventClusterId) {
       const prefix = `${subscription.id}:news:`;
@@ -180,6 +185,7 @@ export class PushFanoutService {
       companyId,
       eventAt,
       now,
+      filingType,
     ))
       ? subscription
       : null;
@@ -201,25 +207,42 @@ export class PushFanoutService {
   private async alertContext(
     manager: EntityManager,
     alert: AlertEntity,
-  ): Promise<{ topic: PushTopic | null; companyId: string | null }> {
-    if (!(await filingAlertIsEligible(manager, alert))) return { topic: null, companyId: null };
+  ): Promise<{ topic: PushTopic | null; companyId: string | null; filingType: string | null }> {
+    if (!(await filingAlertIsEligible(manager, alert)))
+      return { topic: null, companyId: null, filingType: null };
     const event = alert.eventClusterId
       ? await manager.getRepository(EventClusterEntity).findOneBy({ id: alert.eventClusterId })
       : null;
     let submissionKind: string | null = null;
+    let filingType: string | null = null;
     if (event) {
-      const membership = await manager.getRepository(EventClusterItemEntity).findOne({
+      const memberships = await manager.getRepository(EventClusterItemEntity).find({
         where: { eventClusterId: event.id, itemType: 'FILING' },
         order: { isPrimary: 'DESC' },
       });
-      const filing = membership
-        ? await manager.getRepository(FilingEntity).findOneBy({ id: membership.itemId })
-        : null;
+      const filingId =
+        typeof alert.payloadJson['filingId'] === 'string' && alert.payloadJson['filingId'].trim()
+          ? alert.payloadJson['filingId'].trim()
+          : null;
+      const rceptNo =
+        typeof alert.payloadJson['rceptNo'] === 'string' && alert.payloadJson['rceptNo'].trim()
+          ? alert.payloadJson['rceptNo'].trim()
+          : null;
+      const repository = manager.getRepository(FilingEntity);
+      const filing = filingId
+        ? await repository.findOneBy({ id: filingId })
+        : rceptNo
+          ? await repository.findOneBy({ rceptNo })
+          : memberships[0]
+            ? await repository.findOneBy({ id: memberships[0].itemId })
+            : null;
       submissionKind = filing?.submissionKind ?? null;
+      filingType = filing?.canonicalType ?? filing?.detailType ?? null;
     }
     return {
       topic: pushTopicForAlert(alert, event, submissionKind),
       companyId: event?.companyId ?? null,
+      filingType,
     };
   }
 
@@ -231,6 +254,7 @@ export class PushFanoutService {
     companyId: string | null,
     eventAt: Date,
     now: Date,
+    filingType: string | null = null,
   ): Promise<boolean> {
     if (subscription.expirationTime && subscription.expirationTime <= now) return false;
     if (
@@ -263,6 +287,8 @@ export class PushFanoutService {
       topic,
       watchlistOnly: preference.watchlistOnly,
       watchlisted,
+      filingType,
+      filingTypes: preference.filingTypesJson,
     });
   }
 }

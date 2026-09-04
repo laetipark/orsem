@@ -17,6 +17,11 @@ import {
 import { useEffect, useState, type FormEvent } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { api, ApiError } from '../lib/api';
+import {
+  disclosureLabels,
+  filingTypes,
+  defaultNotificationFilingTypes,
+} from '../lib/domain-labels';
 import { formatKst } from '../lib/format';
 import {
   applicationServerKey,
@@ -118,6 +123,7 @@ export function NotificationSettingsContent({
   const [draft, setDraft] = useState<NotificationPreferences>(() => ({
     enabled: settings.enabled,
     watchlistOnly: settings.watchlistOnly,
+    filingTypes: settings.filingTypes ?? [...defaultNotificationFilingTypes],
     topics: settings.topics.filter((topic) => isAdmin || topic !== 'OPERATIONS'),
   }));
   const connected =
@@ -475,6 +481,32 @@ export function NotificationSettingsContent({
                   알림 종류를 하나 이상 선택해야 해당 소식을 받을 수 있습니다.
                 </p>
               ) : null}
+              <fieldset className="notification-filing-types">
+                <legend>받을 공시 유형</legend>
+                <p>
+                  공시·분석·정정 알림에 적용합니다. 모두 해제하면 공시 알림을 받지 않으며 뉴스
+                  설정은 유지됩니다.
+                </p>
+                <div className="notification-topics">
+                  {filingTypes.map((type) => (
+                    <label key={type}>
+                      <input
+                        type="checkbox"
+                        checked={draft.filingTypes?.includes(type) ?? false}
+                        onChange={() =>
+                          setDraft((current) => ({
+                            ...current,
+                            filingTypes: current.filingTypes?.includes(type)
+                              ? current.filingTypes.filter((item) => item !== type)
+                              : [...(current.filingTypes ?? []), type],
+                          }))
+                        }
+                      />
+                      <span>{disclosureLabels[type]}</span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
               <label className="notification-watchlist">
                 <input
                   type="checkbox"

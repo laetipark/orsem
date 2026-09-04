@@ -1,3 +1,4 @@
+import { filingEventType } from './disclosure-policy';
 import { Inject, Injectable } from '@nestjs/common';
 import {
   AlertStatus,
@@ -6,7 +7,6 @@ import {
   DeliveryChannel,
   EffectiveFilingState,
   EventState,
-  EventType,
   EvidenceGrade,
   FilingRelationType,
   Market,
@@ -550,12 +550,7 @@ export class OpenDartIngestionService {
     let event = await eventRepository.findOne({ where: { dedupeKey } });
     if (!event) {
       event = await eventRepository.save({
-        canonicalEventType:
-          filing.detailType === 'D001'
-            ? EventType.LARGE_HOLDER
-            : filing.detailType === 'D005'
-              ? EventType.TRADE_PLAN
-              : EventType.INSIDER_OWNERSHIP,
+        canonicalEventType: filingEventType(filing.detailType),
         companyId: filing.companyId,
         occurredAt: null,
         // OpenDART 목록은 접수 날짜만 제공하며 공시 시각은 제공하지 않습니다.

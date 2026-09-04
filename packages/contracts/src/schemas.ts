@@ -206,7 +206,78 @@ export const filingSummarySchema = z.object({
 });
 export type FilingSummary = z.infer<typeof filingSummarySchema>;
 
+export const reportReasonKindSchema = z.enum([
+  'HOLDINGS_CHANGE',
+  'CONTRACT_CHANGE',
+  'REPORTING_STATUS_CHANGE',
+  'UNKNOWN',
+]);
+export const proxySolicitationSchema = z.object({
+  solicitorName: z.string().nullable(),
+  targetCompanyName: z.string().nullable(),
+  relationshipRaw: z.string().nullable(),
+  meetingDate: dateOnlySchema.nullable(),
+  meetingTimeRaw: z.string().nullable(),
+  meetingAt: isoInstantSchema.nullable(),
+  meetingLocation: z.string().nullable(),
+  solicitationStartDate: dateOnlySchema.nullable(),
+  solicitationEndDate: dateOnlySchema.nullable(),
+  purposeRaw: z.string().nullable(),
+  electronicVoting: z.boolean().nullable(),
+  agendas: z.array(z.object({ ordinal: z.number().int().nonnegative(), title: z.string() })),
+});
+export type ProxySolicitation = z.infer<typeof proxySolicitationSchema>;
+export const tenderOfferSecuritySchema = z.object({
+  rowIndex: z.number().int().nonnegative(),
+  securityTypeRaw: z.string(),
+  unitPrice: nullableDecimalStringSchema,
+  currency: z.string().nullable(),
+  minQuantity: nullableDecimalStringSchema,
+  maxQuantity: nullableDecimalStringSchema,
+  heldQuantity: nullableDecimalStringSchema,
+  expectedHoldingsMin: nullableDecimalStringSchema,
+  expectedHoldingsMax: nullableDecimalStringSchema,
+  offeredQuantity: nullableDecimalStringSchema,
+  acquiredQuantity: nullableDecimalStringSchema,
+  actualAmount: nullableDecimalStringSchema,
+});
+export const tenderOfferSchema = z.object({
+  documentKind: z.enum(['REPORT', 'EXPLANATION', 'RESULT', 'OTHER']),
+  offerorName: z.string().nullable(),
+  targetCompanyName: z.string().nullable(),
+  purposeRaw: z.string().nullable(),
+  conditionsRaw: z.string().nullable(),
+  subscriptionStartDate: dateOnlySchema.nullable(),
+  subscriptionEndDate: dateOnlySchema.nullable(),
+  settlementDate: dateOnlySchema.nullable(),
+  securities: z.array(tenderOfferSecuritySchema),
+});
+export type TenderOffer = z.infer<typeof tenderOfferSchema>;
+export const largeHoldingSchema = z.object({
+  reporterName: z.string(),
+  reportReasonRaw: z.string().nullable(),
+  holdingPurposeRaw: z.string().nullable(),
+  reportReasonKind: reportReasonKindSchema,
+  sharesBefore: nullableDecimalStringSchema,
+  sharesAfter: nullableDecimalStringSchema,
+  ownershipRateBefore: nullableDecimalStringSchema,
+  ownershipRateAfter: nullableDecimalStringSchema,
+  changes: z.array(
+    z.object({
+      id: idSchema,
+      eventDate: dateOnlySchema.nullable(),
+      methodRaw: z.string().nullable(),
+      direction: z.enum(Direction),
+      shareChange: nullableDecimalStringSchema,
+    }),
+  ),
+});
+export type LargeHolding = z.infer<typeof largeHoldingSchema>;
+
 export const filingDetailSchema = filingSummarySchema.extend({
+  proxySolicitation: proxySolicitationSchema.nullable().optional(),
+  tenderOffer: tenderOfferSchema.nullable().optional(),
+  largeHolding: largeHoldingSchema.nullable().optional(),
   parserVersion: z.string().nullable(),
   rm: z.string().nullable(),
   reporter: z
@@ -345,7 +416,15 @@ export const eventSchema = z.object({
 });
 export type Event = z.infer<typeof eventSchema>;
 
-export const disclosureViewTypeSchema = z.enum(['D001', 'D002', 'D005', 'NEWS', 'SEC']);
+export const disclosureViewTypeSchema = z.enum([
+  'D001',
+  'D002',
+  'D003',
+  'D004',
+  'D005',
+  'NEWS',
+  'SEC',
+]);
 
 export const eventSummaryViewSchema = z.object({
   id: idSchema,
@@ -393,6 +472,10 @@ export const sourceEvidenceSchema = z.object({
 });
 
 export const eventDetailViewSchema = eventSummaryViewSchema.extend({
+  proxySolicitation: proxySolicitationSchema.nullable().optional(),
+  tenderOffer: tenderOfferSchema.nullable().optional(),
+  largeHolding: largeHoldingSchema.nullable().optional(),
+  tradePlan: filingDetailSchema.shape.tradePlan,
   filerName: z.string(),
   reporterName: z.string().nullable(),
   relationship: z.string().nullable(),
@@ -588,7 +671,7 @@ export type WatchlistView = z.infer<typeof watchlistViewSchema>;
 export const eventQuerySchema = cursorQuerySchema.extend({
   q: z.string().trim().max(120).optional(),
   companyId: idSchema.optional(),
-  detailType: z.enum(['D001', 'D002', 'D005', 'NEWS', 'SEC']).optional(),
+  detailType: disclosureViewTypeSchema.optional(),
   classificationStatus: z.enum(ClassificationReviewResult).optional(),
   type: z.enum(EventType).optional(),
   state: z.enum(EventState).optional(),
@@ -702,6 +785,8 @@ export const dashboardViewSchema = z.object({
   todayCounts: z.object({
     D001: z.number().int().nonnegative(),
     D002: z.number().int().nonnegative(),
+    D003: z.number().int().nonnegative().default(0),
+    D004: z.number().int().nonnegative().default(0),
     D005: z.number().int().nonnegative(),
   }),
   priorities: z.object({
@@ -760,7 +845,7 @@ export const backfillRequestSchema = z
     detailTypes: z
       .array(z.enum(DisclosureDetailType))
       .min(1)
-      .max(3)
+      .max(5)
       .default(Object.values(DisclosureDetailType)),
     startDate: dateOnlySchema,
     endDate: dateOnlySchema,
@@ -799,6 +884,8 @@ export const dashboardSchema = z.object({
     filingsToday: z.number().int().nonnegative(),
     d001Today: z.number().int().nonnegative(),
     d002Today: z.number().int().nonnegative(),
+    d003Today: z.number().int().nonnegative().default(0),
+    d004Today: z.number().int().nonnegative().default(0),
     d005Today: z.number().int().nonnegative(),
     reviewRequired: z.number().int().nonnegative(),
     failedJobs: z.number().int().nonnegative(),

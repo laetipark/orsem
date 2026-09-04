@@ -74,6 +74,8 @@ export async function filingAlertIsEligible(
   const eventTypes = {
     D001: EventType.LARGE_HOLDER,
     D002: EventType.INSIDER_OWNERSHIP,
+    D003: EventType.PROXY_SOLICITATION,
+    D004: EventType.TENDER_OFFER,
     D005: EventType.TRADE_PLAN,
   };
   if (
@@ -96,13 +98,17 @@ export async function filingAlertIsEligible(
   const crosscheck = run?.resultJson?.['crosscheck'] as Record<string, unknown> | undefined;
   const receiptMatches = crosscheck?.['exactReceiptMatches'];
   const sourceConfirmed =
-    filing.canonicalType === 'D005'
-      ? crosscheck?.['status'] === 'NOT_APPLICABLE'
-      : crosscheck?.['status'] === 'OK' &&
-        Array.isArray(receiptMatches) &&
-        receiptMatches.some(
-          (row) => row && typeof row === 'object' && row['rcept_no'] === filing.rceptNo,
-        );
+    filing.canonicalType === 'D003' || filing.canonicalType === 'D004'
+      ? crosscheck?.['status'] === 'NOT_APPLICABLE' &&
+        crosscheck?.['reason'] === `NO_SUMMARY_API_FOR_${filing.canonicalType}` &&
+        hasConfirmedSourceReview(run)
+      : filing.canonicalType === 'D005'
+        ? crosscheck?.['status'] === 'NOT_APPLICABLE'
+        : crosscheck?.['status'] === 'OK' &&
+          Array.isArray(receiptMatches) &&
+          receiptMatches.some(
+            (row) => row && typeof row === 'object' && row['rcept_no'] === filing.rceptNo,
+          );
   return Boolean(
     run &&
     run.filingId === filing.id &&
@@ -119,5 +125,30 @@ export async function filingAlertIsEligible(
       extractorType: run.extractorType,
       resultType: run.resultType,
     }),
+  );
+}
+
+/** Approval belongs to the exact immutable extraction and source, not just the filing. */
+export function hasConfirmedSourceReview(
+  run: Pick<ParseRunEntity, 'id' | 'rawSha256' | 'resultJson'> | null | undefined,
+  now = Date.now(),
+): boolean {
+  const review = run?.resultJson?.['sourceReview'];
+  if (!run || !review || typeof review !== 'object' || Array.isArray(review)) return false;
+  const record = review as Record<string, unknown>;
+  const confirmedAt = record['confirmedAt'];
+  return (
+    record['parseRunId'] === run.id &&
+    record['rawSha256'] === run.rawSha256 &&
+    /^[a-f0-9]{64}$/iu.test(run.rawSha256) &&
+    typeof record['confirmedByAdminId'] === 'string' &&
+    /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/iu.test(
+      record['confirmedByAdminId'],
+    ) &&
+    typeof confirmedAt === 'string' &&
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(confirmedAt) &&
+    Number.isFinite(Date.parse(confirmedAt)) &&
+    Date.parse(confirmedAt) <= now &&
+    new Date(confirmedAt).toISOString() === confirmedAt
   );
 }

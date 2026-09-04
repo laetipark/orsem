@@ -3,6 +3,7 @@ import { directionFromQuantity } from '../classifier';
 import { normalizeDateOnly, parseDecimal, parseInteger, scaleNumeric } from '../normalizers';
 import type {
   CanonicalTable,
+  D001ReportReasonKind,
   ParsedLargeHoldingChange,
   ParserWarning,
   FieldProvenanceMap,
@@ -38,6 +39,8 @@ export interface D001Extraction {
   readonly reportTypeRaw: string | null;
   readonly reporterName: string | null;
   readonly reportReasonRaw: string | null;
+  readonly reportReasonKind: D001ReportReasonKind;
+  readonly nonTradingReport: boolean;
   readonly sharesAfter: string | null;
   readonly sharesChange: string | null;
   readonly ownershipRateAfter: string | null;
@@ -52,11 +55,22 @@ export function extractD001(tables: readonly CanonicalTable[]): D001Extraction {
   const warnings: ParserWarning[] = [];
   let headersFound = 0;
   let rowsFound = 0;
+  let emptyTablePresent = false;
   const changes: ParsedLargeHoldingChange[] = [];
   for (const table of tables) {
     const header = locateHeader<D001Field>(table, HEADERS, ['method', 'quantity']);
     if (!header) continue;
     headersFound += 1;
+    if (
+      table.rows
+        .slice(header.headerEndRow + 1)
+        .every(
+          (row) =>
+            !hasSourceValue(cellAt(row, header.columns, 'method')) &&
+            !hasSourceValue(cellAt(row, header.columns, 'quantity')),
+        )
+    )
+      emptyTablePresent = true;
     const quantityHeaderUnit = headerScaleForColumn(
       table,
       header.headerEndRow,
@@ -164,13 +178,41 @@ export function extractD001(tables: readonly CanonicalTable[]): D001Extraction {
   const sharesChange = numeric('sharesChange', true);
   const ownershipRateAfter = numeric('ownershipRateAfter', false);
   const ownershipRateChange = numeric('ownershipRateChange', false);
+  const reason = (reportReasonRaw ?? '').replace(/\s/g, '');
+  const reportReasonKind: D001ReportReasonKind =
+    /(?:계약|담보|질권|대출|차입금).*(?:체결|변경|변동|해지|연장|종료|상환|신규|설정|갱신)|(?:체결|해지|상환).*(?:계약|담보|대출)|양수도.*계약/u.test(
+      reason,
+    )
+      ? 'CONTRACT_CHANGE'
+      : /(?:보고자|특별관계자|특수관계인|임원).*(?:변경|변동|추가|제외|해소|선임|퇴임)|신규보고/u.test(
+            reason,
+          )
+        ? 'REPORTING_STATUS_CHANGE'
+        : /보유(?:주식|주식등|수량).*(?:변동|변경)|(?:추가취득|처분|이익소각|장내매수|장내매도|장외매수|장외매도)/u.test(
+              reason,
+            )
+          ? 'HOLDINGS_CHANGE'
+          : 'UNKNOWN';
+  const nonTradingReport =
+    changes.length === 0 &&
+    rowsFound === 0 &&
+    emptyTablePresent &&
+    reporterName !== null &&
+    sharesAfter !== null &&
+    ownershipRateAfter !== null &&
+    sharesChange === '0' &&
+    ownershipRateChange === '0' &&
+    (reportReasonKind === 'CONTRACT_CHANGE' || reportReasonKind === 'REPORTING_STATUS_CHANGE') &&
+    warnings.length === 0;
   const validRows = changes.filter((row) => (row.confidence ?? 0) > 0);
-  if (validRows.length === 0)
+  if (validRows.length === 0 && !nonTradingReport)
     warnings.push(emptyExtractionWarning(tables, headersFound, rowsFound));
   const populated = [
     reportTypeRaw,
     reporterName,
     reportReasonRaw,
+    reportReasonKind,
+    nonTradingReport,
     sharesAfter,
     sharesChange,
     ownershipRateAfter,
@@ -178,10 +220,16 @@ export function extractD001(tables: readonly CanonicalTable[]): D001Extraction {
   ].filter(Boolean).length;
   return {
     provenance: summaryProvenance(located),
-    confidence: validRows.length === 0 ? 0 : Math.min(...changes.map((row) => row.confidence ?? 0)),
+    confidence: nonTradingReport
+      ? 0.95
+      : validRows.length === 0
+        ? 0
+        : Math.min(...changes.map((row) => row.confidence ?? 0)),
     reportTypeRaw,
     reporterName,
     reportReasonRaw,
+    reportReasonKind,
+    nonTradingReport,
     sharesAfter,
     sharesChange,
     ownershipRateAfter,

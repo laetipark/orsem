@@ -45,7 +45,12 @@ export class NotificationsController {
   updateSettings(@Body() body: unknown, @Req() request: Request) {
     return this.notifications.updateSettings(
       notificationOwner(request),
-      parseWith(notificationPreferencesSchema, body),
+      parseWith(
+        notificationPreferencesSchema.extend({
+          filingTypes: notificationPreferencesSchema.shape.filingTypes.removeDefault().optional(),
+        }),
+        body,
+      ),
     );
   }
 

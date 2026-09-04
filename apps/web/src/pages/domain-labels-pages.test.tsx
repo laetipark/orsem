@@ -43,7 +43,7 @@ beforeEach(() => {
   vi.spyOn(api, 'events').mockResolvedValue({ items: [], nextCursor: null });
   vi.spyOn(api, 'dashboard').mockResolvedValue({
     asOf: '2026-09-04T23:00:00Z',
-    todayCounts: { D001: 6, D002: 23, D005: 2 },
+    todayCounts: { D001: 6, D002: 23, D003: 1, D004: 2, D005: 2 },
     priorities: { P1: [], P2: [] },
     reviewPending: 0,
     parserFailures: 0,
@@ -74,15 +74,25 @@ it('labels dashboard sections and disclosure counts without changing their coded
     'href',
     '/events?detailType=D002',
   );
+  expect(within(summary).getByRole('link', { name: /의결권 위임 권유/ })).toHaveAttribute(
+    'href',
+    '/events?detailType=D003',
+  );
+  expect(within(summary).getByRole('link', { name: /공개매수/ })).toHaveAttribute(
+    'href',
+    '/events?detailType=D004',
+  );
   expect(within(summary).getByRole('link', { name: /주식 거래계획/ })).toHaveAttribute(
     'href',
     '/events?detailType=D005',
   );
-  expect(summary).not.toHaveTextContent(/D00[125]/);
+  expect(summary).not.toHaveTextContent(/D00[1-5]/);
 });
 
 it('keeps API and URL filter codes when choosing public names and clears the previous page cursor', async () => {
   show('/events?region=kr&cursor=old');
+  expect(screen.getByRole('option', { name: '의결권 위임 권유' })).toHaveValue('D003');
+  expect(screen.getByRole('option', { name: '공개매수' })).toHaveValue('D004');
   expect(screen.getByRole('option', { name: '대량보유 공시' })).toHaveValue('D001');
   expect(screen.getByRole('option', { name: '중점 관찰' })).toHaveValue('P1');
   expect(screen.getByRole('option', { name: '시장 동향' })).toHaveValue('P3');

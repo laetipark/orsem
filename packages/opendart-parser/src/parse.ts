@@ -2,11 +2,14 @@ import { readOpenDartArchive } from './archive';
 import { OpenDartPayloadError } from './errors';
 import { extractD001, type D001Extraction } from './extractors/d001';
 import { extractD002, type D002Extraction } from './extractors/d002';
+import { extractD003, type D003Extraction } from './extractors/d003';
+import { extractD004, type D004Extraction } from './extractors/d004';
 import { extractD005, type D005Extraction } from './extractors/d005';
 import {
   deepFreeze,
   OPENDART_PARSER_VERSION,
   type CanonicalTable,
+  type DisclosureDocumentContext,
   type ParseDisclosureInput,
   type ParsedOpenDartDisclosure,
   type ParserWarning,
@@ -24,7 +27,7 @@ interface CandidateExtraction<T> {
 
 async function extractCandidates<T extends { readonly score: number }>(
   input: ParseDisclosureInput,
-  extractor: (tables: readonly CanonicalTable[]) => T,
+  extractor: (tables: readonly CanonicalTable[], context: DisclosureDocumentContext) => T,
 ): Promise<{
   readonly archive: Awaited<ReturnType<typeof readOpenDartArchive>>;
   readonly selected: CandidateExtraction<T>;
@@ -54,7 +57,7 @@ async function extractCandidates<T extends { readonly score: number }>(
         candidate.entryName,
         canonicalizationBudget,
       );
-      const extraction = extractor(canonical.tables);
+      const extraction = extractor(canonical.tables, canonical.documentContext);
       if (extraction.score === 0) {
         aggregateWarnings.push({
           code: 'NO_RECOGNIZED_DISCLOSURE_TABLE',
@@ -170,6 +173,8 @@ export async function parseOpenDartDisclosure(
         : { confidence: selected.extraction.confidence }),
       ...(selected.extraction.provenance ? { provenance: selected.extraction.provenance } : {}),
       reportReasonRaw: selected.extraction.reportReasonRaw,
+      reportReasonKind: selected.extraction.reportReasonKind,
+      nonTradingReport: selected.extraction.nonTradingReport,
       sharesAfter: selected.extraction.sharesAfter,
       sharesChange: selected.extraction.sharesChange,
       ownershipRateAfter: selected.extraction.ownershipRateAfter,
@@ -196,6 +201,55 @@ export async function parseOpenDartDisclosure(
       positionRaw: selected.extraction.positionRaw,
       transactions: selected.extraction.transactions,
       warnings,
+      tablesScanned: selected.tables.length,
+    });
+  }
+  if (input.detailType === 'D003') {
+    const { archive, selected, aggregateWarnings, normalizationAudits, candidateErrors } =
+      await extractCandidates<D003Extraction>(input, extractD003);
+    const extraction = selected.extraction;
+    return deepFreeze({
+      detailType: 'D003',
+      parserVersion,
+      source: sourceFor(archive, selected.entryName, normalizationAudits, candidateErrors),
+      solicitorName: extraction.solicitorName,
+      targetCompanyName: extraction.targetCompanyName,
+      relationshipRaw: extraction.relationshipRaw,
+      meetingDate: extraction.meetingDate,
+      meetingTimeRaw: extraction.meetingTimeRaw,
+      meetingAt: extraction.meetingAt,
+      meetingLocation: extraction.meetingLocation,
+      solicitationStartDate: extraction.solicitationStartDate,
+      solicitationEndDate: extraction.solicitationEndDate,
+      purposeRaw: extraction.purposeRaw,
+      electronicVoting: extraction.electronicVoting,
+      agendas: extraction.agendas,
+      confidence: extraction.confidence,
+      provenance: extraction.provenance,
+      warnings: [...aggregateWarnings, ...selected.warnings, ...extraction.warnings],
+      tablesScanned: selected.tables.length,
+    });
+  }
+  if (input.detailType === 'D004') {
+    const { archive, selected, aggregateWarnings, normalizationAudits, candidateErrors } =
+      await extractCandidates<D004Extraction>(input, extractD004);
+    const extraction = selected.extraction;
+    return deepFreeze({
+      detailType: 'D004',
+      parserVersion,
+      source: sourceFor(archive, selected.entryName, normalizationAudits, candidateErrors),
+      documentKind: extraction.documentKind,
+      offerorName: extraction.offerorName,
+      targetCompanyName: extraction.targetCompanyName,
+      purposeRaw: extraction.purposeRaw,
+      conditionsRaw: extraction.conditionsRaw,
+      subscriptionStartDate: extraction.subscriptionStartDate,
+      subscriptionEndDate: extraction.subscriptionEndDate,
+      settlementDate: extraction.settlementDate,
+      securities: extraction.securities,
+      confidence: extraction.confidence,
+      provenance: extraction.provenance,
+      warnings: [...aggregateWarnings, ...selected.warnings, ...extraction.warnings],
       tablesScanned: selected.tables.length,
     });
   }

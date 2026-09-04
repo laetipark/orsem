@@ -21,6 +21,7 @@ import {
   PriorityBadge,
   RightsBadge,
 } from '../components/domain-badges';
+import { DisclosureFacts } from '../components/disclosure-facts';
 import { ObservationDisclaimer } from '../components/disclaimer';
 import { TranslatedText } from '../components/translated-text';
 import {
@@ -119,8 +120,12 @@ export function EventDetailPage() {
         </div>
       ) : null}
 
+      {['D001', 'D003', 'D004', 'D005'].includes(data.detailType) ? (
+        <DisclosureFacts data={data} />
+      ) : null}
+
       <section className={data.detailType === 'SEC' ? 'page-stack' : 'detail-grid'}>
-        {data.detailType !== 'SEC' ? (
+        {data.detailType === 'D002' ? (
           <Card>
             <CardHeader>
               <div>
@@ -179,13 +184,15 @@ export function EventDetailPage() {
           </CardHeader>
           <CardContent>
             <div className="time-sequence">
-              {data.detailType !== 'SEC' ? (
+              {['D001', 'D002', 'D005'].includes(data.detailType) ? (
                 <div>
                   <span className="time-sequence__dot" />
                   <div>
-                    <small>실제 사건일</small>
+                    <small>{data.detailType === 'D005' ? '계획 시작일' : '실제 사건일'}</small>
                     <strong>{formatDate(data.eventAt)}</strong>
-                    <p>거래·소유변동 기준일</p>
+                    <p>
+                      {data.detailType === 'D005' ? '실제 거래일과 구분' : '거래·소유변동 기준일'}
+                    </p>
                   </div>
                 </div>
               ) : null}
@@ -218,7 +225,7 @@ export function EventDetailPage() {
         </Card>
       </section>
 
-      {data.detailType !== 'SEC' ? (
+      {data.detailType === 'D002' ? (
         <Card>
           <CardHeader>
             <div>

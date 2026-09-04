@@ -40,6 +40,10 @@ export function EventCompanyIdentity({
   );
 }
 
+export function hasObservedOwnershipSemantics(type: EventSummary['detailType']): boolean {
+  return type === 'D001' || type === 'D002';
+}
+
 export function EventCompactRow({ event }: { event: EventSummary }) {
   return (
     <Link className="event-row" to={`/events/${event.id}`}>
@@ -49,7 +53,9 @@ export function EventCompactRow({ event }: { event: EventSummary }) {
       </div>
       <div className="event-row__badges">
         <EventTypeBadge type={event.detailType} />
-        {event.detailType !== 'SEC' ? <NatureBadge nature={event.nature} /> : null}
+        {hasObservedOwnershipSemantics(event.detailType) ? (
+          <NatureBadge nature={event.nature} />
+        ) : null}
       </div>
       {event.detailType === 'NEWS' ? (
         <TranslatedText
@@ -61,9 +67,13 @@ export function EventCompactRow({ event }: { event: EventSummary }) {
         <p>{event.summary}</p>
       )}
       <div className="event-row__meta">
-        {event.detailType !== 'SEC' ? (
+        {hasObservedOwnershipSemantics(event.detailType) ? (
           <span>
             <Clock3 size={13} aria-hidden="true" /> 사건 {formatDate(event.eventAt)}
+          </span>
+        ) : event.detailType === 'D005' && event.eventAt ? (
+          <span>
+            <Clock3 size={13} aria-hidden="true" /> 계획 시작 {formatDate(event.eventAt)}
           </span>
         ) : null}
         <span>
@@ -102,7 +112,7 @@ export function EventMobileCard({ event }: { event: EventSummary }) {
         <p>{event.summary}</p>
       )}
       <dl className="inline-facts">
-        {event.detailType !== 'SEC' ? (
+        {hasObservedOwnershipSemantics(event.detailType) ? (
           <>
             <div>
               <dt>성격</dt>
@@ -124,7 +134,17 @@ export function EventMobileCard({ event }: { event: EventSummary }) {
         ) : (
           <div>
             <dt>내용</dt>
-            <dd>공시 접수 메타데이터</dd>
+            <dd>
+              {event.detailType === 'D003'
+                ? '의결권 위임 권유 주요내용'
+                : event.detailType === 'D004'
+                  ? '공개매수 주요내용'
+                  : event.detailType === 'D005'
+                    ? '향후 거래계획 · 실제 체결 아님'
+                    : event.detailType === 'NEWS'
+                      ? '기업 뉴스'
+                      : '공시 접수 메타데이터'}
+            </dd>
           </div>
         )}
         <div>

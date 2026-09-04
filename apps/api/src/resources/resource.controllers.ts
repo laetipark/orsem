@@ -262,6 +262,21 @@ export class ReviewsController {
     );
   }
 
+  @Post(':id/source-review')
+  @RateLimit(30)
+  confirmSource(@Param('id') id: string, @Body() body: unknown, @Req() request: Request) {
+    return this.data.confirmReviewSource(
+      parseWith(z.uuid(), id),
+      parseWith(
+        z
+          .object({ confirmed: z.literal(true), note: z.string().trim().max(2000).optional() })
+          .strict(),
+        body,
+      ),
+      request.session.adminId!,
+    );
+  }
+
   @Post(':id/resolve')
   resolve(@Param('id') id: string, @Body() body: unknown, @Req() request: Request) {
     return this.data.resolveReview(

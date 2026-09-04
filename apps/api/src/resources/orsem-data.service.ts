@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import {
   AlertStatus,
+  classifyFilingDocumentKind,
   ClassificationReviewResult,
   ConnectorStatus,
   EffectiveFilingState,
@@ -72,6 +73,7 @@ import {
   dateToIso,
   PARSE_INTEGRITY_METRICS_SQL,
   mapParseIntegrityMetrics,
+  hasConfirmedSourceReview,
   type ParseIntegrityMetrics,
 } from '@orsem/database';
 import { createHash, randomUUID } from 'node:crypto';
@@ -109,6 +111,55 @@ import {
   mapReview,
   mapSourceItem,
 } from './resource-mappers';
+
+import { readDisclosureFacts, candidateDisclosureEvidence } from './disclosure-facts';
+
+function parsedSourceMatchesRun(
+  run: Pick<ParseRunEntity, 'rawSha256'>,
+  parsed: Record<string, unknown> | undefined,
+): boolean {
+  const source = parsed?.source;
+  return Boolean(
+    /^[a-f0-9]{64}$/u.test(run.rawSha256) &&
+    source &&
+    typeof source === 'object' &&
+    !Array.isArray(source) &&
+    (source as Record<string, unknown>).archiveSha256 === run.rawSha256,
+  );
+}
+
+function parsedDocumentKindMatchesFiling(
+  filing: Pick<FilingEntity, 'reportName'>,
+  parsed: Record<string, unknown> | undefined,
+): boolean {
+  return (
+    parsed?.detailType !== 'D004' ||
+    parsed.documentKind === classifyFilingDocumentKind(filing.reportName)
+  );
+}
+
+function crosscheckReadyForProjection(
+  resultType: string | null | undefined,
+  crosscheck: Record<string, unknown> | undefined,
+  rceptNo: string | null | undefined,
+): boolean {
+  if (resultType === 'D003' || resultType === 'D004') {
+    return (
+      crosscheck?.status === 'NOT_APPLICABLE' &&
+      crosscheck.reason === `NO_SUMMARY_API_FOR_${resultType}`
+    );
+  }
+  if (resultType === 'D005') return crosscheck?.status === 'NOT_APPLICABLE';
+  if ((resultType !== 'D001' && resultType !== 'D002') || !rceptNo) return false;
+  return (
+    crosscheck?.status === 'OK' &&
+    Array.isArray(crosscheck.exactReceiptMatches) &&
+    crosscheck.exactReceiptMatches.some(
+      (row: unknown) =>
+        row && typeof row === 'object' && (row as Record<string, unknown>).rcept_no === rceptNo,
+    )
+  );
+}
 
 export type { CursorPage } from '../common/pagination';
 
@@ -390,14 +441,22 @@ export class OrsemDataService {
       ownershipRateAfter: filing?.reporter?.ownershipRateAfter ?? null,
       parserVersion: filing?.parserVersion ?? null,
       transactions: filing?.transactions ?? [],
+      tradePlan: filing?.tradePlan ?? null,
+      largeHolding: filing?.largeHolding ?? null,
+      proxySolicitation: filing?.proxySolicitation ?? null,
+      tenderOffer: filing?.tenderOffer ?? null,
       evidence,
       lineage,
       limitations: [
         summary.detailType === 'SEC'
           ? 'SEC 공시의 접수 메타데이터입니다. Form 4 거래 행이나 8-K 본문을 분석한 결과가 아닙니다.'
-          : filing?.detailType === 'D005'
-            ? '거래계획은 실제 체결을 의미하지 않으며 D002 등 후속 공시 확인이 필요합니다.'
-            : '공시 제출일과 실제 사건 발생일은 다를 수 있습니다.',
+          : filing?.detailType === 'D003'
+            ? '의결권 위임 권유 내용이며 주식 거래·보유 변동으로 계산하지 않습니다.'
+            : filing?.detailType === 'D004'
+              ? '공개매수 조건과 결과를 구분합니다. 청약·예정 수량을 실제 취득으로 계산하지 않습니다.'
+              : filing?.detailType === 'D005'
+                ? '거래계획은 실제 체결을 의미하지 않으며 D002 등 후속 공시 확인이 필요합니다.'
+                : '공시 제출일과 실제 사건 발생일은 다를 수 있습니다.',
         '이 정보는 소유·지배구조 관측 자료이며 자동 매수·매도 추천이 아닙니다.',
       ],
     };
@@ -573,7 +632,7 @@ export class OrsemDataService {
     const cursor = decodeCursor(query.cursor);
     const qb = this.source().getRepository(FilingEntity).createQueryBuilder('filing');
     qb.andWhere(
-      "(filing.canonical_type IS NULL OR filing.canonical_type IN ('D001','D002','D005'))",
+      "(filing.canonical_type IS NULL OR filing.canonical_type IN ('D001','D002','D003','D004','D005'))",
     );
     if (query.region && query.region !== 'all') {
       qb.andWhere('filing.source = :regionFilingSource', {
@@ -672,6 +731,7 @@ export class OrsemDataService {
           .getRepository(TradePlanItemEntity)
           .findOne({ where: { tradePlanId: plan.id }, order: { createdAt: 'ASC' } })
       : null;
+    const domainFacts = await readDisclosureFacts(source, filing.id, parse);
     const relations = await source
       .getRepository(FilingRelationEntity)
       .createQueryBuilder('relation')
@@ -734,6 +794,7 @@ export class OrsemDataService {
             planStatus: plan.planStatus,
           }
         : null,
+      ...domainFacts,
       parserWarnings: parse?.warningsJson ?? [],
       relations: relationDtos,
     };
@@ -786,7 +847,7 @@ export class OrsemDataService {
       JOIN filings integrity_filing ON integrity_filing.id = integrity_item.item_id
       WHERE integrity_item.event_cluster_id = event.id AND integrity_item.item_type = 'FILING'
         AND integrity_filing.canonical_type IS NOT NULL
-        AND integrity_filing.canonical_type NOT IN ('D001','D002','D005'))`);
+        AND integrity_filing.canonical_type NOT IN ('D001','D002','D003','D004','D005'))`);
     if (query.region && query.region !== 'all') {
       qb.andWhere(
         `(
@@ -1376,13 +1437,15 @@ export class OrsemDataService {
     const items = await Promise.all(
       page.items.map(async (review) => {
         const event = await this.eventForReview(review);
+        const storedFilingId =
+          review.subjectType === 'FILING' ? review.subjectId : (event?.filing?.id ?? null);
         const storedFiling =
-          !this.fixtureMode && event?.filing
-            ? await this.source().getRepository(FilingEntity).findOneBy({ id: event.filing.id })
+          !this.fixtureMode && storedFilingId
+            ? await this.source().getRepository(FilingEntity).findOneBy({ id: storedFilingId })
             : null;
         const unsupported =
           storedFiling?.canonicalType && !isSupportedFilingType(storedFiling.canonicalType);
-        const filing = event?.filing && !unsupported ? await this.getFiling(event.filing.id) : null;
+        const filing = storedFiling && !unsupported ? await this.getFiling(storedFiling.id) : null;
         const relation = await this.filingRelationReviewContext(review);
         const transaction = filing?.transactions[0] ?? null;
         const storedReview =
@@ -1401,7 +1464,11 @@ export class OrsemDataService {
         const candidateParsed = candidate?.resultJson?.parsed as
           Record<string, unknown> | undefined;
         const candidateRows =
-          candidateParsed?.transactions ?? candidateParsed?.changes ?? candidateParsed?.planItems;
+          candidateParsed?.transactions ??
+          candidateParsed?.changes ??
+          candidateParsed?.planItems ??
+          candidateParsed?.agendas ??
+          candidateParsed?.securities;
         const candidateEvidence = Array.isArray(candidateRows)
           ? candidateRows.slice(0, 5).map((value: unknown) => {
               if (!value || typeof value !== 'object' || Array.isArray(value))
@@ -1432,19 +1499,14 @@ export class OrsemDataService {
                 .join(' · ');
             })
           : [];
+        const disclosureEvidence = candidateDisclosureEvidence(candidateParsed);
         const crosscheck = candidate?.resultJson?.crosscheck as Record<string, unknown> | undefined;
         const staged = candidate?.resultJson?.staging as Record<string, unknown> | undefined;
-        const crosscheckReady =
-          candidate?.resultType === 'D005'
-            ? crosscheck?.status === 'NOT_APPLICABLE'
-            : crosscheck?.status === 'OK' &&
-              Array.isArray(crosscheck.exactReceiptMatches) &&
-              crosscheck.exactReceiptMatches.some(
-                (row: unknown) =>
-                  row &&
-                  typeof row === 'object' &&
-                  (row as Record<string, unknown>).rcept_no === storedFiling?.rceptNo,
-              );
+        const crosscheckReady = crosscheckReadyForProjection(
+          candidate?.resultType,
+          crosscheck,
+          storedFiling?.rceptNo,
+        );
         return {
           id: review.id,
           eventId: event?.id ?? review.subjectId,
@@ -1459,7 +1521,13 @@ export class OrsemDataService {
           crosscheckStatus: typeof crosscheck?.status === 'string' ? crosscheck.status : null,
           crosscheckReady,
           candidateRowCount: Array.isArray(candidateRows) ? candidateRows.length : 0,
-          candidateEvidence,
+          candidateEvidence: disclosureEvidence.length ? disclosureEvidence : candidateEvidence,
+          sourceReviewRequired:
+            candidate?.resultType === 'D003' || candidate?.resultType === 'D004',
+          sourceReviewConfirmed: hasConfirmedSourceReview(candidate),
+          sourceReviewConfirmedAt: hasConfirmedSourceReview(candidate)
+            ? (candidate?.resultJson?.sourceReview as Record<string, unknown>).confirmedAt
+            : null,
           candidateWarnings: candidate?.warningsJson ?? [],
           crosscheckEvidence: crosscheck?.exactReceiptMatches ?? null,
           officialUrl: storedFiling
@@ -1512,6 +1580,96 @@ export class OrsemDataService {
     row.resolvedByAdminId = status === ReviewTaskStatus.OPEN ? null : adminId;
     row.resolvedAt = status === ReviewTaskStatus.OPEN ? null : now;
     return mapReview(await repository.save(row));
+  }
+
+  async confirmReviewSource(
+    id: string,
+    input: { confirmed: true; note?: string },
+    adminId: string,
+  ): Promise<Record<string, unknown>> {
+    if (this.fixtureMode)
+      throw new BadRequestException('체험 데이터에는 원문 대조를 기록할 수 없습니다.');
+    const source = this.source();
+    const snapshot = await source.getRepository(ReviewEntity).findOneBy({ id });
+    if (!snapshot || snapshot.subjectType !== 'FILING')
+      throw new NotFoundException('공시 검토를 찾을 수 없습니다.');
+    return source.transaction(async (manager) => {
+      await this.lockReviewDomainDependencies(manager, snapshot);
+      const repository = manager.getRepository(ReviewEntity);
+      const review = await repository
+        .createQueryBuilder('review')
+        .setLock('pessimistic_write')
+        .where('review.id = :id', { id })
+        .getOne();
+      if (
+        !review ||
+        review.status !== ReviewTaskStatus.OPEN ||
+        review.subjectId !== snapshot.subjectId ||
+        review.subjectType !== 'FILING'
+      ) {
+        throw new BadRequestException('검토가 변경되었거나 종료되었습니다. 다시 불러오세요.');
+      }
+      const runId =
+        review.parseRunId ?? /^parse:([a-f0-9-]{36})(?::failed)?$/u.exec(review.dedupeKey)?.[1];
+      const run = runId
+        ? await manager
+            .getRepository(ParseRunEntity)
+            .findOneBy({ id: runId, filingId: review.subjectId })
+        : null;
+      const filing = await manager.getRepository(FilingEntity).findOneBy({ id: review.subjectId });
+      const parsed = run?.resultJson?.parsed as Record<string, unknown> | undefined;
+      const crosscheck = run?.resultJson?.crosscheck as Record<string, unknown> | undefined;
+      const latest = await manager.getRepository(ParseRunEntity).findOne({
+        where: { filingId: review.subjectId },
+        order: { createdAt: 'DESC', id: 'DESC' },
+      });
+      if (
+        !run ||
+        !filing ||
+        filing.effectiveState !== EffectiveFilingState.ACTIVE ||
+        latest?.id !== run.id ||
+        !['D003', 'D004'].includes(run.resultType ?? '') ||
+        !['SUCCEEDED', 'PARTIAL'].includes(run.status) ||
+        run.validationStatus === 'REJECTED' ||
+        run.resultJson?.projectionApplied !== false ||
+        run.resultType !== parsed?.detailType ||
+        crosscheck?.status !== 'NOT_APPLICABLE' ||
+        crosscheck?.reason !== `NO_SUMMARY_API_FOR_${run.resultType}` ||
+        !run.rawSha256 ||
+        !parsedSourceMatchesRun(run, parsed) ||
+        !parsedDocumentKindMatchesFiling(filing, parsed) ||
+        !hasParseTypeInvariant({
+          canonicalType: filing.canonicalType,
+          classificationStatus: filing.classificationStatus,
+          inputType: run.inputType,
+          extractorType: run.extractorType,
+          resultType: run.resultType,
+        })
+      ) {
+        throw new BadRequestException('최신의 유효한 원문 추출 결과만 대조할 수 있습니다.');
+      }
+      if (!hasConfirmedSourceReview(run)) {
+        run.resultJson = {
+          ...run.resultJson,
+          sourceReview: {
+            confirmedByAdminId: adminId,
+            confirmedAt: new Date().toISOString(),
+            parseRunId: run.id,
+            rawSha256: run.rawSha256,
+            note: input.note ?? null,
+          },
+        };
+        await manager.getRepository(ParseRunEntity).save(run);
+      }
+      return {
+        id,
+        status: 'OPEN',
+        sourceReviewConfirmed: true,
+        sourceReviewConfirmedAt: (run.resultJson.sourceReview as Record<string, unknown>)
+          .confirmedAt,
+        queued: false,
+      };
+    });
   }
 
   async resolveReview(
@@ -1895,6 +2053,8 @@ export class OrsemDataService {
           filingsToday: this.fixtures.filings.length,
           d001Today: this.fixtures.filings.filter((item) => item.detailType === 'D001').length,
           d002Today: this.fixtures.filings.filter((item) => item.detailType === 'D002').length,
+          d003Today: this.fixtures.filings.filter((item) => item.detailType === 'D003').length,
+          d004Today: this.fixtures.filings.filter((item) => item.detailType === 'D004').length,
           d005Today: this.fixtures.filings.filter((item) => item.detailType === 'D005').length,
           reviewRequired: this.fixtures.reviews.filter(
             (item) => item.status === ReviewTaskStatus.OPEN,
@@ -1909,10 +2069,21 @@ export class OrsemDataService {
     const source = this.source();
     const today = kstDate();
     const filings = source.getRepository(FilingEntity);
+    const countType = (type: string) =>
+      filings
+        .createQueryBuilder('filing')
+        .where('filing.rceptDate = :today', { today })
+        .andWhere(
+          '(filing.canonical_type = :type OR (filing.canonical_type IS NULL AND filing.detailType = :type))',
+          { type },
+        )
+        .getCount();
     const [
       filingsToday,
       d001Today,
       d002Today,
+      d003Today,
+      d004Today,
       d005Today,
       reviewRequired,
       failedJobs,
@@ -1921,9 +2092,11 @@ export class OrsemDataService {
       connectors,
     ] = await Promise.all([
       filings.countBy({ rceptDate: today }),
-      filings.countBy({ rceptDate: today, detailType: 'D001' }),
-      filings.countBy({ rceptDate: today, detailType: 'D002' }),
-      filings.countBy({ rceptDate: today, detailType: 'D005' }),
+      countType('D001'),
+      countType('D002'),
+      countType('D003'),
+      countType('D004'),
+      countType('D005'),
       source.getRepository(ReviewEntity).countBy({ status: ReviewTaskStatus.OPEN }),
       source.getRepository(JobOutboxEntity).countBy({ status: ProcessingStatus.FAILED }),
       source.getRepository(WatchlistItemEntity).count(),
@@ -1936,6 +2109,8 @@ export class OrsemDataService {
         filingsToday,
         d001Today,
         d002Today,
+        d003Today,
+        d004Today,
         d005Today,
         reviewRequired,
         failedJobs,
@@ -1951,6 +2126,8 @@ export class OrsemDataService {
       counts: {
         d001Today: number;
         d002Today: number;
+        d003Today: number;
+        d004Today: number;
         d005Today: number;
         reviewRequired: number;
       };
@@ -1974,6 +2151,8 @@ export class OrsemDataService {
       todayCounts: {
         D001: base.counts.d001Today,
         D002: base.counts.d002Today,
+        D003: base.counts.d003Today,
+        D004: base.counts.d004Today,
         D005: base.counts.d005Today,
       },
       priorities: { P1: p1.items, P2: p2.items },
@@ -2556,9 +2735,11 @@ export class OrsemDataService {
     review: ReviewEntity,
     adminId: string,
   ): Promise<boolean> {
-    const parseRunId = review.dedupeKey.startsWith('parse:')
-      ? review.dedupeKey.slice('parse:'.length)
-      : null;
+    const parseRunId =
+      review.parseRunId ??
+      (review.dedupeKey.startsWith('parse:')
+        ? review.dedupeKey.slice(6).replace(/:failed$/u, '')
+        : null);
     if (!parseRunId) return false;
     const parseRun = await manager.getRepository(ParseRunEntity).findOneBy({
       id: parseRunId,
@@ -2567,10 +2748,17 @@ export class OrsemDataService {
     if (!parseRun || parseRun.resultJson?.projectionApplied !== false) return false;
     const filing = await manager.getRepository(FilingEntity).findOneBy({ id: review.subjectId });
     const parsed = parseRun.resultJson?.parsed as { detailType?: string } | undefined;
+    const sourceReviewRequired = parseRun.resultType === 'D003' || parseRun.resultType === 'D004';
     if (
       !filing ||
       (parseRun.status !== 'SUCCEEDED' && parseRun.status !== 'PARTIAL') ||
       parseRun.resultType !== parsed?.detailType ||
+      (sourceReviewRequired &&
+        (!parsedSourceMatchesRun(parseRun, parsed as Record<string, unknown> | undefined) ||
+          !parsedDocumentKindMatchesFiling(
+            filing,
+            parsed as Record<string, unknown> | undefined,
+          ))) ||
       !hasParseTypeInvariant({
         canonicalType: filing.canonicalType,
         classificationStatus: filing.classificationStatus,
@@ -2584,26 +2772,29 @@ export class OrsemDataService {
         '공시 유형 또는 파싱 검증이 일치하지 않아 결과를 활성화할 수 없습니다.',
       );
     }
-    const repository = manager.getRepository(JobOutboxEntity);
-    const dedupeKey = `manual-apply-projection:${parseRun.id}`;
+    if (sourceReviewRequired && !hasConfirmedSourceReview(parseRun)) {
+      throw new BadRequestException('공식 원문 대조를 먼저 기록한 뒤 별도로 활성화를 확정하세요.');
+    }
     const staging = parseRun.resultJson?.staging as Record<string, unknown> | undefined;
     const crosscheck = parseRun.resultJson?.crosscheck as Record<string, unknown> | undefined;
-    const crosscheckReady =
-      parseRun.resultType === 'D005'
-        ? crosscheck?.status === 'NOT_APPLICABLE'
-        : crosscheck?.status === 'OK' &&
-          Array.isArray(crosscheck.exactReceiptMatches) &&
-          crosscheck.exactReceiptMatches.some(
-            (row: unknown) =>
-              row &&
-              typeof row === 'object' &&
-              (row as Record<string, unknown>).rcept_no === filing.rceptNo,
-          );
+    const crosscheckReady = crosscheckReadyForProjection(
+      parseRun.resultType,
+      crosscheck,
+      filing.rceptNo,
+    );
+    if (sourceReviewRequired && !crosscheckReady) {
+      throw new BadRequestException(
+        '원문 대조에 결합된 공시 유형별 검증 근거가 변경되어 다시 대조해야 합니다.',
+      );
+    }
+    const repository = manager.getRepository(JobOutboxEntity);
+    const dedupeKey = `manual-apply-projection:${parseRun.id}`;
     const payloadJson = {
       filingId: review.subjectId,
       parseRunId: parseRun.id,
       requestedByAdminId: adminId,
-      crosscheckOnly: staging?.mode === 'OFFLINE_INACTIVE' && !crosscheckReady,
+      crosscheckOnly:
+        !sourceReviewRequired && staging?.mode === 'OFFLINE_INACTIVE' && !crosscheckReady,
     };
     const existing = await repository
       .createQueryBuilder('outbox')
@@ -3026,6 +3217,7 @@ export class OrsemDataService {
   private async eventSummaryView(event: Event): Promise<EventSummaryView> {
     const filing = event.filing ? await this.getFiling(event.filing.id) : null;
     const transaction = filing?.transactions[0] ?? null;
+    const holdingChange = filing?.largeHolding?.changes[0] ?? null;
     const company = event.company ?? filing?.company ?? null;
     const watch = company ? await this.watchForCompany(company.id) : null;
     const secSource = event.sourceItems.find((item) => item.source === 'SEC');
@@ -3051,10 +3243,11 @@ export class OrsemDataService {
       translation: !filing && detailType === 'NEWS' ? (source?.translation ?? null) : null,
       summary: event.summary,
       nature: transaction?.nature ?? (filing?.detailType === 'D005' ? 'UNKNOWN' : null),
-      direction: transaction?.direction ?? 'UNKNOWN',
+      direction: transaction?.direction ?? holdingChange?.direction ?? 'UNKNOWN',
       eventAt: secSource
         ? null
         : (transaction?.eventDate ??
+          holdingChange?.eventDate ??
           filing?.tradePlan?.plannedStartDate ??
           kstDateFromInstant(event.occurredAt) ??
           null),
@@ -3136,6 +3329,8 @@ export class OrsemDataService {
     const canonicalEventTypes = {
       D001: 'LARGE_HOLDER',
       D002: 'INSIDER_OWNERSHIP',
+      D003: 'PROXY_SOLICITATION',
+      D004: 'TENDER_OFFER',
       D005: 'TRADE_PLAN',
     } as const;
     const requiresParseReview = Boolean(filingRow && !parse);
@@ -3179,18 +3374,23 @@ export class OrsemDataService {
   }
 
   private isValidActiveParse(filing: FilingEntity, parse: ParseRunEntity): boolean {
-    const parsed = parse.resultJson?.parsed as { detailType?: string } | undefined;
+    const parsed = parse.resultJson?.parsed as Record<string, unknown> | undefined;
+    const parsedType = typeof parsed?.detailType === 'string' ? parsed.detailType : null;
     return (
       (parse.status === ParseStatus.SUCCEEDED || parse.status === ParseStatus.PARTIAL) &&
       parse.resultJson?.projectionApplied === true &&
       parse.validationStatus === 'PASSED' &&
-      parse.resultType === parsed?.detailType &&
+      parse.resultType === parsedType &&
+      (!['D003', 'D004'].includes(parse.resultType ?? '') ||
+        (hasConfirmedSourceReview(parse) &&
+          parsedSourceMatchesRun(parse, parsed) &&
+          parsedDocumentKindMatchesFiling(filing, parsed))) &&
       hasParseTypeInvariant({
         canonicalType: filing.canonicalType,
         classificationStatus: filing.classificationStatus,
         inputType: parse.inputType,
         extractorType: parse.extractorType,
-        resultType: parsed?.detailType,
+        resultType: parsedType,
       })
     );
   }

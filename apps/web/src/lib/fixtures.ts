@@ -126,6 +126,54 @@ const eventSeeds: EventSummary[] = [
     officialUrl: 'https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260903000004',
   },
   {
+    id: 'evt-naver-d003-01',
+    companyId: 'company-naver',
+    companyName: 'NAVER',
+    stockCode: '035420',
+    market: 'KOSPI',
+    priority: 'P3',
+    detailType: 'D003',
+    title: '의결권대리행사권유참고서류',
+    summary: '정기주주총회 의결권 대리행사 권유의 일정과 안건이 원문 대조 후 확인되었습니다.',
+    nature: null,
+    direction: 'NEUTRAL',
+    eventAt: null,
+    rceptDate: '2026-09-02',
+    publishedAt: null,
+    firstObservedAt: '2026-09-02T05:00:00.000Z',
+    submissionKind: 'INITIAL',
+    effectiveState: 'ACTIVE',
+    evidenceGrade: 'A',
+    classificationStatus: 'RULE_CONFIRMED',
+    sourceName: 'OpenDART',
+    rightsMode: 'OFFICIAL_PUBLIC_DATA',
+    officialUrl: 'https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260902000005',
+  },
+  {
+    id: 'evt-samsung-d004-01',
+    companyId: 'company-samsung',
+    companyName: '삼성전자',
+    stockCode: '005930',
+    market: 'KOSPI',
+    priority: 'P3',
+    detailType: 'D004',
+    title: '공개매수결과보고서',
+    summary: '공개매수 응모 수량과 실제 취득 수량이 원문 대조 후 확인되었습니다.',
+    nature: null,
+    direction: 'NEUTRAL',
+    eventAt: null,
+    rceptDate: '2026-09-01',
+    publishedAt: null,
+    firstObservedAt: '2026-09-01T08:00:00.000Z',
+    submissionKind: 'INITIAL',
+    effectiveState: 'ACTIVE',
+    evidenceGrade: 'A',
+    classificationStatus: 'RULE_CONFIRMED',
+    sourceName: 'OpenDART',
+    rightsMode: 'OFFICIAL_PUBLIC_DATA',
+    officialUrl: 'https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260901000006',
+  },
+  {
     id: 'evt-msft-sec-01',
     companyId: 'company-msft',
     companyName: 'Microsoft',
@@ -227,6 +275,80 @@ for (const event of eventSeeds) {
     ownershipChange: event.detailType === 'D002' ? '10000' : null,
     ownershipRateAfter: event.detailType === 'D002' ? '0.02' : null,
     parserVersion: event.detailType.startsWith('D') ? 'dart-parser@0.1.0' : null,
+    largeHolding:
+      event.detailType === 'D001'
+        ? {
+            reporterName: '예시 대량보유자',
+            reportReasonRaw: '주요 계약 변경',
+            holdingPurposeRaw: '단순 투자',
+            reportReasonKind: 'CONTRACT_CHANGE',
+            sharesBefore: '12000000',
+            sharesAfter: '12000000',
+            ownershipRateBefore: '5.10',
+            ownershipRateAfter: '5.10',
+            changes: [],
+          }
+        : null,
+    proxySolicitation:
+      event.detailType === 'D003'
+        ? {
+            solicitorName: 'NAVER 이사회',
+            targetCompanyName: 'NAVER',
+            relationshipRaw: '회사',
+            meetingDate: '2026-09-30',
+            meetingTimeRaw: '오전 9시',
+            meetingAt: null,
+            meetingLocation: '경기도 성남시',
+            solicitationStartDate: '2026-09-10',
+            solicitationEndDate: '2026-09-29',
+            purposeRaw: '정기주주총회 의결권 확보',
+            electronicVoting: true,
+            agendas: [
+              { ordinal: 1, title: '재무제표 승인' },
+              { ordinal: 2, title: '이사 선임' },
+            ],
+          }
+        : null,
+    tenderOffer:
+      event.detailType === 'D004'
+        ? {
+            documentKind: 'RESULT',
+            offerorName: '예시 공개매수자',
+            targetCompanyName: '삼성전자',
+            purposeRaw: '지분 취득',
+            conditionsRaw: '공개매수 조건 충족 시 결제',
+            subscriptionStartDate: '2026-08-01',
+            subscriptionEndDate: '2026-08-31',
+            settlementDate: '2026-09-03',
+            securities: [
+              {
+                rowIndex: 0,
+                securityTypeRaw: '보통주',
+                unitPrice: '75000',
+                currency: 'KRW',
+                minQuantity: null,
+                maxQuantity: '1000000',
+                heldQuantity: '100000',
+                expectedHoldingsMin: null,
+                expectedHoldingsMax: '1100000',
+                offeredQuantity: '900000',
+                acquiredQuantity: '850000',
+                actualAmount: '63750000000',
+              },
+            ],
+          }
+        : null,
+    tradePlan:
+      event.detailType === 'D005'
+        ? {
+            plannedStartDate: '2026-09-11',
+            plannedEndDate: '2026-10-10',
+            plannedQuantity: '1500',
+            plannedAmount: '480000000',
+            methodRaw: '장내매도 예정',
+            planStatus: 'PLANNED',
+          }
+        : null,
     transactions:
       event.id === 'evt-samsung-d002-01'
         ? [
@@ -340,7 +462,7 @@ const sources: SourceFreshness[] = [
     lastSuccessAt: '2026-09-03T08:41:16.000Z',
     lagSeconds: 44,
     rightsMode: 'OFFICIAL_PUBLIC_DATA',
-    message: 'D001 · D002 · D005 폴링 정상',
+    message: 'D001~D005 폴링 정상',
   },
   {
     id: 'sec',
@@ -688,7 +810,7 @@ const queues: QueueMetric[] = [
 function dashboard(): DashboardData {
   return {
     asOf: now,
-    todayCounts: { D001: 6, D002: 23, D005: 2 },
+    todayCounts: { D001: 6, D002: 23, D003: 0, D004: 0, D005: 2 },
     priorities: {
       P1: eventSeeds.filter((event) => event.priority === 'P1').slice(0, 3),
       P2: eventSeeds.filter((event) => event.priority === 'P2').slice(0, 3),
@@ -754,6 +876,7 @@ function asWatchlistItem(company: CompanyDetail): WatchlistItem {
 let fixtureNotificationSettings: NotificationSettings = {
   enabled: false,
   topics: ['FILINGS', 'ANALYSIS', 'CORRECTIONS', 'NEWS'],
+  filingTypes: ['D001', 'D002', 'D005'],
   watchlistOnly: true,
   pushConfigured: false,
   publicKey: null,

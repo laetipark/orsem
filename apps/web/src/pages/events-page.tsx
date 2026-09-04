@@ -18,7 +18,11 @@ import {
   PriorityBadge,
   RightsBadge,
 } from '../components/domain-badges';
-import { EventCompanyIdentity, EventMobileCard } from '../components/event-row';
+import {
+  EventCompanyIdentity,
+  EventMobileCard,
+  hasObservedOwnershipSemantics,
+} from '../components/event-row';
 import { TranslatedText } from '../components/translated-text';
 import {
   Button,
@@ -127,8 +131,18 @@ export function EventsPage() {
         id: 'classification',
         header: '분류',
         cell: ({ row }) =>
-          row.original.detailType === 'SEC' ? (
-            <span>공시 접수</span>
+          !hasObservedOwnershipSemantics(row.original.detailType) ? (
+            <span>
+              {row.original.detailType === 'D003'
+                ? '권유 주요내용'
+                : row.original.detailType === 'D004'
+                  ? '공개매수 주요내용'
+                  : row.original.detailType === 'D005'
+                    ? '향후 거래계획 · 실제 체결 아님'
+                    : row.original.detailType === 'NEWS'
+                      ? '기업 뉴스'
+                      : '공시 접수'}
+            </span>
           ) : (
             <div className="cell-stack">
               <NatureBadge nature={row.original.nature} />
@@ -138,10 +152,16 @@ export function EventsPage() {
       },
       {
         id: 'dates',
-        header: '사건 / 공시',
+        header: '기준일 / 공시',
         cell: ({ row }) => (
           <div className="cell-dates">
-            <span>{formatDate(row.original.eventAt)}</span>
+            <span>
+              {row.original.detailType === 'D005' && row.original.eventAt
+                ? `계획 시작 ${formatDate(row.original.eventAt)}`
+                : hasObservedOwnershipSemantics(row.original.detailType)
+                  ? formatDate(row.original.eventAt)
+                  : '—'}
+            </span>
             <small>
               {row.original.rceptDate
                 ? `접수 ${formatDate(row.original.rceptDate)}`
@@ -203,6 +223,8 @@ export function EventsPage() {
             <option value="">모든 유형</option>
             <option value="D001">{disclosureLabels.D001}</option>
             <option value="D002">{disclosureLabels.D002}</option>
+            <option value="D003">{disclosureLabels.D003}</option>
+            <option value="D004">{disclosureLabels.D004}</option>
             <option value="D005">{disclosureLabels.D005}</option>
             <option value="SEC">{disclosureLabels.SEC}</option>
             <option value="NEWS">{disclosureLabels.NEWS}</option>

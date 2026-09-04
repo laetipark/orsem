@@ -1,4 +1,7 @@
 import { z } from 'zod';
+import { DisclosureDetailType } from './enums';
+
+export const DEFAULT_NOTIFICATION_FILING_TYPES: DisclosureDetailType[] = ['D001', 'D002', 'D005'];
 
 export const notificationTopicSchema = z.enum([
   'FILINGS',
@@ -22,6 +25,11 @@ export const notificationPreferencesSchema = z
       .max(5)
       .refine((items) => new Set(items).size === items.length),
     watchlistOnly: z.boolean(),
+    filingTypes: z
+      .array(z.enum(DisclosureDetailType))
+      .max(5)
+      .refine((items) => new Set(items).size === items.length)
+      .default(DEFAULT_NOTIFICATION_FILING_TYPES),
   })
   .strict();
 export type NotificationPreferences = z.infer<typeof notificationPreferencesSchema>;

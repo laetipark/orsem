@@ -1,6 +1,6 @@
 import type { DisclosureDetailType } from './enums';
 
-export const OPENDART_CLASSIFIER_VERSION = 'opendart-title-v1';
+export const OPENDART_CLASSIFIER_VERSION = 'opendart-title-v2';
 export type FilingClassificationStatus =
   'CONFIRMED' | 'UNKNOWN' | 'UNSUPPORTED' | 'MANUAL_OVERRIDE' | 'CONFLICT';
 
@@ -16,7 +16,21 @@ export interface FilingClassification {
 export function isSupportedFilingType(
   value: string | null | undefined,
 ): value is DisclosureDetailType {
-  return value === 'D001' || value === 'D002' || value === 'D005';
+  return (
+    value === 'D001' || value === 'D002' || value === 'D003' || value === 'D004' || value === 'D005'
+  );
+}
+
+export type FilingDocumentKind = 'REPORT' | 'EXPLANATION' | 'RESULT' | 'OTHER';
+
+/** A document's purpose is independent of whether this submission corrects an earlier one. */
+export function classifyFilingDocumentKind(reportName: string): FilingDocumentKind {
+  const title = reportName.normalize('NFKC').replace(/\s/gu, '');
+  if (title.includes('공개매수결과보고서')) return 'RESULT';
+  if (title.includes('공개매수설명서')) return 'EXPLANATION';
+  if (title.includes('공개매수신고서') || title.includes('의결권대리행사권유참고서류'))
+    return 'REPORT';
+  return 'OTHER';
 }
 
 /** Query filters are observations, never evidence of a filing's canonical type. */
@@ -66,6 +80,7 @@ export function classifyOpenDartFiling(input: {
       queryDetailType: input.queryDetailType ?? null,
       manualCanonicalType: manual,
       queryTypeUsedAsCanonical: false,
+      documentKind: classifyFilingDocumentKind(input.reportName),
     },
   };
 }

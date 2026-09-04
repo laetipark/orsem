@@ -1,4 +1,5 @@
 import { DisclosureDetailType, WatchPriority, WorkerJobName } from '@orsem/contracts';
+import { OPENDART_WORKER_TYPES } from '../opendart/disclosure-policy';
 
 export interface PollScheduleDefinition {
   readonly id: string;
@@ -110,7 +111,7 @@ const CADENCES = [
 ];
 
 export const OPENDART_POLL_SCHEDULES: readonly PollScheduleDefinition[] = Object.freeze(
-  Object.values(DisclosureDetailType).flatMap((detailType) =>
+  OPENDART_WORKER_TYPES.flatMap((detailType) =>
     CADENCES.map((cadence) => ({
       id: `opendart-${detailType.toLowerCase()}-${cadence.cadence.toLowerCase()}`,
       detailType,

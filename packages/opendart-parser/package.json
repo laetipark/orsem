@@ -2,7 +2,7 @@
   "name": "@orsem/opendart-parser",
   "version": "0.1.0",
   "private": true,
-  "description": "Bounded OpenDART archive reader and deterministic D001/D002/D005 parser",
+  "description": "Bounded OpenDART archive reader and deterministic D001-D005 parser",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [

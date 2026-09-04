@@ -241,6 +241,11 @@ export const api = {
     request<CursorPage<ReviewItem>>(
       `/reviews${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`,
     ),
+  confirmReviewSource: (id: string, note: string | null) =>
+    request<{ sourceReviewConfirmed: boolean; queued: false }>(`/reviews/${id}/source-review`, {
+      method: 'POST',
+      body: JSON.stringify({ confirmed: true, ...(note ? { note } : {}) }),
+    }),
   resolveReview: (
     id: string,
     resolution: ReviewResolution['resolution'],

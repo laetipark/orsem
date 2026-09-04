@@ -100,7 +100,14 @@ function loadSourceModules() {
 }
 
 function rowsOf(parsed) {
-  return parsed?.transactions ?? parsed?.changes ?? parsed?.planItems ?? [];
+  return (
+    parsed?.transactions ??
+    parsed?.changes ??
+    parsed?.planItems ??
+    parsed?.agendas ??
+    parsed?.securities ??
+    []
+  );
 }
 
 function warningsOf(parsed) {
@@ -114,6 +121,7 @@ function warningsOf(parsed) {
 }
 
 function confidenceOf(parsed) {
+  if (Number.isFinite(parsed.confidence)) return parsed.confidence;
   const rows = rowsOf(parsed);
   const rowsConfidence =
     parsed.detailType === 'D001'
@@ -138,7 +146,7 @@ const OMITTED_FIELDS = new Set([
   'tablesScanned',
 ]);
 // Source prose is represented by hashes, never copied into the audit export.
-const TEXT_FIELDS = /Raw$|Name$|^reporterName$|^headerPath$/u;
+const TEXT_FIELDS = /Raw$|Name$|^reporterName$|^headerPath$|^title$|^meetingLocation$/u;
 function fieldMap(value, prefix = '', output = {}) {
   if (Array.isArray(value)) {
     output[`${prefix}.length`] = value.length;
@@ -258,6 +266,7 @@ async function auditCorpus(options) {
       title_detected_type: resolved.titleDetectedType,
       canonical_type: resolved.canonicalType,
       classification_status: resolved.classificationStatus,
+      document_kind: classification.classifyFilingDocumentKind(filing?.report_name ?? ''),
       classifier_version: resolved.classifierVersion,
       parser_version: parser.OPENDART_PARSER_VERSION,
       normalizer_version: parser.OPENDART_NORMALIZER_VERSION,
@@ -268,6 +277,7 @@ async function auditCorpus(options) {
           parser.OPENDART_NORMALIZER_VERSION,
           resolved.classifierVersion,
           resolved.canonicalType,
+          classification.classifyFilingDocumentKind(filing?.report_name ?? ''),
         ]),
       ),
       source_verified: false,
@@ -425,6 +435,7 @@ async function auditCorpus(options) {
         'previous_result_type',
         'title_detected_type',
         'canonical_type',
+        'document_kind',
         'classification_status',
         'parser_version',
         'normalizer_version',

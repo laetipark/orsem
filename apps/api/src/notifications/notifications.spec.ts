@@ -38,6 +38,7 @@ const admin: NotificationOwner = {
   isAdmin: true,
 };
 const preferences: NotificationPreferences = {
+  filingTypes: ['D001', 'D002', 'D005'],
   enabled: true,
   topics: ['FILINGS', 'NEWS'],
   watchlistOnly: true,
@@ -79,6 +80,7 @@ test('preferences default off and remain isolated by session identity while meta
   const defaults = await service.settings(member);
   assert.equal(defaults.enabled, false);
   assert.deepEqual(defaults.topics, ['FILINGS', 'ANALYSIS', 'CORRECTIONS', 'NEWS']);
+  assert.deepEqual(defaults.filingTypes, ['D001', 'D002', 'D005']);
   assert.equal(defaults.watchlistOnly, true);
   assert.equal(defaults.pushConfigured, false);
   assert.equal(defaults.publicKey, null);
@@ -100,6 +102,14 @@ test('preferences default off and remain isolated by session identity while meta
   assert.equal(JSON.stringify(own).includes(pushEnvironment.WEB_PUSH_PRIVATE_KEY), false);
   assert.equal((await service.settings(other)).enabled, false);
   assert.deepEqual((await service.settings(other)).subscriptions, []);
+});
+
+test('five filing preferences require explicit opt-in and preserve an explicit empty selection', async () => {
+  const service = fixtureService();
+  await service.updateSettings(member, { ...preferences, filingTypes: ['D003', 'D004'] });
+  assert.deepEqual((await service.settings(member)).filingTypes, ['D003', 'D004']);
+  await service.updateSettings(member, { ...preferences, filingTypes: [] });
+  assert.deepEqual((await service.settings(member)).filingTypes, []);
 });
 
 test('subscription keys can rotate only for their current owner and canonical endpoint aliases cannot take over', async () => {

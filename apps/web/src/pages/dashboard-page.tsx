@@ -20,7 +20,7 @@ import { Button, Card, CardContent, CardHeader, ErrorState, LoadingState } from 
 import type { Session } from '../types';
 import './dashboard-page.css';
 
-const disclosureTypes = ['D001', 'D002', 'D005'] as const;
+const disclosureTypes = ['D001', 'D002', 'D003', 'D004', 'D005'] as const;
 
 export function DashboardPage() {
   const session = useOutletContext<Session>();
@@ -169,7 +169,7 @@ export function DashboardPage() {
               <small>{disclosureDescriptions[type]}</small>
             </div>
             <strong>
-              {data.todayCounts[type]}
+              {data.todayCounts[type] ?? 0}
               <span>건</span>
             </strong>
             <ChevronRight size={18} aria-hidden="true" />

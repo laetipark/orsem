@@ -1,3 +1,9 @@
+import type {
+  TransactionNature,
+  ProxySolicitation,
+  TenderOffer,
+  LargeHolding,
+} from '@orsem/contracts';
 export type Region = 'all' | 'kr' | 'us';
 export type NewsSourceKind =
   | 'OFFICIAL_DISCLOSURE'
@@ -6,24 +12,10 @@ export type NewsSourceKind =
   | 'PRESS_RELEASE'
   | 'INDEPENDENT_MEDIA'
   | 'UNKNOWN';
-export type DisclosureType = 'D001' | 'D002' | 'D005' | 'NEWS' | 'SEC';
+export type DisclosureType = 'D001' | 'D002' | 'D003' | 'D004' | 'D005' | 'NEWS' | 'SEC';
 export type Priority = 'P1' | 'P2' | 'P3' | 'P4';
 export type Direction = 'INCREASE' | 'DECREASE' | 'NEUTRAL' | 'UNKNOWN';
-export type TransactionNature =
-  | 'MARKET_BUY'
-  | 'MARKET_SELL'
-  | 'BLOCK_BUY'
-  | 'BLOCK_SELL'
-  | 'GIFT_IN'
-  | 'GIFT_OUT'
-  | 'OPTION_EXERCISE'
-  | 'RSU_RSA'
-  | 'CONVERSION'
-  | 'STOCK_SPLIT_MERGER'
-  | 'TRUST_TRANSFER'
-  | 'INHERITANCE'
-  | 'OTHER'
-  | 'UNKNOWN';
+export type { TransactionNature } from '@orsem/contracts';
 export type RightsMode =
   | 'OFFICIAL_PUBLIC_DATA'
   | 'PRIVATE_DISPLAY_ONLY'
@@ -176,6 +168,17 @@ export interface EventSummary {
 }
 
 export interface EventDetail extends EventSummary {
+  tradePlan?: {
+    plannedStartDate: string | null;
+    plannedEndDate: string | null;
+    plannedQuantity: string | null;
+    plannedAmount: string | null;
+    methodRaw: string | null;
+    planStatus: 'PLANNED' | 'PARTIALLY_EXECUTED' | 'EXECUTED' | 'CANCELLED';
+  } | null;
+  proxySolicitation?: ProxySolicitation | null;
+  tenderOffer?: TenderOffer | null;
+  largeHolding?: LargeHolding | null;
   filerName: string;
   reporterName: string | null;
   relationship: string | null;
@@ -211,7 +214,7 @@ export interface SourceFreshness {
 
 export interface DashboardData {
   asOf: string;
-  todayCounts: Record<'D001' | 'D002' | 'D005', number>;
+  todayCounts: Record<'D001' | 'D002' | 'D005', number> & Partial<Record<'D003' | 'D004', number>>;
   priorities: {
     P1: EventSummary[];
     P2: EventSummary[];
@@ -351,6 +354,9 @@ export interface ReviewItem {
   classificationStatus?: string | null;
   officialUrl?: string | null;
   staged?: boolean;
+  sourceReviewRequired?: boolean;
+  sourceReviewConfirmed?: boolean;
+  sourceReviewConfirmedAt?: string | null;
   validationStatus?: string | null;
   crosscheckStatus?: string | null;
   crosscheckReady?: boolean;
@@ -501,6 +507,7 @@ export interface MarketHistory {
 
 export type NotificationTopic = 'FILINGS' | 'ANALYSIS' | 'CORRECTIONS' | 'NEWS' | 'OPERATIONS';
 export interface NotificationPreferences {
+  filingTypes?: Array<Exclude<DisclosureType, 'NEWS' | 'SEC'>>;
   enabled: boolean;
   topics: NotificationTopic[];
   watchlistOnly: boolean;

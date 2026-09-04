@@ -13,10 +13,62 @@ const {
   parseArguments,
   fingerprint,
   sourceOrder,
+  sameJson,
   stageCorpus,
   applyFiling,
 } = require('./stage-parser-corpus.cjs');
 const sha = (value) => createHash('sha256').update(value).digest('hex');
+
+test('MySQL JSON decimal normalization does not invalidate an otherwise exact inactive run', () => {
+  assert.equal(
+    sameJson(
+      { repairedByteRatio: 0.00011214114832535884 },
+      { repairedByteRatio: 0.00011214114832535885 },
+    ),
+    true,
+  );
+  assert.equal(
+    sameJson({ repairedByteRatio: 0.00011214114832535884 }, { repairedByteRatio: 0.000113 }),
+    false,
+  );
+  assert.equal(sameJson({ ordinal: 1 }, { ordinal: 2 }), false);
+});
+
+function reusableCandidate({ activeParseRunId = 'old-active' } = {}) {
+  const filing = {
+    id: 'filing',
+    company_id: 'company',
+    rcept_no: 'receipt',
+    report_name: '임원ㆍ주요주주특정증권등소유상황보고서',
+    source_detail_type: null,
+    classification_status: 'CONFIRMED',
+    canonical_type: 'D002',
+    active_parse_run_id: activeParseRunId,
+  };
+  const resolved = classifyOpenDartFiling({ reportName: filing.report_name });
+  return {
+    filing,
+    resolved,
+    reuse: 'existing-fingerprint',
+    previous: { id: 'old-run', raw_sha256: 'a'.repeat(64), started_at: '2026-09-01' },
+    document: {
+      id: 'document',
+      sha256: 'a'.repeat(64),
+      object_uri: 'file:///tmp/source.zip',
+      rights_mode: 'OFFICIAL_PUBLIC_DATA',
+      retrieved_at: '2026-09-01',
+    },
+    parsed: { detailType: 'D002' },
+    extractorType: 'D002',
+    status: 'PARTIAL',
+    validation: 'REVIEW_REQUIRED',
+    errorCode: null,
+    confidence: 0.9,
+    candidateErrors: [],
+    audits: [],
+    warnings: [],
+  };
+}
 
 test('mixed reuse cannot make an older SHA the latest and releases the company lock without writes', async () => {
   const filing = {
@@ -71,6 +123,110 @@ test('mixed reuse cannot make an older SHA the latest and releases the company l
   );
   assert.match(queries[0], /GET_LOCK/u);
   assert.match(queries.at(-1), /RELEASE_LOCK/u);
+});
+
+test('an active fingerprint is rejected before staging mutates filing metadata', async () => {
+  const candidate = reusableCandidate({ activeParseRunId: 'existing-run' });
+  const saved = {
+    id: 'existing-run',
+    reuse_fingerprint: candidate.reuse,
+    raw_sha256: candidate.previous.raw_sha256,
+  };
+  const queries = [];
+  let rollbacks = 0;
+  const connection = {
+    beginTransaction: async () => {},
+    commit: async () => {
+      throw new Error('must not commit');
+    },
+    rollback: async () => {
+      rollbacks += 1;
+    },
+    query: async (sql) => {
+      queries.push(sql);
+      if (sql.includes('GET_LOCK')) return [[{ acquired: 1 }]];
+      if (sql.includes('RELEASE_LOCK')) return [[{ released: 1 }]];
+      if (sql.startsWith('SELECT * FROM filings ')) return [[candidate.filing]];
+      if (sql.includes('FROM filing_documents')) return [[candidate.document]];
+      if (sql.includes('FROM parse_runs')) return [[saved]];
+      throw new Error(`unexpected query: ${sql}`);
+    },
+  };
+  await assert.rejects(
+    applyFiling(connection, [candidate], 'audit-hash'),
+    /EXISTING_FINGERPRINT_RUN_NOT_REUSABLE/u,
+  );
+  assert.equal(rollbacks, 1);
+  assert.equal(
+    queries.some((sql) => /^(INSERT|UPDATE|DELETE)/u.test(sql)),
+    false,
+  );
+});
+
+test('an identical inactive staging run is reused without another parse run or review', async () => {
+  const candidate = reusableCandidate();
+  const auditHash = 'audit-hash';
+  const saved = {
+    id: 'staged-run',
+    reuse_fingerprint: candidate.reuse,
+    raw_sha256: candidate.previous.raw_sha256,
+    parser_version: parser.OPENDART_PARSER_VERSION,
+    normalizer_version: parser.OPENDART_NORMALIZER_VERSION,
+    classifier_version: candidate.resolved.classifierVersion,
+    input_type: 'D002',
+    extractor_type: 'D002',
+    result_type: 'D002',
+    status: 'PARTIAL',
+    validation_status: 'REVIEW_REQUIRED',
+    error_code: null,
+    confidence: '0.900000',
+    candidate_errors_json: [],
+    normalization_audits_json: [],
+    result_json: {
+      parsed: candidate.parsed,
+      crosscheck: { status: 'NOT_RUN' },
+      projectionApplied: false,
+      protectedActiveParseRunId: 'old-active',
+      staging: {
+        mode: 'OFFLINE_INACTIVE',
+        corpusSha256: auditHash,
+        sourceDocumentId: candidate.document.id,
+        requiresIndividualReview: true,
+      },
+    },
+  };
+  const queries = [];
+  let commits = 0;
+  const connection = {
+    beginTransaction: async () => {},
+    commit: async () => {
+      commits += 1;
+    },
+    rollback: async () => {},
+    query: async (sql) => {
+      queries.push(sql);
+      if (sql.includes('GET_LOCK')) return [[{ acquired: 1 }]];
+      if (sql.includes('RELEASE_LOCK')) return [[{ released: 1 }]];
+      if (sql.startsWith('SELECT * FROM filings ')) return [[candidate.filing]];
+      if (sql.includes('FROM filing_documents')) return [[candidate.document]];
+      if (sql.includes('FROM parse_runs')) return [[saved]];
+      if (sql.startsWith('UPDATE filings SET')) return [{ affectedRows: 1 }];
+      throw new Error(`unexpected query: ${sql}`);
+    },
+  };
+  await assert.doesNotReject(async () => {
+    assert.deepEqual(await applyFiling(connection, [candidate], auditHash), {
+      inserted: 0,
+      reused: 1,
+    });
+  });
+  assert.equal(commits, 1);
+  assert.equal(candidate.stagedRunId, saved.id);
+  assert.equal(candidate.protectedActiveParseRunId, 'old-active');
+  assert.equal(
+    queries.some((sql) => /^INSERT/u.test(sql)),
+    false,
+  );
 });
 
 test('staging defaults to offline dry-run and requires explicit apply', () => {

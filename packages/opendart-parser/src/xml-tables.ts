@@ -2,7 +2,13 @@ import { XMLParser, XMLValidator } from 'fast-xml-parser';
 import { OpenDartPayloadError } from './errors';
 import { normalizeWhitespace } from './normalizers';
 import { assertSafeXml } from './security';
-import { deepFreeze, type CanonicalCell, type CanonicalTable, type ParserWarning } from './types';
+import {
+  deepFreeze,
+  type CanonicalCell,
+  type CanonicalTable,
+  type DisclosureDocumentContext,
+  type ParserWarning,
+} from './types';
 
 type OrderedNode = Record<string, unknown>;
 
@@ -390,6 +396,7 @@ function tableCaption(tableChildren: readonly OrderedNode[]): string | null {
 }
 
 export interface CanonicalizeResult {
+  readonly documentContext: DisclosureDocumentContext;
   readonly tables: readonly CanonicalTable[];
   readonly warnings: readonly ParserWarning[];
 }
@@ -415,6 +422,24 @@ export function canonicalizeXmlTables(
   }
   const parsed = parser.parse(xml) as OrderedNode[];
   assertTreeComplexity(parsed);
+  const root = parsed.find((node) =>
+    Object.keys(node).some((tag) => tag.toUpperCase() === 'DOCUMENT'),
+  );
+  const rootTag = root && tagKeys(root).find((tag) => tag.toUpperCase() === 'DOCUMENT');
+  const documentChildren = root && rootTag ? childrenOf(root, rootTag) : [];
+  const documentText = (name: string): string | null => {
+    const nodes = documentChildren.filter((node) =>
+      tagKeys(node).some((tag) => tag.toUpperCase() === name),
+    );
+    if (nodes.length !== 1) return null;
+    const value = normalizeWhitespace(decodeXmlText(textOf(nodes[0])));
+    return value || null;
+  };
+  const documentContext: DisclosureDocumentContext = {
+    sourceEntryName,
+    documentName: documentText('DOCUMENT-NAME'),
+    companyName: documentText('COMPANY-NAME'),
+  };
   const tables: CanonicalTable[] = [];
   let sourceTableIndex = 0;
 
@@ -463,5 +488,5 @@ export function canonicalizeXmlTables(
     }
   };
   visit(parsed, []);
-  return deepFreeze({ tables, warnings: [] });
+  return deepFreeze({ tables, documentContext, warnings: [] });
 }

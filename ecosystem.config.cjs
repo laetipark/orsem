@@ -49,6 +49,7 @@ const newsTranslationEnvironment = fileBackedEnvironment([
 // 빈 SEC_USER_AGENT가 .env의 유효한 값을 가릴 수 있습니다.
 const connectorEnvironment = fileBackedEnvironment([
   'OPENDART_API_KEY',
+  'OPENDART_GLOBAL_ALERT_TYPES',
   'OPENDART_POLL_OVERLAP_DAYS',
   'MARKET_DATA_PROVIDER',
   'TOSS_CREDENTIALS_FILE',

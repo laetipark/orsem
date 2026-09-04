@@ -7,7 +7,7 @@ import {
   PrimaryColumn,
   UpdateDateColumn,
 } from 'typeorm';
-import type { AlertStatus, NotificationTopic } from '@orsem/contracts';
+import type { AlertStatus, NotificationTopic, DisclosureDetailType } from '@orsem/contracts';
 
 const instant = { type: 'datetime' as const, precision: 3 };
 @Entity({ name: 'notification_preferences' })
@@ -16,6 +16,8 @@ export class NotificationPreferenceEntity {
   @Column({ type: 'boolean', default: false }) enabled!: boolean;
   @Column({ name: 'topics_json', type: 'json' }) topicsJson!: NotificationTopic[];
   @Column({ name: 'watchlist_only', type: 'boolean', default: true }) watchlistOnly!: boolean;
+  @Column({ name: 'filing_types_json', type: 'json', nullable: true }) filingTypesJson!:
+    DisclosureDetailType[] | null;
   @CreateDateColumn({ name: 'created_at', ...instant }) createdAt!: Date;
   @UpdateDateColumn({ name: 'updated_at', ...instant }) updatedAt!: Date;
 }

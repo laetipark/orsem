@@ -15,6 +15,7 @@ import {
 } from '@orsem/database';
 import type { DataSource, EntityManager } from 'typeorm';
 import { loadWorkerConfig } from '../src/config/worker-config';
+import type { WorkerConfig } from '../src/config/worker-config';
 import {
   PushDeliveryService,
   PUSH_LEASE_MS,
@@ -28,6 +29,7 @@ import {
   pushPreferenceAllows,
   pushTopicForAlert,
 } from '../src/push/push-policy';
+import { AlertOutboxDispatcherService } from '../src/queues/alert-outbox-dispatcher.service';
 import { PushRequestError, WebPushClient, type WebPushSend } from '../src/push/web-push.client';
 
 const NOW = new Date('2026-09-04T14:00:00Z');
@@ -237,6 +239,46 @@ beforeEach(() => jest.useFakeTimers({ now: NOW }));
 afterEach(() => jest.useRealTimers());
 
 describe('personal push fan-out and source policy', () => {
+  it.each(['D003', 'D004'])(
+    'requires explicit personal %s consent and rechecks it before delivery',
+    async (detailType) => {
+      const h = harness();
+      const alert = h.tables.get(AlertEntity)![0]!;
+      const event = h.tables.get(EventClusterEntity)![0]!;
+      const filing = h.tables.get(FilingEntity)![0]!;
+      const preference = h.tables.get(NotificationPreferenceEntity)![0]!;
+      Object.assign(filing, {
+        detailType,
+        canonicalType: detailType,
+        reportName: detailType === 'D003' ? '의결권대리행사권유참고서류' : '공개매수신고서',
+      });
+      alert.payloadJson.detailType = detailType;
+      event.canonicalEventType =
+        detailType === 'D003' ? EventType.PROXY_SOLICITATION : EventType.TENDER_OFFER;
+      const fanout = new PushFanoutService();
+      expect(await fanout.enqueueAlert(h.db.manager, alert as AlertEntity, NOW)).toBe(0);
+      preference.filingTypesJson = [detailType];
+      expect(await fanout.enqueueAlert(h.db.manager, alert as AlertEntity, NOW)).toBe(1);
+      Object.assign(h.tables.get(WatchlistItemEntity)![0]!, {
+        priority: 'P1',
+        realtimeAlerts: true,
+      });
+      const dispatcher = new AlertOutboxDispatcherService(h.db, fanout, {
+        openDartGlobalAlertTypes: ['D001', 'D002', 'D005'],
+      } as unknown as WorkerConfig);
+      expect(
+        await (
+          dispatcher as unknown as {
+            externalFanOutAllowed: (manager: EntityManager, alert: AlertEntity) => Promise<boolean>;
+          }
+        ).externalFanOutAllowed(h.manager, alert as AlertEntity),
+      ).toBe(false);
+      const delivery = h.tables.get(PushDeliveryEntity)![0]! as PushDeliveryEntity;
+      expect(await fanout.resolveDelivery(h.db.manager, delivery, NOW)).not.toBeNull();
+      preference.filingTypesJson = [];
+      expect(await fanout.resolveDelivery(h.db.manager, delivery, NOW)).toBeNull();
+    },
+  );
   it('classifies detected/parsed/correction alerts and excludes cancelled or superseded events', () => {
     const alert = sampleAlert();
     const event = sampleEvent();

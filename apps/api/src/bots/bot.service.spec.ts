@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { AlertStatus } from '@orsem/contracts';
 import { AlertEntity, BotDeliveryEntity } from '@orsem/database';
-import { BotService } from './bot.service';
+import { alertAllowedByGlobalTypes, BotService } from './bot.service';
 import { loadAppConfig } from '../config/app-config';
 import { FixtureStoreService } from '../fixtures/fixture-store.service';
 import { DatabaseRuntimeService } from '../persistence/database-runtime.service';
@@ -123,4 +123,24 @@ test('bot pull cancels old cancelled alerts before leasing while preserving oper
   assert.equal(rows[0]?.status, AlertStatus.CANCELLED);
   assert.equal(rows[0]?.attempts, 0);
   assert.equal(rows[1]?.status, AlertStatus.SENDING);
+});
+
+test('global filing type selection defaults to old types and explicit empty disables filing alerts only', () => {
+  assert.deepEqual(loadAppConfig({ NODE_ENV: 'test' }).opendartGlobalAlertTypes, [
+    'D001',
+    'D002',
+    'D005',
+  ]);
+  assert.deepEqual(
+    loadAppConfig({ NODE_ENV: 'test', OPENDART_GLOBAL_ALERT_TYPES: 'D003,D005,D003' })
+      .opendartGlobalAlertTypes,
+    ['D003', 'D005'],
+  );
+  assert.deepEqual(
+    loadAppConfig({ NODE_ENV: 'test', OPENDART_GLOBAL_ALERT_TYPES: '' }).opendartGlobalAlertTypes,
+    [],
+  );
+  assert.equal(alertAllowedByGlobalTypes({ detailType: 'D003' }, []), false);
+  assert.equal(alertAllowedByGlobalTypes({ detailType: 'NEWS' }, []), true);
+  assert.equal(alertAllowedByGlobalTypes({ phase: 'OPERATIONAL' }, []), true);
 });

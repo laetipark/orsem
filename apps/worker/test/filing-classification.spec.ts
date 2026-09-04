@@ -54,10 +54,10 @@ describe('canonical OpenDART document classification', () => {
     ['[기재정정]공개매수신고서', 'D004'],
     ['[첨부정정]공개매수신고서', 'D004'],
     ['[기재정정]공개매수설명서', 'D004'],
-  ])('retains unsupported family %s without selecting D005', (reportName, expected) => {
+  ])('selects the dedicated family for %s without selecting D005', (reportName, expected) => {
     expect(classifyOpenDartFiling({ reportName, queryDetailType: 'D005' })).toMatchObject({
       canonicalType: expected,
-      classificationStatus: 'UNSUPPORTED',
+      classificationStatus: 'CONFIRMED',
     });
   });
 
@@ -131,6 +131,6 @@ describe('canonical OpenDART document classification', () => {
         resultType: 'D004',
         classificationStatus: 'MANUAL_OVERRIDE',
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 });

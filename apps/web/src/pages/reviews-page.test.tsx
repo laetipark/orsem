@@ -66,6 +66,50 @@ describe('plan execution review', () => {
 });
 
 describe('staged parse review', () => {
+  it('records D003/D004 source comparison without activating, then exposes a separate confirm action', () => {
+    const onResolve = vi.fn();
+    const onConfirmSource = vi.fn();
+    const { rerender } = render(
+      <MemoryRouter>
+        <ReviewCard
+          review={{
+            ...review,
+            detailType: 'D003',
+            planExecutionCandidates: [],
+            sourceReviewRequired: true,
+            sourceReviewConfirmed: false,
+            candidateEvidence: ['권유자: 테스트 주주'],
+          }}
+          onResolve={onResolve}
+          onConfirmSource={onConfirmSource}
+          pending={false}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole('button', { name: '먼저 원문 대조 필요' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: '원문 대조 완료 기록' }));
+    expect(onConfirmSource).toHaveBeenCalledWith(null);
+    expect(onResolve).not.toHaveBeenCalled();
+    rerender(
+      <MemoryRouter>
+        <ReviewCard
+          review={{
+            ...review,
+            detailType: 'D003',
+            planExecutionCandidates: [],
+            sourceReviewRequired: true,
+            sourceReviewConfirmed: true,
+            sourceReviewConfirmedAt: '2026-09-03T00:00:00.000Z',
+          }}
+          onResolve={onResolve}
+          onConfirmSource={onConfirmSource}
+          pending={false}
+        />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: '검토 확정' }));
+    expect(onResolve).toHaveBeenCalledWith('CONFIRMED', null, undefined);
+  });
   it('asks for official evidence first and leaves final activation as a separate action', () => {
     const onResolve = vi.fn();
     render(

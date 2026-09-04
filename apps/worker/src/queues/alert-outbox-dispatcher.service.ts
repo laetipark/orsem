@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { AlertStatus, DeliveryChannel, WatchPriority } from '@orsem/contracts';
 import {
   AlertDeliveryEntity,
@@ -8,12 +8,15 @@ import {
   BotDeliveryEntity,
   BotRoomBindingEntity,
   EventClusterEntity,
+  EventClusterItemEntity,
+  FilingEntity,
   FILING_ALERT_INELIGIBLE,
   filingAlertIsEligible,
   WatchlistItemEntity,
 } from '@orsem/database';
 import { DataSource, IsNull, LessThanOrEqual, type EntityManager } from 'typeorm';
 import { PushFanoutService } from '../push/push-fanout.service';
+import { WORKER_CONFIG, type WorkerConfig } from '../config/worker-config';
 
 const BATCH_SIZE = 50;
 const MAX_ATTEMPTS = 10;
@@ -70,6 +73,7 @@ export class AlertOutboxDispatcherService {
   public constructor(
     private readonly dataSource: DataSource,
     private readonly pushFanout: PushFanoutService,
+    @Inject(WORKER_CONFIG) private readonly config: WorkerConfig,
   ) {}
 
   public async dispatch(): Promise<{ claimed: number; dispatched: number }> {
@@ -261,6 +265,27 @@ export class AlertOutboxDispatcherService {
       where: { id: alert.eventClusterId },
     });
     if (!event?.companyId) return false;
+    const memberships = await manager.getRepository(EventClusterItemEntity).find({
+      where: { eventClusterId: event.id, itemType: 'FILING' },
+      order: { isPrimary: 'DESC' },
+    });
+    if (memberships.length > 0) {
+      const filingId = stringValue(alert.payloadJson['filingId']);
+      const rceptNo = stringValue(alert.payloadJson['rceptNo']);
+      const repository = manager.getRepository(FilingEntity);
+      const filing = filingId
+        ? await repository.findOneBy({ id: filingId })
+        : rceptNo
+          ? await repository.findOneBy({ rceptNo })
+          : await repository.findOneBy({ id: memberships[0]!.itemId });
+      if (!filing) return false;
+      if (
+        filing.source === 'OPENDART' &&
+        !this.config.openDartGlobalAlertTypes.some((type) => type === filing.canonicalType)
+      ) {
+        return false;
+      }
+    }
     const watch = await manager.getRepository(WatchlistItemEntity).findOne({
       where: { companyId: event.companyId },
     });

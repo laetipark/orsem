@@ -1,4 +1,6 @@
 export * from './entities';
+export * from './disclosure-entities';
+export * from './migrations/1788402000000-AddDisclosureDomains';
 export * from './market-entities';
 export * from './migrations/1788396000000-AddMarketIndicators';
 export * from './transformers';

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { DisclosureDetailType, DEFAULT_NOTIFICATION_FILING_TYPES } from '@orsem/contracts';
 import { isAbsolute, relative } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { loadWebPushConfig, type WebPushConfig } from '@orsem/database';
@@ -78,6 +79,20 @@ const schema = z
     totpEncryptionKey: optionalString,
     rawDocumentDir: z.string().default('/tmp/orsem/raw'),
     opendartApiKey: optionalString,
+    opendartGlobalAlertTypes: z.preprocess(
+      (value) =>
+        typeof value === 'string'
+          ? [
+              ...new Set(
+                value
+                  .split(',')
+                  .map((item) => item.trim())
+                  .filter(Boolean),
+              ),
+            ]
+          : (value ?? DEFAULT_NOTIFICATION_FILING_TYPES),
+      z.array(z.enum(DisclosureDetailType)),
+    ),
     marketDataProvider: z.literal('toss').default('toss'),
     tossClientId: optionalString,
     tossClientSecret: optionalString,
@@ -233,6 +248,7 @@ export function loadAppConfig(environment: NodeJS.ProcessEnv = process.env): App
     totpEncryptionKey: environment.TOTP_ENCRYPTION_KEY,
     rawDocumentDir: environment.RAW_DOCUMENT_DIR,
     opendartApiKey: environment.OPENDART_API_KEY,
+    opendartGlobalAlertTypes: environment.OPENDART_GLOBAL_ALERT_TYPES,
     marketDataProvider: environment.MARKET_DATA_PROVIDER,
     tossClientId: tossCredentials.clientId,
     tossClientSecret: tossCredentials.clientSecret,

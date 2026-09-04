@@ -10,9 +10,9 @@ describe('display-only domain terminology', () => {
     expect(original).toBe('P1 · D001 / D002 / D005 연결 확인');
   });
 
-  it('preserves other identifiers, adjacent words and unsupported disclosure domains', () => {
-    const value = 'XP1 P10 P2_label D00100 한P3 D002공시 D003 D004';
-    expect(displayDomainText(value)).toBe(value);
+  it('preserves adjacent identifiers while labeling all supported disclosure domains', () => {
+    const value = 'XP1 P10 P2_label D00100 한P3 D002공시 D003 D004 D099';
+    expect(displayDomainText(value)).toBe(value.replace('D003 D004', '의결권 위임 권유 공개매수'));
     expect(displayDomainText('(P4) [D005]')).toBe('(일반 뉴스) [주식 거래계획]');
   });
 });

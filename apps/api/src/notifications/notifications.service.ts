@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import {
   notificationPreferencesSchema,
+  DEFAULT_NOTIFICATION_FILING_TYPES,
   notificationSettingsSchema,
   pushSubscriptionInputSchema,
 } from '@orsem/contracts';
@@ -28,7 +29,7 @@ export interface NotificationOwner {
   key: string;
   isAdmin: boolean;
 }
-type Preferences = z.infer<typeof notificationPreferencesSchema>;
+type Preferences = z.input<typeof notificationPreferencesSchema>;
 type SubscriptionInput = z.infer<typeof pushSubscriptionInputSchema>;
 const defaultTopics = ['FILINGS', 'ANALYSIS', 'CORRECTIONS', 'NEWS'] as const;
 
@@ -52,6 +53,7 @@ export class NotificationsService {
       ownerKey: owner.key,
       enabled: false,
       topicsJson: [...defaultTopics],
+      filingTypesJson: [...DEFAULT_NOTIFICATION_FILING_TYPES],
       watchlistOnly: true,
       createdAt: now,
       updatedAt: now,
@@ -80,6 +82,7 @@ export class NotificationsService {
       enabled: preference.enabled,
       topics: preference.topicsJson.filter((topic) => owner.isAdmin || topic !== 'OPERATIONS'),
       watchlistOnly: preference.watchlistOnly,
+      filingTypes: preference.filingTypesJson ?? DEFAULT_NOTIFICATION_FILING_TYPES,
       pushConfigured: this.pushConfigured && !this.config.fixtureMode,
       publicKey:
         this.pushConfigured && !this.config.fixtureMode ? this.config.webPush.publicKey : null,
@@ -121,6 +124,7 @@ export class NotificationsService {
       preference.enabled = input.enabled;
       preference.topicsJson = [...new Set(input.topics)];
       preference.watchlistOnly = input.watchlistOnly;
+      if (input.filingTypes !== undefined) preference.filingTypesJson = [...input.filingTypes];
       preference.updatedAt = new Date();
     };
     if (this.config.fixtureMode) {

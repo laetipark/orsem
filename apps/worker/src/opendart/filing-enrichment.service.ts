@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import {
+  classifyFilingDocumentKind,
   AlertStatus,
   ClassificationReviewResult,
   ConnectorStatus,
@@ -8,7 +9,6 @@ import {
   Direction,
   EffectiveFilingState,
   EventState,
-  EventType,
   EvidenceGrade,
   FilingRelationType,
   ParseStatus,
@@ -20,6 +20,8 @@ import {
   TransactionNature,
 } from '@orsem/contracts';
 import {
+  hasConfirmedSourceReview,
+  AdminEntity,
   AiRunEntity,
   AlertEntity,
   AlertOutboxEntity,
@@ -39,6 +41,10 @@ import {
   ReviewEntity,
   TradePlanEntity,
   TradePlanItemEntity,
+  ProxySolicitationEntity,
+  ProxyAgendaItemEntity,
+  TenderOfferEntity,
+  TenderOfferSecurityEntity,
 } from '@orsem/database';
 import {
   OPENDART_PARSER_VERSION,
@@ -76,6 +82,7 @@ import {
   parseReuseFingerprint,
 } from './parse-reuse';
 import { updateParseReviewLifecycle } from './parse-review-lifecycle';
+import { filingEventType, requiresSourceReview } from './disclosure-policy';
 
 function jsonRecord(value: unknown): Record<string, unknown> {
   return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
@@ -104,7 +111,9 @@ function rowConfidenceOf(parsed: ParsedOpenDartDisclosure): number {
       ? 0
       : Math.min(...parsed.planItems.map((row) => (row.nature === 'UNKNOWN' ? 0.25 : 0.9)));
   }
-  return parsed.changes.length > 0 ? 0.8 : 0.5;
+  if (parsed.detailType === 'D001')
+    return parsed.nonTradingReport ? 0.95 : parsed.changes.length > 0 ? 0.8 : 0.5;
+  return parsed.confidence;
 }
 
 function confidenceOf(parsed: ParsedOpenDartDisclosure): number {
@@ -119,7 +128,9 @@ function warningsOf(parsed: ParsedOpenDartDisclosure): readonly ParserWarning[] 
       ? parsed.transactions.flatMap((row) => row.warnings)
       : parsed.detailType === 'D005'
         ? parsed.planItems.flatMap((row) => row.warnings)
-        : parsed.changes.flatMap((row) => row.warnings);
+        : parsed.detailType === 'D001'
+          ? parsed.changes.flatMap((row) => row.warnings)
+          : [];
   const unique = new Map<string, ParserWarning>();
   for (const warning of [...parsed.warnings, ...nested]) {
     unique.set(
@@ -147,6 +158,15 @@ const REJECTED_PROJECTION_WARNINGS = new Set([
   'INVALID_DATE',
   'NUMERIC_OUT_OF_RANGE',
   'NUMERIC_SCALE_EXCEEDED',
+  'AMBIGUOUS_DISCLOSURE_SUMMARY',
+  'MISSING_AGENDAS',
+  'MISSING_DISCLOSURE_FIELD',
+  'INVALID_MEETING_TIME',
+  'DISCLOSURE_DATE_CONFLICT',
+  'INVALID_DATE_RANGE',
+  'UNRECOGNIZED_TENDER_DOCUMENT_KIND',
+  'INVALID_TENDER_QUANTITY_RANGE',
+  'MISSING_TENDER_SECURITIES',
 ]);
 
 function validationStatusOf(
@@ -155,6 +175,33 @@ function validationStatusOf(
 ): ParseRunEntity['validationStatus'] {
   if (warnings.some((warning) => REJECTED_PROJECTION_WARNINGS.has(warning.code))) return 'REJECTED';
   return status === ParseStatus.SUCCEEDED ? 'PASSED' : 'REVIEW_REQUIRED';
+}
+
+function assertParseSourceInvariant(
+  run: Pick<ParseRunEntity, 'id' | 'rawSha256'>,
+  parsed: ParsedOpenDartDisclosure,
+): void {
+  if (requiresSourceReview(parsed.detailType) && parsed.source.archiveSha256 !== run.rawSha256) {
+    throw new OpenDartPayloadError(
+      'The parsed audit source does not match its immutable parse run source.',
+      'PARSE_SOURCE_SHA_INVARIANT',
+    );
+  }
+}
+
+function assertDocumentKindInvariant(
+  filing: Pick<FilingEntity, 'reportName'>,
+  parsed: ParsedOpenDartDisclosure,
+): void {
+  if (
+    parsed.detailType === 'D004' &&
+    parsed.documentKind !== classifyFilingDocumentKind(filing.reportName)
+  ) {
+    throw new OpenDartPayloadError(
+      'The parsed tender document kind does not match its filing title.',
+      'FILING_DOCUMENT_KIND_INVARIANT',
+    );
+  }
 }
 
 function projectionText(value: string | null | undefined, max: number): string | null {
@@ -179,7 +226,7 @@ function projectionTextWarnings(parsed: ParsedOpenDartDisclosure): ParserWarning
       });
     }
   };
-  inspect(parsed.reporterName, 255, 'reporterName');
+  if ('reporterName' in parsed) inspect(parsed.reporterName, 255, 'reporterName');
   if (parsed.detailType === 'D002' || parsed.detailType === 'D005') {
     inspect(parsed.relationshipRaw, 255, 'relationshipRaw');
     inspect(parsed.positionRaw, 255, 'positionRaw');
@@ -188,7 +235,7 @@ function projectionTextWarnings(parsed: ParsedOpenDartDisclosure): ParserWarning
       inspect(row.securityTypeRaw, 500, 'securityTypeRaw', row.rowIndex);
       inspect(row.methodRaw, 500, 'methodRaw', row.rowIndex);
     }
-  } else {
+  } else if (parsed.detailType === 'D001') {
     for (const row of parsed.changes) {
       inspect(row.methodRaw, 500, 'methodRaw', row.rowIndex);
     }
@@ -262,7 +309,75 @@ const persistedParsedDisclosureSchema = z.discriminatedUnion('detailType', [
   z
     .object({
       ...persistedBaseShape,
+      detailType: z.literal('D003'),
+      solicitorName: nullableStringSchema,
+      targetCompanyName: nullableStringSchema,
+      relationshipRaw: nullableStringSchema,
+      meetingDate: dateOnlySchema,
+      meetingTimeRaw: nullableStringSchema,
+      meetingAt: z.string().datetime({ offset: true }).nullable(),
+      meetingLocation: nullableStringSchema,
+      solicitationStartDate: dateOnlySchema,
+      solicitationEndDate: dateOnlySchema,
+      purposeRaw: nullableStringSchema,
+      electronicVoting: z.boolean().nullable(),
+      agendas: z
+        .array(
+          z
+            .object({ ordinal: z.number().int().nonnegative(), title: persistedTextSchema })
+            .passthrough(),
+        )
+        .max(10_000),
+      confidence: z.number().min(0).max(1),
+    })
+    .passthrough(),
+  z
+    .object({
+      ...persistedBaseShape,
+      detailType: z.literal('D004'),
+      documentKind: z.enum(['REPORT', 'EXPLANATION', 'RESULT', 'OTHER']),
+      offerorName: nullableStringSchema,
+      targetCompanyName: nullableStringSchema,
+      purposeRaw: nullableStringSchema,
+      conditionsRaw: nullableStringSchema,
+      subscriptionStartDate: dateOnlySchema,
+      subscriptionEndDate: dateOnlySchema,
+      settlementDate: dateOnlySchema,
+      securities: z
+        .array(
+          z
+            .object({
+              rowIndex: z.number().int().nonnegative(),
+              securityTypeRaw: persistedTextSchema,
+              unitPrice: persistedNumericSchema,
+              currency: nullableStringSchema,
+              minQuantity: persistedNumericSchema,
+              maxQuantity: persistedNumericSchema,
+              heldQuantity: persistedNumericSchema,
+              expectedHoldingsMin: persistedNumericSchema,
+              expectedHoldingsMax: persistedNumericSchema,
+              offeredQuantity: persistedNumericSchema,
+              acquiredQuantity: persistedNumericSchema,
+              actualAmount: persistedNumericSchema,
+            })
+            .passthrough(),
+        )
+        .max(10_000),
+      confidence: z.number().min(0).max(1),
+    })
+    .passthrough(),
+  z
+    .object({
+      ...persistedBaseShape,
       detailType: z.literal('D001'),
+      reportReasonKind: z.enum([
+        'HOLDINGS_CHANGE',
+        'CONTRACT_CHANGE',
+        'REPORTING_STATUS_CHANGE',
+        'UNKNOWN',
+      ]),
+      nonTradingReport: z.boolean(),
+      confidence: z.number().min(0).max(1).optional(),
       reportTypeRaw: nullableStringSchema,
       reporterName: nullableStringSchema,
       reportReasonRaw: nullableStringSchema,
@@ -488,7 +603,7 @@ export interface UnknownAiReviewSelection {
 export function selectUnknownAiReviewCandidates(
   parsed: ParsedOpenDartDisclosure,
 ): UnknownAiReviewSelection {
-  if (parsed.detailType === 'D001') {
+  if (parsed.detailType !== 'D002' && parsed.detailType !== 'D005') {
     return Object.freeze({
       candidates: Object.freeze([]),
       totalEligibleRows: 0,
@@ -682,6 +797,9 @@ export class FilingEnrichmentService {
         normalizerVersion: OPENDART_NORMALIZER_VERSION,
         classifierVersion: filing.classifierVersion!,
         extractorType: filing.detailType,
+        documentKind: requiresSourceReview(filing.detailType)
+          ? classifyFilingDocumentKind(filing.reportName)
+          : 'OTHER',
       });
       const runRepository = this.dataSource.getRepository(ParseRunEntity);
       let run = await runRepository.findOne({
@@ -699,6 +817,8 @@ export class FilingEnrichmentService {
           );
         }
         assertParseTypeInvariant(filing, run, audit.data.detailType);
+        assertParseSourceInvariant(run, audit.data as ParsedOpenDartDisclosure);
+        assertDocumentKindInvariant(filing, audit.data as ParsedOpenDartDisclosure);
         const projectionApplied = run.resultJson?.['projectionApplied'] !== false;
         if (!projectionApplied) {
           // 보류된 실행은 변경하지 않는 검토 자료입니다. ENRICH를 다시 실행해도
@@ -824,6 +944,7 @@ export class FilingEnrichmentService {
           parserVersion: OPENDART_PARSER_VERSION,
         });
         parsedAudit = parsed;
+        assertParseSourceInvariant(run, parsed);
         run.resultType = parsed.detailType;
         run.candidateErrorsJson = mergeCandidateErrorsWithNormalizationAudits(
           parsed.source.candidateErrors,
@@ -831,6 +952,7 @@ export class FilingEnrichmentService {
         ).map(jsonRecord);
         run.normalizationAuditsJson = parsed.source.normalizationAudits?.map(jsonRecord) ?? null;
         assertParseTypeInvariant(filing, run, parsed.detailType);
+        assertDocumentKindInvariant(filing, parsed);
         const crosscheck = await this.fetchCrosscheck(filing, job.rceptNo);
         const confidence = confidenceOf(parsed);
         const warnings: ParserWarning[] = [
@@ -860,6 +982,7 @@ export class FilingEnrichmentService {
             throw new Error('Filing changed while its document was parsed.');
           }
           assertParseTypeInvariant(lockedFiling, run, parsed.detailType);
+          assertDocumentKindInvariant(lockedFiling, parsed);
           const newestRun = await manager.getRepository(ParseRunEntity).findOne({
             where: { filingId: lockedFiling.id },
             order: { createdAt: 'DESC', id: 'DESC' },
@@ -869,9 +992,19 @@ export class FilingEnrichmentService {
             lockedFiling.effectiveState === EffectiveFilingState.ACTIVE &&
             ((await this.hasConfirmedProjectionLinks(manager, lockedFiling.id, 'D002')) ||
               (await this.hasConfirmedProjectionLinks(manager, lockedFiling.id, 'D005')));
-          if (protectsManualDecision || supersededInput || status !== ParseStatus.SUCCEEDED) {
+          if (
+            protectsManualDecision ||
+            supersededInput ||
+            status !== ParseStatus.SUCCEEDED ||
+            requiresSourceReview(parsed.detailType)
+          ) {
             projectionApplied = false;
             status = ParseStatus.PARTIAL;
+            if (requiresSourceReview(parsed.detailType))
+              warnings.push({
+                code: 'SOURCE_REVIEW_REQUIRED',
+                message: '이 공시 유형은 관리자 원문 대조와 별도 확정 후 활성화합니다.',
+              });
             if (supersededInput)
               warnings.push({
                 code: 'SUPERSEDED_PARSE_INPUT',
@@ -892,6 +1025,7 @@ export class FilingEnrichmentService {
               parsed,
               crosscheck,
               lockedFiling.effectiveState,
+              run.id,
             );
           }
           run.status = status;
@@ -1017,7 +1151,7 @@ export class FilingEnrichmentService {
     const parseRun = await this.dataSource.getRepository(ParseRunEntity).findOne({
       where: { id: job.parseRunId, filingId: job.filingId },
     });
-    if (!filing || !parseRun || filing.detailType === 'D001') {
+    if (!filing || !parseRun || (filing.detailType !== 'D002' && filing.detailType !== 'D005')) {
       throw new OpenDartPayloadError(
         'AI review references a missing or ineligible filing parse run.',
         'INVALID_AI_REVIEW',
@@ -1557,6 +1691,10 @@ export class FilingEnrichmentService {
         );
       }
       assertParseTypeInvariant(filing, run, parsed?.detailType ?? run.resultType);
+      if (parsed) {
+        assertParseSourceInvariant(run, parsed);
+        assertDocumentKindInvariant(filing, parsed);
+      }
       if (parsed && validationStatusOf(run.status, warningsOf(parsed)) === 'REJECTED') {
         throw new OpenDartPayloadError(
           'Invalid extracted rows cannot be manually activated.',
@@ -1627,6 +1765,10 @@ export class FilingEnrichmentService {
           lockedRun,
           parsed?.detailType ?? lockedRun.resultType,
         );
+        if (parsed) {
+          assertParseSourceInvariant(lockedRun, parsed);
+          assertDocumentKindInvariant(lockedFiling, parsed);
+        }
         if (lockedRun.validationStatus === 'REJECTED' || lockedRun.validationStatus === 'LEGACY') {
           throw new OpenDartPayloadError(
             'Rejected parse cannot be activated.',
@@ -1790,6 +1932,22 @@ export class FilingEnrichmentService {
           });
         }
 
+        if (requiresSourceReview(parsed.detailType)) {
+          if (!hasConfirmedSourceReview(lockedRun))
+            throw new OpenDartPayloadError(
+              'This candidate requires an explicit administrator source review.',
+              'PARSE_SOURCE_REVIEW_REQUIRED',
+            );
+          if (
+            !(await manager
+              .getRepository(AdminEntity)
+              .findOneBy({ id: job.requestedByAdminId, isActive: true }))
+          )
+            throw new OpenDartPayloadError(
+              'The projection requester is no longer an active administrator.',
+              'INVALID_PROJECTION_REQUESTER',
+            );
+        }
         const supersededManualLinks = await this.snapshotManualProjectionLinks(
           manager,
           lockedFiling.id,
@@ -1802,6 +1960,7 @@ export class FilingEnrichmentService {
           parsed,
           crosscheck,
           lockedFiling.effectiveState,
+          lockedRun.id,
         );
 
         const parserWarnings = [...warningsOf(parsed), ...projectionTextWarnings(parsed)];
@@ -2118,7 +2277,7 @@ export class FilingEnrichmentService {
     readonly relations: readonly Record<string, unknown>[];
     readonly matches: readonly Record<string, unknown>[];
   }> {
-    if (detailType === 'D001') return { relations: [], matches: [] };
+    if (detailType !== 'D002' && detailType !== 'D005') return { relations: [], matches: [] };
     const relationRepository = manager.getRepository(FilingRelationEntity);
     const relations = await relationRepository
       .createQueryBuilder('relation')
@@ -2239,7 +2398,7 @@ export class FilingEnrichmentService {
     filingId: string,
     detailType: ParsedOpenDartDisclosure['detailType'],
   ): Promise<boolean> {
-    if (detailType === 'D001') return false;
+    if (detailType !== 'D002' && detailType !== 'D005') return false;
 
     const relationAlias = 'relation';
     const relations = await manager
@@ -2306,9 +2465,12 @@ export class FilingEnrichmentService {
     filing: FilingEntity,
     rceptNo: string,
   ): Promise<Record<string, unknown>> {
-    if (filing.detailType === 'D005') {
-      return { status: 'NOT_APPLICABLE' };
+    if (requiresSourceReview(filing.detailType)) {
+      return { status: 'NOT_APPLICABLE', reason: `NO_SUMMARY_API_FOR_${filing.detailType}` };
     }
+    if (filing.detailType === 'D005') return { status: 'NOT_APPLICABLE' };
+    if (filing.detailType !== 'D001' && filing.detailType !== 'D002')
+      throw new OpenDartPayloadError('Unsupported crosscheck type.', 'UNSUPPORTED_FILING_TYPE');
     const company = await this.dataSource
       .getRepository(FilingEntity)
       .createQueryBuilder('filing')
@@ -2551,6 +2713,7 @@ export class FilingEnrichmentService {
     parsed: ParsedOpenDartDisclosure,
     crosscheck: Record<string, unknown>,
     effectiveState: EffectiveFilingState,
+    parseRunId?: string,
   ): Promise<void> {
     if (parsed.detailType === 'D002') {
       const staleRelations = await manager.getRepository(FilingRelationEntity).find({
@@ -2693,6 +2856,13 @@ export class FilingEnrichmentService {
       return;
     }
 
+    if (parsed.detailType === 'D003' || parsed.detailType === 'D004') {
+      await this.replaceNonTradingProjection(manager, filingId, parsed, parseRunId);
+      return;
+    }
+    if (parsed.detailType !== 'D001') {
+      throw new OpenDartPayloadError('Unsupported projection type.', 'UNSUPPORTED_FILING_TYPE');
+    }
     const oldReports = await manager
       .getRepository(LargeHolderReportEntity)
       .find({ where: { filingId } });
@@ -2711,7 +2881,12 @@ export class FilingEnrichmentService {
       sharesAfter: parsed.sharesAfter,
       ownershipRateBefore: null,
       ownershipRateAfter: parsed.ownershipRateAfter,
-      rawJson: { parsed: jsonRecord(parsed), crosscheck },
+      rawJson: {
+        parsed: jsonRecord(parsed),
+        crosscheck,
+        reportReasonKind: parsed.reportReasonKind,
+        nonTradingReport: parsed.nonTradingReport,
+      },
     });
     for (const row of parsed.changes) {
       await manager.getRepository(LargeHoldingChangeEntity).save({
@@ -2722,6 +2897,70 @@ export class FilingEnrichmentService {
         shareChange: row.quantity,
         amount: null,
         rawJson: jsonRecord(row),
+      });
+    }
+  }
+
+  private async replaceNonTradingProjection(
+    manager: EntityManager,
+    filingId: string,
+    parsed: Extract<ParsedOpenDartDisclosure, { detailType: 'D003' | 'D004' }>,
+    parseRunId: string | undefined,
+  ): Promise<void> {
+    if (!parseRunId) throw new Error('A disclosure projection requires its immutable parse run.');
+    const facts = jsonRecord(parsed);
+    delete facts.source;
+    delete facts.warnings;
+    delete facts.provenance;
+    if (parsed.detailType === 'D003') {
+      delete facts.agendas;
+      const repository = manager.getRepository(ProxySolicitationEntity);
+      const previous = await repository.find({ where: { filingId } });
+      if (previous.length) {
+        await manager
+          .getRepository(ProxyAgendaItemEntity)
+          .delete({ proxySolicitationId: In(previous.map((row) => row.id)) });
+        await repository.delete({ filingId });
+      }
+      const header = await repository.save({
+        filingId,
+        parseRunId,
+        factsJson: facts,
+        provenanceJson: jsonRecord(parsed.provenance),
+      });
+      for (const row of parsed.agendas)
+        await manager.getRepository(ProxyAgendaItemEntity).save({
+          proxySolicitationId: header.id,
+          ordinal: row.ordinal,
+          title: row.title,
+          provenanceJson: row.provenance ? jsonRecord(row.provenance) : null,
+        });
+      return;
+    }
+    delete facts.securities;
+    const repository = manager.getRepository(TenderOfferEntity);
+    const previous = await repository.find({ where: { filingId } });
+    if (previous.length) {
+      await manager
+        .getRepository(TenderOfferSecurityEntity)
+        .delete({ tenderOfferId: In(previous.map((row) => row.id)) });
+      await repository.delete({ filingId });
+    }
+    const header = await repository.save({
+      filingId,
+      parseRunId,
+      documentKind: parsed.documentKind,
+      factsJson: facts,
+      provenanceJson: jsonRecord(parsed.provenance),
+    });
+    for (const row of parsed.securities) {
+      const rowFacts = jsonRecord(row);
+      delete rowFacts.provenance;
+      await manager.getRepository(TenderOfferSecurityEntity).save({
+        tenderOfferId: header.id,
+        rowIndex: row.rowIndex,
+        factsJson: rowFacts,
+        provenanceJson: row.provenance ? jsonRecord(row.provenance) : null,
       });
     }
   }
@@ -3174,6 +3413,8 @@ export class FilingEnrichmentService {
     });
     if (!run) throw new Error('A parsed event requires its persisted parse run.');
     assertParseTypeInvariant(filing, run, parsed.detailType);
+    assertParseSourceInvariant(run, parsed);
+    assertDocumentKindInvariant(filing, parsed);
     await updateParseReviewLifecycle(
       manager,
       filing.id,
@@ -3184,6 +3425,12 @@ export class FilingEnrichmentService {
       parseStatus !== ParseStatus.SUCCEEDED || !projectionApplied,
     );
     if (!projectionApplied) return;
+    if (requiresSourceReview(parsed.detailType) && !hasConfirmedSourceReview(run)) {
+      throw new OpenDartPayloadError(
+        'A source-reviewed disclosure cannot materialize an event without proof for this parse run.',
+        'PARSE_SOURCE_REVIEW_REQUIRED',
+      );
+    }
     if (run.validationStatus === 'REJECTED') {
       throw new OpenDartPayloadError(
         'Rejected parse cannot materialize an event.',
@@ -3194,11 +3441,15 @@ export class FilingEnrichmentService {
     const dedupeKey = `opendart:filing:${filing.id}`;
     let event = await eventRepository.findOne({ where: { dedupeKey } });
     const dateOnlyValues =
-      parsed.detailType === 'D002'
-        ? parsed.transactions.map((row) => row.eventDate)
-        : parsed.detailType === 'D001'
-          ? parsed.changes.map((row) => row.eventDate)
-          : [];
+      parsed.detailType === 'D001'
+        ? parsed.changes.map((row) => row.eventDate)
+        : parsed.detailType === 'D002'
+          ? parsed.transactions.map((row) => row.eventDate)
+          : parsed.detailType === 'D003'
+            ? [parsed.meetingDate, parsed.solicitationStartDate, parsed.solicitationEndDate]
+            : parsed.detailType === 'D004'
+              ? [parsed.subscriptionStartDate, parsed.subscriptionEndDate, parsed.settlementDate]
+              : parsed.planItems.flatMap((row) => [row.plannedStartDate, row.plannedEndDate]);
     const earliestDate = dateOnlyValues.filter((date): date is string => Boolean(date)).sort()[0];
     const state =
       filing.effectiveState === EffectiveFilingState.CANCELLED ||
@@ -3212,12 +3463,7 @@ export class FilingEnrichmentService {
     const summary = this.parsedSummary(parsed);
     if (!event) {
       event = eventRepository.create({
-        canonicalEventType:
-          parsed.detailType === 'D001'
-            ? EventType.LARGE_HOLDER
-            : parsed.detailType === 'D005'
-              ? EventType.TRADE_PLAN
-              : EventType.INSIDER_OWNERSHIP,
+        canonicalEventType: filingEventType(parsed.detailType),
         companyId: filing.companyId,
         firstObservedAt: filing.firstObservedAt,
         dedupeKey,
@@ -3225,12 +3471,7 @@ export class FilingEnrichmentService {
     }
     // 공시·거래 날짜는 날짜만 있는 값입니다. 자정 시각을 임의로 만들지 않고
     // 공시와 거래 기록에 정확한 날짜를 그대로 보존합니다.
-    event.canonicalEventType =
-      parsed.detailType === 'D001'
-        ? EventType.LARGE_HOLDER
-        : parsed.detailType === 'D005'
-          ? EventType.TRADE_PLAN
-          : EventType.INSIDER_OWNERSHIP;
+    event.canonicalEventType = filingEventType(parsed.detailType);
     event.occurredAt = null;
     event.publishedAt = null;
     event.processedAt = new Date();
@@ -3314,6 +3555,10 @@ export class FilingEnrichmentService {
     if (parsed.detailType === 'D001') {
       return `[D001 5% 대량보유 변동] ${parsed.reporterName ?? '보고자 확인 필요'} — ${parsed.reportReasonRaw ?? '사유 확인 필요'}`;
     }
+    if (parsed.detailType === 'D003')
+      return `[의결권 대리행사 권유] ${parsed.solicitorName ?? '권유자 확인 필요'} — 주주총회 ${parsed.meetingDate ?? '일자 확인 필요'}, 안건 ${parsed.agendas.length}건`;
+    if (parsed.detailType === 'D004')
+      return `[공개매수 ${parsed.documentKind === 'RESULT' ? '결과' : '문서'}] ${parsed.offerorName ?? '공개매수자 확인 필요'} — ${parsed.targetCompanyName ?? '대상회사 확인 필요'}`;
     const first = parsed.transactions[0];
     const market =
       first?.nature === 'MARKET_BUY' || first?.nature === 'MARKET_SELL'

@@ -5,7 +5,7 @@ import {
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { AlertStatus, type Event } from '@orsem/contracts';
+import { AlertStatus, isSupportedFilingType, type Event } from '@orsem/contracts';
 import {
   AlertDeliveryEntity,
   AlertEntity,
@@ -46,6 +46,10 @@ export class BotService {
     private readonly fixtures: FixtureStoreService,
     private readonly data: OrsemDataService,
   ) {}
+
+  private globalFilingTypeAllowed(alert: AlertEntity): boolean {
+    return alertAllowedByGlobalTypes(alert.payloadJson, this.config.opendartGlobalAlertTypes);
+  }
 
   async createPairing(adminId: string): Promise<{ code: string; expiresAt: string }> {
     const code = await this.uniquePairingCode();
@@ -294,7 +298,12 @@ export class BotService {
         const alert = row.alertId
           ? await manager.getRepository(AlertEntity).findOneBy({ id: row.alertId })
           : null;
-        if (row.alertId && (!alert || !(await filingAlertIsEligible(manager, alert)))) {
+        if (
+          row.alertId &&
+          (!alert ||
+            !(await filingAlertIsEligible(manager, alert)) ||
+            !this.globalFilingTypeAllowed(alert))
+        ) {
           row.status = AlertStatus.CANCELLED;
           row.leaseUntil = null;
           row.lastError = FILING_ALERT_INELIGIBLE;
@@ -352,14 +361,14 @@ export class BotService {
       throw new NotFoundException('전달 항목을 찾을 수 없습니다.');
     }
     return source.transaction(async (manager) => {
-      if (snapshot.alertId) {
-        await manager
-          .getRepository(AlertEntity)
-          .createQueryBuilder('alert')
-          .setLock('pessimistic_write')
-          .where('alert.id = :id', { id: snapshot.alertId })
-          .getOne();
-      }
+      const lockedAlert = snapshot.alertId
+        ? await manager
+            .getRepository(AlertEntity)
+            .createQueryBuilder('alert')
+            .setLock('pessimistic_write')
+            .where('alert.id = :id', { id: snapshot.alertId })
+            .getOne()
+        : null;
       const linkedDelivery = snapshot.alertDeliveryId
         ? await manager
             .getRepository(AlertDeliveryEntity)
@@ -382,6 +391,21 @@ export class BotService {
         throw new ServiceUnavailableException(
           '전달 항목의 연결 정보가 변경되었습니다. 잠시 후 다시 시도하세요.',
         );
+      }
+      if (
+        row.alertId &&
+        (!lockedAlert ||
+          !this.globalFilingTypeAllowed(lockedAlert) ||
+          !(await filingAlertIsEligible(manager, lockedAlert)))
+      ) {
+        row.status = AlertStatus.CANCELLED;
+        row.leaseUntil = null;
+        row.lastError = FILING_ALERT_INELIGIBLE;
+        await repository.save(row);
+        if (linkedDelivery) {
+          linkedDelivery.status = AlertStatus.CANCELLED;
+          await manager.getRepository(AlertDeliveryEntity).save(linkedDelivery);
+        }
       }
       if (row.status === AlertStatus.CANCELLED) {
         if (externalMessageId) {
@@ -542,4 +566,12 @@ function formatMessengerEvents(heading: string, events: Event[]): string {
     return `• ${company} · ${event.canonicalEventType}\n${event.summary}\n${date}${url}`;
   });
   return [heading, ...rows, '관찰 정보이며 단독 매매 신호가 아닙니다.'].join('\n');
+}
+
+export function alertAllowedByGlobalTypes(
+  payload: Record<string, unknown>,
+  allowed: readonly string[],
+): boolean {
+  const type = payload['detailType'];
+  return typeof type !== 'string' || !isSupportedFilingType(type) || allowed.includes(type);
 }

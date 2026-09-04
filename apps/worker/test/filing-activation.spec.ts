@@ -1,5 +1,6 @@
 import { EffectiveFilingState, ParseStatus } from '@orsem/contracts';
 import {
+  AdminEntity,
   EventClusterEntity,
   EventClusterItemEntity,
   FilingDocumentEntity,
@@ -11,10 +12,12 @@ import {
 import {
   OpenDartPayloadError,
   parseOpenDartDisclosure,
+  type ParsedD001Report,
   type ParsedD002Report,
 } from '@orsem/opendart-parser';
 import type { DataSource } from 'typeorm';
 import { FilingEnrichmentService } from '../src/opendart/filing-enrichment.service';
+import { proxyParsed, tenderParsed } from './disclosure-fixtures';
 
 jest.mock('@orsem/opendart-parser', () => ({
   ...jest.requireActual('@orsem/opendart-parser'),
@@ -60,6 +63,25 @@ const parsed: ParsedD002Report = {
   ],
 };
 
+const nonTradingLargeHolderReport: ParsedD001Report = {
+  detailType: 'D001',
+  parserVersion: 'opendart-xml-v3',
+  source: parsed.source,
+  reportReasonKind: 'CONTRACT_CHANGE',
+  nonTradingReport: true,
+  confidence: 0.95,
+  reportTypeRaw: '변동없음 보고',
+  reporterName: '보고자',
+  reportReasonRaw: '보유계약 변경',
+  sharesAfter: '100',
+  sharesChange: '0',
+  ownershipRateAfter: '5.00',
+  ownershipRateChange: '0',
+  changes: [],
+  warnings: [],
+  tablesScanned: 2,
+};
+
 type Row = Record<string, unknown>;
 function repository(rows: Row[]) {
   const match = (row: Row, where: Row = {}) =>
@@ -74,6 +96,7 @@ function repository(rows: Row[]) {
       const found = rows.filter((row) => match(row, where));
       return (order ? found.at(-1) : found[0]) ?? null;
     }),
+    findOneBy: jest.fn(async (where: Row) => rows.find((row) => match(row, where)) ?? null),
     save: jest.fn(async (row: Row) => {
       if (!row.id) row.id = `row-${rows.length + 1}`;
       if (!row.createdAt) row.createdAt = new Date(1_700_000_000_000 + rows.length);
@@ -130,6 +153,7 @@ function setup(reportName = '임원ㆍ주요주주특정증권등소유상황보
   const events = repository([event]);
   const issues = repository([]);
   const repositories = new Map<unknown, ReturnType<typeof repository>>([
+    [AdminEntity, repository([{ id: '00000000-0000-4000-8000-000000000001', isActive: true }])],
     [FilingEntity, repository([filing])],
     [FilingDocumentEntity, repository([])],
     [ParseRunEntity, runs],
@@ -211,6 +235,225 @@ function setup(reportName = '임원ㆍ주요주주특정증권등소유상황보
 beforeEach(() => jest.mocked(parseOpenDartDisclosure).mockReset());
 
 describe('validated filing activation', () => {
+  it.each([
+    ['의결권대리행사권유참고서류', proxyParsed],
+    ['공개매수신고서', tenderParsed],
+  ])(
+    'keeps a valid %s inactive until a separate source review and confirmation',
+    async (title, candidate) => {
+      const state = setup(title);
+      jest.mocked(parseOpenDartDisclosure).mockResolvedValue(candidate);
+      state.fetchCrosscheck.mockResolvedValue({
+        status: 'NOT_APPLICABLE',
+        reason: `NO_SUMMARY_API_FOR_${candidate.detailType}`,
+      });
+      const result = await state.service.enrich(state.job);
+      expect(result.status).toBe(ParseStatus.PARTIAL);
+      expect(state.runs.rows.at(-1)).toMatchObject({
+        inputType: candidate.detailType,
+        extractorType: candidate.detailType,
+        resultType: candidate.detailType,
+        resultJson: { projectionApplied: false, protectedActiveParseRunId: 'old-active' },
+        validationStatus: 'REVIEW_REQUIRED',
+      });
+      expect(state.filing.activeParseRunId).toBe('old-active');
+      expect(state.replaceProjection).not.toHaveBeenCalled();
+      expect(state.events.save).not.toHaveBeenCalled();
+      expect(state.reviews.rows.at(-1)?.status).toBe('OPEN');
+    },
+  );
+
+  it.each([proxyParsed, tenderParsed])(
+    'rejects manual $detailType activation without proof for this exact source',
+    async (candidate) => {
+      const state = setup(
+        candidate.detailType === 'D003' ? '의결권대리행사권유참고서류' : '공개매수신고서',
+      );
+      Object.assign(state.filing, {
+        detailType: candidate.detailType,
+        canonicalType: candidate.detailType,
+        classificationStatus: 'CONFIRMED',
+      });
+      const run = {
+        id: 'staged',
+        rawSha256: SHA,
+        filingId: state.filing.id,
+        status: ParseStatus.PARTIAL,
+        validationStatus: 'REVIEW_REQUIRED',
+        inputType: candidate.detailType,
+        extractorType: candidate.detailType,
+        resultType: candidate.detailType,
+        resultJson: {
+          parsed: candidate,
+          projectionApplied: false,
+          protectedActiveParseRunId: 'old-active',
+          crosscheck: {
+            status: 'NOT_APPLICABLE',
+            reason: `NO_SUMMARY_API_FOR_${candidate.detailType}`,
+          },
+          sourceReview: {
+            confirmedByAdminId: '00000000-0000-4000-8000-000000000001',
+            confirmedAt: '2026-09-01T00:00:00.000Z',
+            parseRunId: 'another-run',
+            rawSha256: SHA,
+          },
+        },
+      };
+      state.runs.rows.push(run);
+      await expect(
+        state.service.applyDeferredProjection({
+          filingId: state.filing.id,
+          parseRunId: run.id,
+          requestedByAdminId: '00000000-0000-4000-8000-000000000001',
+        }),
+      ).rejects.toMatchObject({ code: 'PARSE_SOURCE_REVIEW_REQUIRED' });
+      expect(state.replaceProjection).not.toHaveBeenCalled();
+      expect(state.filing.activeParseRunId).toBe('old-active');
+    },
+  );
+
+  it.each([proxyParsed, tenderParsed])(
+    'activates reviewed $detailType data only after a separate confirmation by an active administrator',
+    async (candidate) => {
+      const state = setup(
+        candidate.detailType === 'D003' ? '의결권대리행사권유참고서류' : '공개매수신고서',
+      );
+      Object.assign(state.filing, {
+        detailType: candidate.detailType,
+        canonicalType: candidate.detailType,
+        classificationStatus: 'CONFIRMED',
+      });
+      const adminId = '00000000-0000-4000-8000-000000000001';
+      const run = {
+        id: 'staged',
+        rawSha256: SHA,
+        filingId: state.filing.id,
+        status: ParseStatus.PARTIAL,
+        validationStatus: 'REVIEW_REQUIRED',
+        inputType: candidate.detailType,
+        extractorType: candidate.detailType,
+        resultType: candidate.detailType,
+        resultJson: {
+          parsed: candidate,
+          projectionApplied: false,
+          protectedActiveParseRunId: 'old-active',
+          crosscheck: {
+            status: 'NOT_APPLICABLE',
+            reason: `NO_SUMMARY_API_FOR_${candidate.detailType}`,
+          },
+          sourceReview: {
+            confirmedByAdminId: adminId,
+            confirmedAt: '2026-09-01T00:00:00.000Z',
+            parseRunId: 'staged',
+            rawSha256: SHA,
+          },
+        },
+      };
+      state.runs.rows.push(run);
+      const materialize = jest
+        .spyOn(
+          state.service as unknown as {
+            materializeParsedEvent: (...args: unknown[]) => Promise<void>;
+          },
+          'materializeParsedEvent',
+        )
+        .mockResolvedValue(undefined);
+
+      await expect(
+        state.service.applyDeferredProjection({
+          filingId: state.filing.id,
+          parseRunId: run.id,
+          requestedByAdminId: adminId,
+        }),
+      ).resolves.toMatchObject({ projectionApplied: true });
+      expect(state.replaceProjection).toHaveBeenCalledWith(
+        expect.anything(),
+        state.filing.id,
+        state.filing.companyId,
+        candidate,
+        run.resultJson.crosscheck,
+        EffectiveFilingState.ACTIVE,
+        run.id,
+      );
+      expect(state.filing.activeParseRunId).toBe(run.id);
+      expect(materialize).toHaveBeenCalledWith(
+        expect.anything(),
+        state.filing,
+        candidate,
+        run.id,
+        ParseStatus.SUCCEEDED,
+        false,
+        true,
+      );
+    },
+  );
+
+  it('accepts a parser-proven D001 non-trading report without manufacturing change rows', async () => {
+    const state = setup('주식등의대량보유상황보고서');
+    jest.mocked(parseOpenDartDisclosure).mockResolvedValue(nonTradingLargeHolderReport);
+
+    await expect(state.service.enrich(state.job)).resolves.toMatchObject({
+      status: ParseStatus.SUCCEEDED,
+    });
+    expect(state.replaceProjection).toHaveBeenCalledWith(
+      expect.anything(),
+      state.filing.id,
+      state.filing.companyId,
+      nonTradingLargeHolderReport,
+      expect.objectContaining({ status: 'OK' }),
+      EffectiveFilingState.ACTIVE,
+      expect.any(String),
+    );
+    expect(state.runs.rows.at(-1)).toMatchObject({
+      validationStatus: 'PASSED',
+      resultJson: {
+        parsed: {
+          detailType: 'D001',
+          nonTradingReport: true,
+          reportReasonKind: 'CONTRACT_CHANGE',
+          changes: [],
+        },
+        projectionApplied: true,
+      },
+    });
+  });
+
+  it('rejects a D004 document-kind mismatch before applying a reviewed candidate', async () => {
+    const state = setup('공개매수신고서');
+    Object.assign(state.filing, {
+      detailType: 'D004',
+      canonicalType: 'D004',
+      classificationStatus: 'CONFIRMED',
+    });
+    const candidate = { ...tenderParsed, documentKind: 'EXPLANATION' as const };
+    const run = {
+      id: '00000000-0000-4000-8000-000000000002',
+      rawSha256: SHA,
+      filingId: state.filing.id,
+      status: ParseStatus.PARTIAL,
+      validationStatus: 'REVIEW_REQUIRED',
+      inputType: 'D004',
+      extractorType: 'D004',
+      resultType: 'D004',
+      resultJson: {
+        parsed: candidate,
+        projectionApplied: false,
+        protectedActiveParseRunId: 'old-active',
+        crosscheck: { status: 'NOT_APPLICABLE', reason: 'NO_SUMMARY_API_FOR_D004' },
+      },
+    };
+    state.runs.rows.push(run);
+
+    await expect(
+      state.service.applyDeferredProjection({
+        filingId: state.filing.id,
+        parseRunId: run.id,
+        requestedByAdminId: '00000000-0000-4000-8000-000000000001',
+      }),
+    ).rejects.toMatchObject({ code: 'FILING_DOCUMENT_KIND_INVARIANT' });
+    expect(state.replaceProjection).not.toHaveBeenCalled();
+    expect(state.filing.activeParseRunId).toBe('old-active');
+  });
   it.each(['OK', 'FAILED'])(
     'keeps staged %s crosscheck evidence inactive and never activates on job replay',
     async (crosscheckStatus) => {
@@ -341,14 +584,14 @@ describe('validated filing activation', () => {
     expect(state.events.save).not.toHaveBeenCalled();
   });
 
-  it('never downloads or selects an extractor for unsupported documents', async () => {
-    const state = setup('[첨부정정]공개매수신고서');
+  it('never downloads or selects an extractor for unconfirmed documents', async () => {
+    const state = setup('지원범위외 알수없는공시');
     await expect(state.service.enrich(state.job)).rejects.toMatchObject({
-      code: 'UNSUPPORTED_FILING_TYPE',
+      code: 'FILING_TYPE_UNCONFIRMED',
     });
     expect(state.filing).toMatchObject({
-      canonicalType: 'D004',
-      classificationStatus: 'UNSUPPORTED',
+      canonicalType: null,
+      classificationStatus: 'UNKNOWN',
     });
     expect(state.fetchDocument).not.toHaveBeenCalled();
     expect(parseOpenDartDisclosure).not.toHaveBeenCalled();
@@ -383,5 +626,53 @@ describe('validated filing activation', () => {
     );
     expect(state.filing.activeParseRunId).toBe('old-active');
     expect(state.events.save).not.toHaveBeenCalled();
+  });
+});
+
+describe('source-bound disclosure activation', () => {
+  it('rejects a reviewed D003 payload whose parser source SHA differs from its run', async () => {
+    const state = setup('의결권대리행사권유참고서류');
+    Object.assign(state.filing, {
+      detailType: 'D003',
+      canonicalType: 'D003',
+      classificationStatus: 'CONFIRMED',
+    });
+    const adminId = '00000000-0000-4000-8000-000000000001';
+    const candidate = {
+      ...proxyParsed,
+      source: { ...proxyParsed.source, archiveSha256: 'b'.repeat(64) },
+    };
+    const run = {
+      id: 'staged-source-mismatch',
+      rawSha256: SHA,
+      filingId: state.filing.id,
+      status: ParseStatus.PARTIAL,
+      validationStatus: 'REVIEW_REQUIRED',
+      inputType: 'D003',
+      extractorType: 'D003',
+      resultType: 'D003',
+      resultJson: {
+        parsed: candidate,
+        projectionApplied: false,
+        protectedActiveParseRunId: 'old-active',
+        crosscheck: { status: 'NOT_APPLICABLE', reason: 'NO_SUMMARY_API_FOR_D003' },
+        sourceReview: {
+          confirmedByAdminId: adminId,
+          confirmedAt: '2026-09-01T00:00:00.000Z',
+          parseRunId: 'staged-source-mismatch',
+          rawSha256: SHA,
+        },
+      },
+    };
+    state.runs.rows.push(run);
+    await expect(
+      state.service.applyDeferredProjection({
+        filingId: state.filing.id,
+        parseRunId: run.id,
+        requestedByAdminId: adminId,
+      }),
+    ).rejects.toMatchObject({ code: 'PARSE_SOURCE_SHA_INVARIANT' });
+    expect(state.replaceProjection).not.toHaveBeenCalled();
+    expect(state.filing.activeParseRunId).toBe('old-active');
   });
 });

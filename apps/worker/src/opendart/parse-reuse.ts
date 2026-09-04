@@ -8,7 +8,13 @@ export function crosscheckAllowsProjection(
   crosscheck: Record<string, unknown>,
   rceptNo: string,
 ): boolean {
+  if (detailType === 'D003' || detailType === 'D004')
+    return (
+      crosscheck['status'] === 'NOT_APPLICABLE' &&
+      crosscheck['reason'] === `NO_SUMMARY_API_FOR_${detailType}`
+    );
   if (detailType === 'D005') return crosscheck['status'] === 'NOT_APPLICABLE';
+  if (detailType !== 'D001' && detailType !== 'D002') return false;
   return (
     crosscheck['status'] === 'OK' &&
     Array.isArray(crosscheck['exactReceiptMatches']) &&
@@ -24,6 +30,7 @@ export interface ParseReuseFingerprint {
   readonly normalizerVersion: string;
   readonly classifierVersion: string;
   readonly extractorType: string;
+  readonly documentKind?: string;
 }
 
 export function parseReuseFingerprint(input: ParseReuseFingerprint): string {
@@ -35,6 +42,7 @@ export function parseReuseFingerprint(input: ParseReuseFingerprint): string {
         input.normalizerVersion,
         input.classifierVersion,
         input.extractorType,
+        input.documentKind ?? 'OTHER',
       ]),
     )
     .digest('hex');

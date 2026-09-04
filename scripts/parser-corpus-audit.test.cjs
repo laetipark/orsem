@@ -86,7 +86,7 @@ test('rejects repository output, including through an external symlink', () => {
   }
 });
 
-test('audits every variant, verifies sources, and normalizes unsupported filings without extracting them', async () => {
+test('audits every supported variant and sends a mismatched D003 source to review', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'orsem-corpus-test-'));
   try {
     const bytes = zipSync({
@@ -147,9 +147,12 @@ test('audits every variant, verifies sources, and normalizes unsupported filings
     assert.equal(rows[0].canonical_type, 'D002');
     assert.equal(rows[0].type_invariant, true);
     assert.equal(rows[0].field_diff.status, 'TYPE_CHANGED');
-    assert.equal(rows[1].outcome, 'SKIPPED_UNSUPPORTED');
+    assert.equal(rows[1].outcome, 'REVIEW_REQUIRED');
+    assert.equal(rows[1].result_type, 'D003');
+    assert.equal(rows[1].current_row_count, 0);
+    assert.equal(rows[1].fields.detailType, 'D003');
+    assert.equal(rows[1].fields['agendas.length'], 0);
     assert.equal(rows[1].normalization[0].strict_valid, true);
-    assert.equal(rows[1].current_row_count, undefined);
     assert.equal(fs.statSync(path.join(output, 'corpus-audit.json')).mode & 0o777, 0o600);
     assert.deepEqual(fs.readFileSync(rawPath), Buffer.from(bytes));
   } finally {

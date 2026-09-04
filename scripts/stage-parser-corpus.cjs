@@ -55,7 +55,7 @@ function classify(filing) {
   });
 }
 
-function fingerprint(rawSha, canonicalType) {
+function fingerprint(rawSha, canonicalType, documentKind = 'OTHER') {
   return sha(
     JSON.stringify([
       rawSha,
@@ -63,6 +63,7 @@ function fingerprint(rawSha, canonicalType) {
       parser.OPENDART_NORMALIZER_VERSION,
       classification.OPENDART_CLASSIFIER_VERSION,
       canonicalType,
+      documentKind,
     ]),
   );
 }
@@ -93,6 +94,75 @@ function writePrivate(output, name, value) {
   fs.renameSync(temporary, path.join(output, name));
 }
 
+function sameJson(left, right) {
+  if (typeof left === 'number' || typeof right === 'number') {
+    if (typeof left !== 'number' || typeof right !== 'number') return false;
+    if (!Number.isFinite(left) || !Number.isFinite(right)) return Object.is(left, right);
+    if (Number.isInteger(left) || Number.isInteger(right)) return left === right;
+    return (
+      Math.abs(left - right) <= Number.EPSILON * Math.max(1, Math.abs(left), Math.abs(right)) * 4
+    );
+  }
+  if (left === right) return true;
+  if (left === null || right === null || typeof left !== 'object' || typeof right !== 'object')
+    return false;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return (
+      Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((value, index) => sameJson(value, right[index]))
+    );
+  }
+  const leftKeys = Object.keys(left).sort();
+  const rightKeys = Object.keys(right).sort();
+  return (
+    leftKeys.length === rightKeys.length &&
+    leftKeys.every((key, index) => key === rightKeys[index] && sameJson(left[key], right[key]))
+  );
+}
+
+function stagedCrosscheck(candidate) {
+  return ['UNSUPPORTED_FILING_TYPE', 'FILING_TYPE_UNCONFIRMED'].includes(candidate.errorCode)
+    ? { status: 'NOT_APPLICABLE', reason: candidate.errorCode }
+    : { status: 'NOT_RUN' };
+}
+
+function assertReusableInactiveRun(saved, candidate, current, auditHash) {
+  const result = json(saved.result_json);
+  const staging =
+    result?.staging && typeof result.staging === 'object' && !Array.isArray(result.staging)
+      ? result.staging
+      : null;
+  if (
+    saved.raw_sha256 !== candidate.previous.raw_sha256 ||
+    saved.parser_version !== parser.OPENDART_PARSER_VERSION ||
+    saved.normalizer_version !== parser.OPENDART_NORMALIZER_VERSION ||
+    saved.classifier_version !== candidate.resolved.classifierVersion ||
+    saved.input_type !== candidate.resolved.canonicalType ||
+    saved.extractor_type !== candidate.extractorType ||
+    saved.result_type !== (candidate.parsed?.detailType ?? null) ||
+    saved.status !== candidate.status ||
+    saved.validation_status !== candidate.validation ||
+    saved.error_code !== candidate.errorCode ||
+    String(saved.confidence) !== candidate.confidence.toFixed(6) ||
+    result?.projectionApplied !== false ||
+    result?.protectedActiveParseRunId !== current.active_parse_run_id ||
+    result?.sourceReview !== undefined ||
+    !sameJson(result?.crosscheck, stagedCrosscheck(candidate)) ||
+    !sameJson(result?.parsed ?? null, candidate.parsed) ||
+    !sameJson(json(saved.candidate_errors_json), candidate.candidateErrors) ||
+    !sameJson(json(saved.normalization_audits_json), candidate.audits) ||
+    staging?.mode !== 'OFFLINE_INACTIVE' ||
+    staging?.corpusSha256 !== auditHash ||
+    staging?.sourceDocumentId !== candidate.document.id ||
+    staging?.requiresIndividualReview !== true ||
+    current.active_parse_run_id === saved.id
+  )
+    throw new Error('EXISTING_FINGERPRINT_RUN_NOT_REUSABLE');
+  return result;
+}
+
 async function revalidate(previous, filing, document, evidence) {
   if (!document || !document.object_uri.startsWith('file:'))
     throw new Error('LOCAL_DOCUMENT_REQUIRED');
@@ -108,11 +178,19 @@ async function revalidate(previous, filing, document, evidence) {
   )
     throw new Error('SOURCE_SHA_MISMATCH');
   const resolved = classify(filing);
-  const evidenceFingerprint = fingerprint(previous.raw_sha256, resolved.canonicalType);
+  const evidenceFingerprint = fingerprint(
+    previous.raw_sha256,
+    resolved.canonicalType,
+    classification.classifyFilingDocumentKind(filing.report_name),
+  );
   const extractorType = classification.isSupportedFilingType(resolved.canonicalType)
     ? resolved.canonicalType
     : null;
-  const reuse = fingerprint(previous.raw_sha256, extractorType);
+  const reuse = fingerprint(
+    previous.raw_sha256,
+    extractorType,
+    classification.classifyFilingDocumentKind(filing.report_name),
+  );
   if (
     !evidence ||
     evidence.raw_sha256 !== previous.raw_sha256 ||
@@ -173,7 +251,13 @@ async function revalidate(previous, filing, document, evidence) {
   if (sha(fs.readFileSync(sourcePath)) !== previous.raw_sha256)
     throw new Error('SOURCE_CHANGED_DURING_PARSE');
   candidateErrors = parser.mergeCandidateErrorsWithNormalizationAudits(candidateErrors, audits);
-  const rows = parsed?.transactions ?? parsed?.changes ?? parsed?.planItems ?? [];
+  const rows =
+    parsed?.transactions ??
+    parsed?.changes ??
+    parsed?.planItems ??
+    parsed?.agendas ??
+    parsed?.securities ??
+    [];
   const warnings = [...(parsed?.warnings ?? []), ...rows.flatMap((row) => row.warnings ?? [])];
   const validation =
     errorCode || warnings.some((w) => REJECTED.has(w.code)) ? 'REJECTED' : 'REVIEW_REQUIRED';
@@ -189,20 +273,22 @@ async function revalidate(previous, filing, document, evidence) {
     JSON.stringify(fieldMap(parsed)) !== JSON.stringify(evidence.fields)
   )
     throw new Error('FIELD_DRIFT_SINCE_CORPUS_AUDIT');
-  const confidence = parsed
-    ? Math.min(
-        parsed.confidence ?? 1,
-        parsed.detailType === 'D001'
-          ? rows.length
-            ? 0.8
-            : 0
-          : rows.length
-            ? Math.min(
-                ...rows.map((row) => row.confidence ?? (row.nature === 'UNKNOWN' ? 0.25 : 0.9)),
-              )
-            : 0,
-      )
-    : 0;
+  const confidence = Number.isFinite(parsed?.confidence)
+    ? parsed.confidence
+    : parsed
+      ? Math.min(
+          parsed.confidence ?? 1,
+          parsed.detailType === 'D001'
+            ? rows.length
+              ? 0.8
+              : 0
+            : rows.length
+              ? Math.min(
+                  ...rows.map((row) => row.confidence ?? (row.nature === 'UNKNOWN' ? 0.25 : 0.9)),
+                )
+              : 0,
+        )
+      : 0;
   return {
     previous,
     filing,
@@ -337,6 +423,13 @@ async function applyFilingUnderLock(connection, candidates, auditHash) {
       )
         throw new Error('DOCUMENT_CHANGED_SINCE_SNAPSHOT');
     }
+    // A fingerprint may already belong to a live or manually reviewed run.
+    // Validate all pre-existing rows before the first mutation so an inactive
+    // staging attempt can never claim or reuse an active result.
+    for (const candidate of candidates) {
+      const saved = existingByFingerprint.get(candidate.reuse);
+      if (saved) assertReusableInactiveRun(saved, candidate, current, auditHash);
+    }
     const provenance =
       current.classification_status === 'MANUAL_OVERRIDE'
         ? {
@@ -361,19 +454,11 @@ async function applyFilingUnderLock(connection, candidates, auditHash) {
     for (const candidate of [...candidates].sort(sourceOrder)) {
       const saved = existingByFingerprint.get(candidate.reuse);
       if (saved) {
-        if (
-          saved.raw_sha256 !== candidate.previous.raw_sha256 ||
-          saved.parser_version !== parser.OPENDART_PARSER_VERSION ||
-          saved.normalizer_version !== parser.OPENDART_NORMALIZER_VERSION ||
-          saved.classifier_version !== resolved.classifierVersion ||
-          saved.extractor_type !== candidate.extractorType ||
-          ['PENDING', 'RUNNING'].includes(saved.status)
-        )
-          throw new Error('EXISTING_FINGERPRINT_RUN_NOT_REUSABLE');
+        const savedResult = assertReusableInactiveRun(saved, candidate, current, auditHash);
         candidate.stagedRunId = saved.id;
-        candidate.protectedActiveParseRunId = current.active_parse_run_id;
+        candidate.protectedActiveParseRunId = savedResult.protectedActiveParseRunId;
         candidate.reused = true;
-        candidate.existingProjectionApplied = json(saved.result_json)?.projectionApplied ?? null;
+        candidate.existingProjectionApplied = false;
         reused += 1;
         continue;
       }
@@ -416,13 +501,15 @@ async function applyFilingUnderLock(connection, candidates, auditHash) {
           : null,
         warnings_json: JSON.stringify([
           ...candidate.warnings.map((w) => `${w.code}: ${w.message}`),
-          'OFFLINE_CROSSCHECK_NOT_RUN: Candidate remains inactive pending source crosscheck and individual quality review.',
+          ['UNSUPPORTED_FILING_TYPE', 'FILING_TYPE_UNCONFIRMED'].includes(candidate.errorCode)
+            ? `OFFLINE_EXTRACTION_SKIPPED: ${candidate.errorCode}`
+            : 'OFFLINE_CROSSCHECK_NOT_RUN: Candidate remains inactive pending source crosscheck and individual quality review.',
         ]),
         candidate_errors_json: JSON.stringify(candidate.candidateErrors),
         normalization_audits_json: JSON.stringify(candidate.audits),
         result_json: JSON.stringify({
           parsed: candidate.parsed,
-          crosscheck: { status: 'NOT_RUN' },
+          crosscheck: stagedCrosscheck(candidate),
           projectionApplied: false,
           protectedActiveParseRunId: current.active_parse_run_id,
           staging: {
@@ -508,7 +595,7 @@ function candidateManifest(candidates) {
     projectionApplied: false,
     candidateErrors: candidate.candidateErrors,
     normalizationAudits: candidate.audits,
-    crosscheck: { status: 'NOT_RUN' },
+    crosscheck: stagedCrosscheck(candidate),
     confidence: candidate.confidence,
     warnings: candidate.warnings,
     fieldComparison: candidate.evidence.field_diff ?? null,
@@ -624,7 +711,15 @@ async function stageCorpus(options, environment = process.env) {
   return summary;
 }
 
-module.exports = { parseArguments, fingerprint, sourceOrder, revalidate, applyFiling, stageCorpus };
+module.exports = {
+  parseArguments,
+  fingerprint,
+  sourceOrder,
+  sameJson,
+  revalidate,
+  applyFiling,
+  stageCorpus,
+};
 if (require.main === module)
   stageCorpus(parseArguments(process.argv.slice(2)))
     .then((summary) => process.stdout.write(JSON.stringify(summary, null, 2) + '\n'))

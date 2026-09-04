@@ -22,7 +22,63 @@ import {
   integerStringSchema,
   loginRequestSchema,
   pairingClaimSchema,
+  classifyOpenDartFiling,
+  classifyFilingDocumentKind,
+  hasParseTypeInvariant,
+  notificationPreferencesSchema,
 } from './index';
+
+test('all five filing domains retain their meaning across correction titles', () => {
+  const examples = [
+    ['D001', '[기재정정]주식등의대량보유상황보고서(일반)'],
+    ['D002', '임원ㆍ주요주주특정증권등소유상황보고서'],
+    ['D003', '의결권대리행사권유참고서류'],
+    ['D004', '[첨부정정]공개매수신고서'],
+    ['D005', '임원ㆍ주요주주특정증권등거래계획보고서'],
+  ];
+  for (const [type, reportName] of examples) {
+    const actual = classifyOpenDartFiling({ reportName: reportName!, queryDetailType: 'D005' });
+    assert.equal(actual.canonicalType, type);
+    assert.equal(actual.classificationStatus, 'CONFIRMED');
+    assert.equal(
+      hasParseTypeInvariant({ ...actual, inputType: type, extractorType: type, resultType: type }),
+      true,
+    );
+  }
+  assert.equal(
+    classifyOpenDartFiling({ reportName: '공개매수신고서', sourceDetailType: 'D002' })
+      .classificationStatus,
+    'CONFLICT',
+  );
+  assert.equal(
+    classifyOpenDartFiling({ reportName: '알 수 없는 보고서', queryDetailType: 'D005' })
+      .classificationStatus,
+    'UNKNOWN',
+  );
+  assert.equal(classifyFilingDocumentKind('[기재정정]공개매수설명서'), 'EXPLANATION');
+  assert.equal(classifyFilingDocumentKind('공개매수결과보고서'), 'RESULT');
+});
+
+test('new filing notifications require selection and empty selection stays empty', () => {
+  const old = { enabled: true, topics: ['FILINGS'], watchlistOnly: true };
+  assert.deepEqual(notificationPreferencesSchema.parse(old).filingTypes, ['D001', 'D002', 'D005']);
+  assert.deepEqual(
+    notificationPreferencesSchema.parse({ ...old, filingTypes: [] }).filingTypes,
+    [],
+  );
+  assert.deepEqual(
+    notificationPreferencesSchema.parse({ ...old, filingTypes: ['D003', 'D004'] }).filingTypes,
+    ['D003', 'D004'],
+  );
+  assert.equal(
+    notificationPreferencesSchema.safeParse({ ...old, filingTypes: ['D003', 'D003'] }).success,
+    false,
+  );
+  assert.equal(
+    notificationPreferencesSchema.safeParse({ ...old, filingTypes: ['D006'] }).success,
+    false,
+  );
+});
 
 test('large quantities stay strings at the JSON boundary', () => {
   const value = '9223372036854775807';

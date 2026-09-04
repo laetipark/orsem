@@ -251,7 +251,7 @@ export class SearchService {
       ])
       .where("filing.source = 'OPENDART'")
       .andWhere(
-        "(filing.canonical_type IS NULL OR filing.canonical_type IN ('D001','D002','D005'))",
+        "(filing.canonical_type IS NULL OR filing.canonical_type IN ('D001','D002','D003','D004','D005'))",
       )
       .andWhere(
         `(filing.reportName LIKE :pattern ESCAPE '!' OR filing.filerName LIKE :pattern ESCAPE '!' OR filing.rceptNo LIKE :pattern ESCAPE '!' OR ${companyCondition()})`,

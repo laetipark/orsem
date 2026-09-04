@@ -116,10 +116,30 @@ describe('personal browser notifications', () => {
       expect(mocks.settings).toHaveBeenCalledWith({
         enabled: true,
         topics: ['FILINGS', 'ANALYSIS', 'CORRECTIONS'],
+        filingTypes: ['D001', 'D002', 'D005'],
         watchlistOnly: true,
       }),
     );
     expect(await screen.findByText('알림 설정을 저장했습니다.')).toBeInTheDocument();
+    client.clear();
+  });
+  it('preserves an explicit empty filing selection and requires D003 opt-in', async () => {
+    const client = show({ ...settings, filingTypes: [] });
+    expect(screen.getByRole('checkbox', { name: '대량보유 공시' })).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: '의결권 위임 권유' })).not.toBeChecked();
+
+    fireEvent.click(screen.getByRole('button', { name: '알림 설정 저장' }));
+    await waitFor(() =>
+      expect(mocks.settings).toHaveBeenLastCalledWith(expect.objectContaining({ filingTypes: [] })),
+    );
+
+    fireEvent.click(screen.getByRole('checkbox', { name: '의결권 위임 권유' }));
+    fireEvent.click(screen.getByRole('button', { name: '알림 설정 저장' }));
+    await waitFor(() =>
+      expect(mocks.settings).toHaveBeenLastCalledWith(
+        expect.objectContaining({ filingTypes: ['D003'] }),
+      ),
+    );
     client.clear();
   });
   it('shows iOS installation steps without requesting permission in a normal browser tab', async () => {

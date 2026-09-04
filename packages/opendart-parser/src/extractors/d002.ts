@@ -4,10 +4,10 @@ import {
   multiplyIntegerAndDecimal,
   normalizeDateOnly,
   normalizeHeader,
-  parseDecimal,
   parseInteger,
   scaleNumeric,
 } from '../normalizers';
+import { parseUnitPrice } from './unit-price';
 import type {
   CanonicalTable,
   ParsedInsiderTransaction,
@@ -72,6 +72,10 @@ const AMOUNT_BEARING_NATURES = new Set<TransactionNature>([
   TransactionNature.MARKET_SELL,
   TransactionNature.BLOCK_BUY,
   TransactionNature.BLOCK_SELL,
+  TransactionNature.OFF_MARKET_BUY,
+  TransactionNature.OFF_MARKET_SELL,
+  TransactionNature.AFTER_HOURS_BUY,
+  TransactionNature.AFTER_HOURS_SELL,
 ]);
 
 export interface D002Extraction {
@@ -123,7 +127,7 @@ export function extractD002(tables: readonly CanonicalTable[]): D002Extraction {
       if (!hasSourceValue(methodRaw) && !hasSourceValue(quantityRaw)) continue;
       rowsFound += 1;
       const quantity = parseInteger(quantityRaw, 'quantity');
-      const unitPrice = parseDecimal(cellAt(row, header.columns, 'unitPrice'), 'unitPrice');
+      const unitPrice = parseUnitPrice(cellAt(row, header.columns, 'unitPrice'));
       const sharesAfter = parseInteger(cellAt(row, header.columns, 'sharesAfter'), 'sharesAfter');
       const quantityValue = quantity.unitRaw
         ? quantity.value

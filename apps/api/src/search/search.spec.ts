@@ -331,7 +331,7 @@ test('실제 TypeORM SQL은 입력을 바인딩하고 원문·권리 제한 데�
       );
       assert.match(
         query.sql,
-        /canonical_type` IS NULL OR `filing`\.`canonical_type` IN \('D001','D002','D005'\)/u,
+        /canonical_type` IS NULL OR `filing`\.`canonical_type` IN \('D001','D002','D003','D004','D005'\)/u,
       );
       assert.ok(query.sql.indexOf('canonical_type` IN') < query.sql.indexOf('ORDER BY'));
     }

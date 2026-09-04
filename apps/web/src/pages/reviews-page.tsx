@@ -59,6 +59,7 @@ export function ReviewCard({
   review,
   onResolve,
   pending,
+  onConfirmSource,
 }: {
   review: ReviewItem;
   onResolve: (
@@ -67,6 +68,7 @@ export function ReviewCard({
     planExecutionMatchId?: string,
   ) => void;
   pending: boolean;
+  onConfirmSource?: (note: string | null) => void;
 }) {
   const [selected, setSelected] = useState<ReviewResolution['resolution']>('CONFIRMED');
   const [note, setNote] = useState('');
@@ -75,7 +77,12 @@ export function ReviewCard({
   );
   const unsupported = review.classificationStatus === 'UNSUPPORTED';
   const cannotActivate = unsupported || review.validationStatus === 'REJECTED';
-  const crosscheckPending = review.staged && !cannotActivate && review.crosscheckReady !== true;
+  const sourceReviewPending = review.sourceReviewRequired && !review.sourceReviewConfirmed;
+  const crosscheckPending =
+    review.staged &&
+    !cannotActivate &&
+    review.crosscheckReady !== true &&
+    !review.sourceReviewRequired;
   return (
     <article className="review-card">
       <div className="review-card__heading">
@@ -94,7 +101,7 @@ export function ReviewCard({
           <h3>{review.companyName}</h3>
           <p>{displayDomainText(review.reason)}</p>
         </div>
-        {unsupported && review.officialUrl ? (
+        {(unsupported || review.sourceReviewRequired) && review.officialUrl ? (
           <a
             href={review.officialUrl}
             target="_blank"
@@ -114,35 +121,45 @@ export function ReviewCard({
           </Link>
         )}
       </div>
-      <div className="review-evidence-grid">
-        <div>
-          <span>원문 method</span>
-          <code>{review.methodRaw ?? '필드 없음'}</code>
+      {!review.sourceReviewRequired ? (
+        <div className="review-evidence-grid">
+          <div>
+            <span>원문 method</span>
+            <code>{review.methodRaw ?? '필드 없음'}</code>
+          </div>
+          <div>
+            <span>추출 문맥</span>
+            <blockquote>{review.extractedText ?? '추출된 문맥이 없습니다.'}</blockquote>
+          </div>
+          <div>
+            <span>제안 분류</span>
+            <NatureBadge nature={review.proposedNature} />
+          </div>
+          <div>
+            <span>파서 확신도 · {Math.round(review.parserConfidence * 100)}%</span>
+            <Progress value={review.parserConfidence * 100} label="파서 확신도" />
+          </div>
         </div>
-        <div>
-          <span>추출 문맥</span>
-          <blockquote>{review.extractedText ?? '추출된 문맥이 없습니다.'}</blockquote>
-        </div>
-        <div>
-          <span>제안 분류</span>
-          <NatureBadge nature={review.proposedNature} />
-        </div>
-        <div>
-          <span>파서 확신도 · {Math.round(review.parserConfidence * 100)}%</span>
-          <Progress value={review.parserConfidence * 100} label="파서 확신도" />
-        </div>
-      </div>
-      {review.staged ? (
-        <details className="review-candidate-evidence" open={crosscheckPending}>
-          <summary>비활성 추출 근거 · {review.candidateRowCount ?? 0}행</summary>
+      ) : null}
+      {review.staged || review.sourceReviewRequired ? (
+        <details
+          className="review-candidate-evidence"
+          open={Boolean(crosscheckPending || sourceReviewPending)}
+        >
+          <summary>
+            {review.sourceReviewRequired
+              ? `원문 대조용 비활성 주요내용 · ${review.candidateRowCount ?? 0}개 목록`
+              : `비활성 추출 근거 · ${review.candidateRowCount ?? 0}행`}
+          </summary>
           <p>
-            공식 요약 검증: {review.crosscheckStatus ?? '미실행'}. 먼저 공식 요약을 조회하고, 원문
-            전체와 추출 값을 확인한 뒤 다시 확정하세요.
+            {review.sourceReviewRequired
+              ? '이 유형은 공식 요약 API가 없습니다. 아래 주요내용과 공식 원문 전체를 대조한 뒤 원문 대조 완료를 기록하고, 다시 별도로 확정하세요.'
+              : `공식 요약 검증: ${review.crosscheckStatus ?? '미실행'}. 먼저 공식 요약을 조회하고, 원문 전체와 추출 값을 확인한 뒤 다시 확정하세요.`}
           </p>
           {review.candidateEvidence?.map((line, index) => (
             <p key={index}>{line}</p>
           ))}
-          {(review.candidateRowCount ?? 0) > 5 ? (
+          {!review.sourceReviewRequired && (review.candidateRowCount ?? 0) > 5 ? (
             <p>앞의 5행만 표시합니다. 전체 행은 원문과 파싱 감사 결과에서 확인하세요.</p>
           ) : null}
           {review.officialUrl ? (
@@ -220,6 +237,23 @@ export function ReviewCard({
           </button>
         ))}
       </div>
+      {review.sourceReviewRequired ? (
+        <div className="review-source-review">
+          <p>
+            {review.sourceReviewConfirmed
+              ? `원문 대조 기록 완료 · ${formatKst(review.sourceReviewConfirmedAt ?? null)}`
+              : '공식 원문 전체와 추출된 주요내용을 직접 대조해야 합니다. 이 단계에서는 활성화하거나 알림을 발송하지 않습니다.'}
+          </p>
+          {!review.sourceReviewConfirmed ? (
+            <Button
+              disabled={pending || cannotActivate || !onConfirmSource}
+              onClick={() => onConfirmSource?.(note.trim() || null)}
+            >
+              원문 대조 완료 기록
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
       <div className="review-card__action">
         <Input
           value={note}
@@ -228,14 +262,28 @@ export function ReviewCard({
           aria-label="검토 근거 메모"
         />
         <Button
-          onClick={() => onResolve(selected, note.trim() || null, selectedMatchId)}
-          disabled={pending || (cannotActivate && selected === 'CONFIRMED')}
+          onClick={() =>
+            onResolve(
+              selected,
+              note.trim() || null,
+              review.planExecutionCandidates?.some(
+                (candidate) => candidate.matchId === selectedMatchId,
+              )
+                ? selectedMatchId
+                : undefined,
+            )
+          }
+          disabled={
+            pending || ((cannotActivate || sourceReviewPending) && selected === 'CONFIRMED')
+          }
         >
-          {cannotActivate && selected === 'CONFIRMED'
-            ? '추출 검증 필요'
-            : crosscheckPending && selected === 'CONFIRMED'
-              ? '공식 요약 검증'
-              : '검토 확정'}
+          {sourceReviewPending && selected === 'CONFIRMED'
+            ? '먼저 원문 대조 필요'
+            : cannotActivate && selected === 'CONFIRMED'
+              ? '추출 검증 필요'
+              : crosscheckPending && selected === 'CONFIRMED'
+                ? '공식 요약 검증'
+                : '검토 확정'}
         </Button>
       </div>
       <time>생성 {formatKst(review.createdAt)}</time>
@@ -254,6 +302,11 @@ export function ReviewsPage() {
   });
   const integrity = useQuery({ queryKey: ['parse-integrity'], queryFn: api.parseIntegrity });
   const items = reviews.data?.pages.flatMap((page) => page.items) ?? [];
+  const confirmSource = useMutation({
+    mutationFn: ({ id, note }: { id: string; note: string | null }) =>
+      api.confirmReviewSource(id, note),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['reviews'] }),
+  });
   const resolve = useMutation({
     mutationFn: ({
       id,
@@ -301,11 +354,20 @@ export function ReviewsPage() {
           {reviews.isError ? (
             <ErrorState message={reviews.error.message} onRetry={() => void reviews.refetch()} />
           ) : null}
+          {resolve.isError || confirmSource.isError ? (
+            <p role="alert" className="form-error">
+              {resolve.error?.message ?? confirmSource.error?.message}
+            </p>
+          ) : null}
           {items.map((review) => (
             <ReviewCard
               key={review.id}
               review={review}
-              pending={resolve.isPending && resolve.variables?.id === review.id}
+              pending={
+                (resolve.isPending && resolve.variables?.id === review.id) ||
+                (confirmSource.isPending && confirmSource.variables?.id === review.id)
+              }
+              onConfirmSource={(note) => confirmSource.mutate({ id: review.id, note })}
               onResolve={(resolution, note, planExecutionMatchId) =>
                 resolve.mutate({
                   id: review.id,

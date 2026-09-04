@@ -559,6 +559,12 @@ a:focus-visible,
 .disclosure-stat--d002 > strong {
   color: var(--teal);
 }
+.disclosure-stat--d003 > strong {
+  color: var(--blue);
+}
+.disclosure-stat--d004 > strong {
+  color: var(--violet);
+}
 .disclosure-stat--d005 > strong {
   color: var(--orange);
 }

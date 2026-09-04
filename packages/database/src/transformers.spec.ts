@@ -24,6 +24,7 @@ import { AllowSharedCompanyCik1788398000000 } from './migrations/1788398000000-A
 import { AddParseIntegrity1788399000000 } from './migrations/1788399000000-AddParseIntegrity';
 import { RepairLegacyParserClock1788400000000 } from './migrations/1788400000000-RepairLegacyParserClock';
 import { AddNewsArticles1788401000000 } from './migrations/1788401000000-AddNewsArticles';
+import { AddDisclosureDomains1788402000000 } from './migrations/1788402000000-AddDisclosureDomains';
 import { numericStringTransformer } from './transformers';
 
 test('TypeORM CLI module exports exactly one DataSource instance', () => {
@@ -167,6 +168,7 @@ test('TypeORM production options never use schema synchronization', () => {
     AddParseIntegrity1788399000000,
     RepairLegacyParserClock1788400000000,
     AddNewsArticles1788401000000,
+    AddDisclosureDomains1788402000000,
   ]);
 });
 

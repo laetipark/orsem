@@ -6,6 +6,8 @@ describe('domain badges', () => {
   it.each([
     ['D001', '대량보유 공시'],
     ['D002', '임원·주요주주 보유'],
+    ['D003', '의결권 위임 권유'],
+    ['D004', '공개매수'],
     ['D005', '주식 거래계획'],
   ] as const)('uses the public label for %s while retaining domain distinctions', (type, label) => {
     const { container } = render(<EventTypeBadge type={type} />);
