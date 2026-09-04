@@ -1,10 +1,5 @@
 import { RightsMode } from '@orsem/contracts';
-import {
-  CompanyEntity,
-  EventClusterEntity,
-  EventClusterItemEntity,
-  SourceItemEntity,
-} from '@orsem/database';
+import { CompanyEntity, EventClusterEntity, SourceItemEntity } from '@orsem/database';
 import type { EntityManager } from 'typeorm';
 import { projectSecFilingEvents } from '../src/connectors/sec-event-projection';
 
