@@ -12,6 +12,12 @@ const RELATED_TABLES = Object.freeze([
   'companies',
   'company_aliases',
   'watchlist_items',
+  // News collection and disclosure parsing share source/event records. Keep the
+  // canonical article and its source links together so a rollout restore does
+  // not silently recreate the schema with an empty news data set.
+  'source_items',
+  'news_articles',
+  'news_items',
   'filings',
   'filing_list_observations',
   'parse_runs',

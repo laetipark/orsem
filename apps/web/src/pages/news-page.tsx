@@ -21,7 +21,17 @@ const sourceKinds: Array<[NewsSourceKind | '', string]> = [
   ['COMPANY_IR', '기업 IR'],
   ['PRESS_RELEASE', '보도자료'],
   ['INDEPENDENT_MEDIA', '독립 언론'],
+  ['UNKNOWN', '출처 유형 미확인'],
 ];
+const newsSourceKindValues = new Set<NewsSourceKind>(
+  sourceKinds.flatMap(([value]) => (value ? [value] : [])),
+);
+
+export function parseNewsSourceKind(value: string | null): NewsSourceKind | undefined {
+  return value && newsSourceKindValues.has(value as NewsSourceKind)
+    ? (value as NewsSourceKind)
+    : undefined;
+}
 const publishers = [
   ['', '모든 제공자'],
   ['etoday', '이투데이'],
@@ -34,7 +44,7 @@ export function NewsPage() {
   const [draft, setDraft] = useState(params.get('q') ?? '');
   const filters = {
     region: parseRegion(params.get('region')),
-    sourceKind: (params.get('sourceKind') || undefined) as NewsSourceKind | undefined,
+    sourceKind: parseNewsSourceKind(params.get('sourceKind')),
     publisher: params.get('publisher') || undefined,
     q: params.get('q') || undefined,
     companyId: params.get('companyId') || undefined,

@@ -24,6 +24,8 @@ import type {
   SearchItem,
   NotificationSettings,
   NotificationPreferences,
+  NaverNewsSearchResult,
+  SourceItem,
 } from '../types';
 
 const now = '2026-09-03T08:42:00.000Z';
@@ -253,6 +255,265 @@ const eventSeeds: EventSummary[] = [
     sourceName: 'Microsoft IR · 예시',
     rightsMode: 'OFFICIAL_PUBLIC_DATA',
     officialUrl: 'https://www.microsoft.com/en-us/investor',
+  },
+];
+
+interface FixtureNewsSeed {
+  companyId: string | null;
+  item: SourceItem;
+}
+
+const fixtureNewsSeeds: FixtureNewsSeed[] = [
+  {
+    companyId: 'company-samsung',
+    item: {
+      id: 'fixture-news-etoday-market-01',
+      articleId: 'fixture-article-semiconductor-01',
+      sourceCount: 2,
+      sourceKind: 'INDEPENDENT_MEDIA',
+      publisherId: 'etoday',
+      marketRegion: 'kr',
+      sources: [
+        {
+          id: 'fixture-news-etoday-market-01',
+          source: 'NEWS_RSS',
+          sourceName: '이투데이 · 개발 표본',
+          url: 'https://example.test/orsem/news/semiconductor-01',
+        },
+        {
+          id: 'fixture-news-aggregator-market-01',
+          source: 'GDELT',
+          sourceName: 'GDELT · 개발 표본',
+          url: 'https://example.test/orsem/news/semiconductor-01?source=gdelt',
+        },
+      ],
+      source: 'NEWS_RSS',
+      externalId: 'fixture-etoday-market-01',
+      url: 'https://example.test/orsem/news/semiconductor-01',
+      title: '[개발 표본] 국내 반도체 업종 시장 동향',
+      description: null,
+      translation: null,
+      sourceName: '이투데이 · 개발 표본',
+      author: null,
+      publishedAt: '2026-09-03T08:35:00.000Z',
+      firstObservedAt: '2026-09-03T08:36:00.000Z',
+      processedAt: '2026-09-03T08:37:00.000Z',
+      rightsMode: 'STORE_METADATA_ONLY',
+      provenanceUrl: 'https://example.test/orsem/news/semiconductor-01',
+      tickers: ['005930'],
+      tags: ['개발 fixture', '반도체'],
+    },
+  },
+  {
+    companyId: null,
+    item: {
+      id: 'fixture-news-fed-release-01',
+      articleId: 'fixture-article-fed-release-01',
+      sourceCount: 1,
+      sourceKind: 'OFFICIAL_RELEASE',
+      publisherId: 'federal-reserve',
+      marketRegion: 'us',
+      sources: [
+        {
+          id: 'fixture-news-fed-release-01',
+          source: 'NEWS_RSS',
+          sourceName: 'Federal Reserve · 개발 표본',
+          url: 'https://example.test/orsem/news/fed-release-01',
+        },
+      ],
+      source: 'NEWS_RSS',
+      externalId: 'fixture-fed-release-01',
+      url: 'https://example.test/orsem/news/fed-release-01',
+      title: '[개발 표본] Federal Reserve policy release',
+      description: '개발 화면 검증을 위한 가상의 공식 기관 발표 메타데이터입니다.',
+      translation: null,
+      sourceName: 'Federal Reserve · 개발 표본',
+      author: null,
+      publishedAt: '2026-09-03T08:25:00.000Z',
+      firstObservedAt: '2026-09-03T08:26:00.000Z',
+      processedAt: '2026-09-03T08:27:00.000Z',
+      rightsMode: 'OFFICIAL_PUBLIC_DATA',
+      provenanceUrl: 'https://example.test/orsem/news/fed-release-01',
+      tickers: [],
+      tags: ['개발 fixture', '통화정책'],
+    },
+  },
+  {
+    companyId: 'company-msft',
+    item: {
+      id: 'fixture-news-msft-ir-01',
+      articleId: 'fixture-article-msft-ir-01',
+      sourceCount: 1,
+      sourceKind: 'COMPANY_IR',
+      publisherId: 'microsoft-ir-fixture',
+      marketRegion: 'us',
+      sources: [
+        {
+          id: 'fixture-news-msft-ir-01',
+          source: 'IR',
+          sourceName: 'Microsoft IR · 개발 표본',
+          url: 'https://example.test/orsem/news/msft-ir-01',
+        },
+      ],
+      source: 'IR',
+      externalId: 'fixture-msft-ir-01',
+      url: 'https://example.test/orsem/news/msft-ir-01',
+      title: '[Development fixture] Microsoft publishes a cloud business update',
+      description: 'This is deterministic test metadata, not a real company announcement.',
+      translation: {
+        language: 'ko',
+        title: '[개발 표본] 마이크로소프트, 클라우드 사업 현황 발표',
+        description: '개발 화면의 번역 표시를 검증하기 위한 가상 메타데이터입니다.',
+        translatedAt: '2026-09-03T08:17:00.000Z',
+        provider: 'LOCAL',
+        model: 'fixture',
+      },
+      sourceName: 'Microsoft IR · 개발 표본',
+      author: null,
+      publishedAt: '2026-09-03T08:15:00.000Z',
+      firstObservedAt: '2026-09-03T08:16:00.000Z',
+      processedAt: '2026-09-03T08:17:00.000Z',
+      rightsMode: 'OFFICIAL_PUBLIC_DATA',
+      provenanceUrl: 'https://example.test/orsem/news/msft-ir-01',
+      tickers: ['MSFT'],
+      tags: ['개발 fixture', '클라우드'],
+    },
+  },
+  {
+    companyId: 'company-rainbow',
+    item: {
+      id: 'fixture-news-opendart-01',
+      articleId: null,
+      sourceCount: 1,
+      sourceKind: 'OFFICIAL_DISCLOSURE',
+      publisherId: 'opendart-fixture',
+      marketRegion: 'kr',
+      sources: [
+        {
+          id: 'fixture-news-opendart-01',
+          source: 'OPENDART',
+          sourceName: 'OpenDART · 개발 표본',
+          url: 'https://example.test/orsem/news/opendart-01',
+        },
+      ],
+      source: 'OPENDART',
+      externalId: 'fixture-opendart-01',
+      url: 'https://example.test/orsem/news/opendart-01',
+      title: '[개발 표본] 코스닥 기업 공시 접수 알림',
+      description: '실제 공시가 아닌 개발 화면 검증용 메타데이터입니다.',
+      translation: null,
+      sourceName: 'OpenDART · 개발 표본',
+      author: null,
+      publishedAt: '2026-09-03T08:05:00.000Z',
+      firstObservedAt: '2026-09-03T08:06:00.000Z',
+      processedAt: '2026-09-03T08:07:00.000Z',
+      rightsMode: 'OFFICIAL_PUBLIC_DATA',
+      provenanceUrl: 'https://example.test/orsem/news/opendart-01',
+      tickers: ['277810'],
+      tags: ['개발 fixture', '공시'],
+    },
+  },
+  {
+    companyId: null,
+    item: {
+      id: 'fixture-news-bls-release-01',
+      articleId: 'fixture-article-bls-release-01',
+      sourceCount: 1,
+      sourceKind: 'OFFICIAL_RELEASE',
+      publisherId: 'bls',
+      marketRegion: 'us',
+      sources: [
+        {
+          id: 'fixture-news-bls-release-01',
+          source: 'NEWS_RSS',
+          sourceName: 'Bureau of Labor Statistics · 개발 표본',
+          url: 'https://example.test/orsem/news/bls-release-01',
+        },
+      ],
+      source: 'NEWS_RSS',
+      externalId: 'fixture-bls-release-01',
+      url: 'https://example.test/orsem/news/bls-release-01',
+      title: '[개발 표본] U.S. labor statistics release',
+      description: '개발 화면 검증을 위한 가상의 통계 발표 메타데이터입니다.',
+      translation: null,
+      sourceName: 'Bureau of Labor Statistics · 개발 표본',
+      author: null,
+      publishedAt: '2026-09-03T07:55:00.000Z',
+      firstObservedAt: '2026-09-03T07:56:00.000Z',
+      processedAt: '2026-09-03T07:57:00.000Z',
+      rightsMode: 'OFFICIAL_PUBLIC_DATA',
+      provenanceUrl: 'https://example.test/orsem/news/bls-release-01',
+      tickers: [],
+      tags: ['개발 fixture', '고용'],
+    },
+  },
+  {
+    companyId: null,
+    item: {
+      id: 'fixture-news-global-release-01',
+      articleId: 'fixture-article-global-release-01',
+      sourceCount: 1,
+      sourceKind: 'PRESS_RELEASE',
+      publisherId: 'fixture-global',
+      marketRegion: 'global',
+      sources: [
+        {
+          id: 'fixture-news-global-release-01',
+          source: 'NEWS_RSS',
+          sourceName: 'Global Fixture Wire',
+          url: 'https://example.test/orsem/news/global-release-01',
+        },
+      ],
+      source: 'NEWS_RSS',
+      externalId: 'fixture-global-release-01',
+      url: 'https://example.test/orsem/news/global-release-01',
+      title: '[개발 표본] 글로벌 원자재 시장 보도자료',
+      description: null,
+      translation: null,
+      sourceName: 'Global Fixture Wire',
+      author: null,
+      publishedAt: '2026-09-03T07:45:00.000Z',
+      firstObservedAt: '2026-09-03T07:46:00.000Z',
+      processedAt: '2026-09-03T07:47:00.000Z',
+      rightsMode: 'LINK_ONLY',
+      provenanceUrl: 'https://example.test/orsem/news/global-release-01',
+      tickers: [],
+      tags: ['개발 fixture', '원자재'],
+    },
+  },
+  {
+    companyId: 'company-hynix',
+    item: {
+      id: 'fixture-news-etoday-finance-01',
+      articleId: 'fixture-article-memory-01',
+      sourceCount: 1,
+      sourceKind: 'INDEPENDENT_MEDIA',
+      publisherId: 'etoday',
+      marketRegion: 'kr',
+      sources: [
+        {
+          id: 'fixture-news-etoday-finance-01',
+          source: 'NEWS_RSS',
+          sourceName: '이투데이 · 개발 표본',
+          url: 'https://example.test/orsem/news/memory-01',
+        },
+      ],
+      source: 'NEWS_RSS',
+      externalId: 'fixture-etoday-finance-01',
+      url: 'https://example.test/orsem/news/memory-01',
+      title: '[개발 표본] 메모리 업종 금융시장 동향',
+      description: null,
+      translation: null,
+      sourceName: '이투데이 · 개발 표본',
+      author: null,
+      publishedAt: '2026-09-03T07:35:00.000Z',
+      firstObservedAt: '2026-09-03T07:36:00.000Z',
+      processedAt: '2026-09-03T07:37:00.000Z',
+      rightsMode: 'STORE_METADATA_ONLY',
+      provenanceUrl: 'https://example.test/orsem/news/memory-01',
+      tickers: ['000660'],
+      tags: ['개발 fixture', '메모리'],
+    },
   },
 ];
 
@@ -846,6 +1107,104 @@ function pageEvents(url: URL): CursorPage<EventSummary> {
   return { items, nextCursor: next };
 }
 
+function fixtureNewsRegionMatches(item: SourceItem, region: string | null): boolean {
+  if (!region || region === 'all') return true;
+  return item.marketRegion === region || item.marketRegion === 'global';
+}
+
+function pageNews(url: URL): CursorPage<SourceItem> {
+  const q = (url.searchParams.get('q') ?? '').trim().toLowerCase();
+  const sourceKind = url.searchParams.get('sourceKind');
+  const publisher = url.searchParams.get('publisher');
+  const companyId = url.searchParams.get('companyId');
+  const cursor = Math.max(0, Number.parseInt(url.searchParams.get('cursor') ?? '0', 10) || 0);
+  const limit = Math.min(
+    100,
+    Math.max(1, Number.parseInt(url.searchParams.get('limit') ?? '20', 10) || 20),
+  );
+  const filtered = fixtureNewsSeeds
+    .filter(({ item }) => fixtureNewsRegionMatches(item, url.searchParams.get('region')))
+    .filter(({ item }) => !sourceKind || item.sourceKind === sourceKind)
+    .filter(({ item }) => !publisher || (item.publisherId ?? item.sourceName) === publisher)
+    .filter((seed) => !companyId || seed.companyId === companyId)
+    .filter(({ item }) => {
+      if (!q) return true;
+      return [item.title, item.description, item.translation?.title, item.translation?.description]
+        .filter((value): value is string => Boolean(value))
+        .some((value) => value.toLowerCase().includes(q));
+    })
+    .map(({ item }) => item)
+    .sort((left, right) =>
+      (right.publishedAt ?? right.firstObservedAt).localeCompare(
+        left.publishedAt ?? left.firstObservedAt,
+      ),
+    );
+  const items = filtered.slice(cursor, cursor + limit);
+  return {
+    items,
+    nextCursor: cursor + limit < filtered.length ? String(cursor + limit) : null,
+  };
+}
+
+function escapeFixtureNewsMarkup(value: string): string {
+  return value.replace(/[&<>"']/gu, (character) => {
+    const entities: Record<string, string> = {
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;',
+    };
+    return entities[character] ?? character;
+  });
+}
+
+function fixtureNaverNewsSearch(init?: RequestInit): NaverNewsSearchResult {
+  const headers = new Headers(init?.headers);
+  let decodedQuery = '';
+  try {
+    decodedQuery = decodeURIComponent(headers.get('X-Orsem-News-Query') ?? '').trim();
+  } catch {
+    throw new Error('잘못된 뉴스 검색 요청입니다.');
+  }
+  if (!decodedQuery || decodedQuery.length > 120) {
+    throw new Error('뉴스 검색어를 1자 이상 120자 이하로 입력해 주세요.');
+  }
+  const start = Number(headers.get('X-Orsem-News-Start') ?? '1');
+  if (!Number.isInteger(start) || start < 1 || start > 1000) {
+    throw new Error('잘못된 뉴스 검색 페이지입니다.');
+  }
+  const sortHeader = headers.get('X-Orsem-News-Sort') ?? 'date';
+  if (sortHeader !== 'date' && sortHeader !== 'sim') {
+    throw new Error('잘못된 뉴스 검색 정렬 방식입니다.');
+  }
+
+  const total = 45;
+  const indexes = Array.from({ length: total }, (_, index) => index);
+  if (sortHeader === 'sim') {
+    indexes.sort((left, right) => (left % 7) - (right % 7) || left - right);
+  }
+  const escapedQuery = escapeFixtureNewsMarkup(decodedQuery);
+  const items = indexes.slice(start - 1, start - 1 + 20).map((index) => {
+    const number = index + 1;
+    return {
+      title: `<b>${escapedQuery}</b> 관련 개발 fixture 뉴스 ${String(number).padStart(2, '0')}`,
+      originallink: `https://publisher.example.test/orsem/naver-fixture/${number}`,
+      link: `https://news.example.test/orsem/naver-fixture/${number}`,
+      description: '외부 API를 호출하지 않는 개발 화면 검증용 검색 결과입니다.',
+      pubDate: new Date(Date.parse('2026-09-03T08:40:00.000Z') - index * 3_600_000).toUTCString(),
+    };
+  });
+  return {
+    provider: 'NAVER',
+    lastBuildDate: 'Thu, 03 Sep 2026 17:42:00 +0900',
+    total,
+    start,
+    display: items.length,
+    items,
+  };
+}
+
 function asSummary(company: CompanyDetail): CompanySummary {
   return {
     id: company.id,
@@ -1036,6 +1395,9 @@ export async function fixtureRequest<T>(path: string, init?: RequestInit): Promi
     } as T;
   }
   if (pathname === '/dashboard') return dashboard() as T;
+  if (pathname === '/news' && method === 'GET') return pageNews(url) as T;
+  if (pathname === '/news-search/naver' && method === 'GET')
+    return fixtureNaverNewsSearch(init) as T;
   if (pathname === '/events') return pageEvents(url) as T;
 
   const eventMatch = pathname.match(/^\/events\/([^/]+)$/);

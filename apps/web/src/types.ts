@@ -66,7 +66,7 @@ export interface SourceItem {
   sourceCount?: number;
   sourceKind?: NewsSourceKind;
   publisherId?: string | null;
-  marketRegion?: 'kr' | 'us' | 'global' | null;
+  marketRegion?: 'kr' | 'us' | 'global' | 'unknown' | null;
   sources?: Array<{ id: string; source: string; sourceName: string | null; url: string }>;
   source: string;
   externalId: string | null;
