@@ -29,6 +29,7 @@ vi.mock('../lib/api', () => ({
     }),
     companyTimeline: mocks.timeline,
     companyLivePrice: mocks.live,
+    news: async () => ({ items: [], nextCursor: null }),
   },
 }));
 vi.mock('../components/company-chart', () => ({ CompanyChart: () => <div>차트</div> }));

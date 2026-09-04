@@ -48,6 +48,7 @@ describe('worker schedules', () => {
       queue(),
       loadWorkerConfig({ SEC_USER_AGENT: 'Orsem test@example.com' }),
       queue(),
+      queue(),
     ).onModuleInit();
     expect(enabledHealth.add).toHaveBeenCalledWith(
       'sync-sec-cik',
@@ -74,6 +75,7 @@ describe('worker schedules', () => {
       disabledHealth,
       queue(),
       loadWorkerConfig({}),
+      queue(),
       queue(),
     ).onModuleInit();
     expect(disabledHealth.removeRepeatableByKey).toHaveBeenCalledTimes(1);
@@ -115,24 +117,6 @@ describe('worker schedules', () => {
   it('uses the approved source and priority-specific discovery cadences', () => {
     expect(NEWS_DISCOVERY_SCHEDULES).toEqual([
       expect.objectContaining({
-        id: 'naver-news-p1-twenty-minutes',
-        pattern: '*/20 * * * *',
-        timezone: 'Asia/Seoul',
-        payload: expect.objectContaining({
-          connectors: ['NAVER'],
-          priorities: ['P1'],
-        }),
-      }),
-      expect.objectContaining({
-        id: 'naver-news-p2-hourly',
-        pattern: '0 * * * *',
-        timezone: 'Asia/Seoul',
-        payload: expect.objectContaining({
-          connectors: ['NAVER'],
-          priorities: ['P2'],
-        }),
-      }),
-      expect.objectContaining({
         id: 'sec-submissions-p1-p2-ten-minutes',
         pattern: '*/10 * * * *',
         timezone: 'Asia/Seoul',
@@ -142,8 +126,8 @@ describe('worker schedules', () => {
         }),
       }),
       expect.objectContaining({
-        id: 'registered-ir-thirty-minutes',
-        pattern: '*/30 * * * *',
+        id: 'registered-ir-fifteen-minutes',
+        pattern: '*/15 * * * *',
         timezone: 'Asia/Seoul',
         payload: expect.objectContaining({
           connectors: ['IR'],
@@ -151,10 +135,15 @@ describe('worker schedules', () => {
         }),
       }),
       expect.objectContaining({
-        id: 'publisher-news-rss-thirty-minutes',
-        pattern: '*/30 * * * *',
+        id: 'publisher-news-rss-fifteen-minutes',
+        pattern: '*/15 * * * *',
         timezone: 'Asia/Seoul',
         payload: expect.objectContaining({ connectors: ['NEWS_RSS'], priorities: [] }),
+      }),
+      expect.objectContaining({
+        id: 'approved-gdelt-thirty-minutes',
+        pattern: '*/30 * * * *',
+        payload: expect.objectContaining({ connectors: ['GDELT'], priorities: [] }),
       }),
     ]);
     for (const schedule of NEWS_DISCOVERY_SCHEDULES) {
@@ -197,6 +186,7 @@ describe('worker schedules', () => {
       health,
       market,
       loadWorkerConfig({}),
+      queue(),
       queue(),
     ).onModuleInit();
 
@@ -246,6 +236,7 @@ describe('worker schedules', () => {
       queue(),
       market,
       loadWorkerConfig({ ALPACA_API_KEY: 'test-key', ALPACA_API_SECRET: 'test-secret' }),
+      queue(),
       queue(),
     ).onModuleInit();
 

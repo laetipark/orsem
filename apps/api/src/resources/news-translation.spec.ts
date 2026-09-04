@@ -21,6 +21,7 @@ async function context() {
   const row: SourceItemEntity = Object.assign(new SourceItemEntity(), {
     id: 'source-id',
     source: 'IR',
+    sourcePolicyJson: { aiAllowed: true, displayAllowed: true },
     externalId: 'external-id',
     companyId: null,
     title: 'Original news title',
@@ -159,7 +160,7 @@ test('뉴스와 이벤트의 번역 제목 검색도 실제 MySQL SQL에 입력�
     assert.match(query.sql, /translation_json/u);
     assert.match(query.sql, /\$\.inputHash/u);
     assert.match(query.sql, /BINARY 'COMPLETED'/u);
-    assert.match(query.sql, /'NAVER', 'GDELT', 'IR'/u);
+    assert.match(query.sql, /'GDELT', 'IR'/u);
     assert.match(query.sql, /LIKE \? ESCAPE '!'/u);
   }
 });
@@ -167,6 +168,7 @@ test('뉴스와 이벤트의 번역 제목 검색도 실제 MySQL SQL에 입력�
 test('원문 해시가 없는 예시 SourceItem에는 번역을 추가하지 않는다', async () => {
   const fixtures = new FixtureStoreService();
   const source = fixtures.sourceItems[0]!;
+  source.source = 'IR';
   source.translation = {
     language: 'ko',
     title: '검증되지 않은 예시 번역',

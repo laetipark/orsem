@@ -30,6 +30,8 @@ import type {
   SubmissionKind,
   TransactionNature,
   WatchPriority,
+  NewsSourceKind,
+  NewsSourcePolicy,
 } from '@orsem/contracts';
 import { numericStringTransformer } from './transformers';
 import { MarketInstrumentEntity, MarketObservationEntity } from './market-entities';
@@ -201,7 +203,15 @@ export class WatchlistItemEntity extends EntityBase {
 @Unique('ux_source_external', ['source', 'externalId'])
 @Unique('ux_source_raw_hash', ['source', 'rawHash'])
 @Index('ix_source_items_published', ['publishedAt', 'id'])
+@Index('ix_source_items_article', ['newsArticleId'])
 export class SourceItemEntity extends EntityBase {
+  newsArticle?: NewsArticleEntity;
+  @Column({ name: 'news_article_id', type: 'char', length: 36, nullable: true }) newsArticleId!:
+    string | null;
+  @Column({ name: 'source_kind', type: 'varchar', length: 32, nullable: true })
+  sourceKind!: NewsSourceKind | null;
+  @Column({ name: 'source_policy_json', type: 'json', nullable: true })
+  sourcePolicyJson!: NewsSourcePolicy | null;
   @Column({ type: 'varchar', length: 64 }) source!: string;
   @Column({ name: 'external_id', type: 'varchar', length: 255, nullable: true }) externalId!:
     string | null;
@@ -228,6 +238,16 @@ export class SourceItemEntity extends EntityBase {
     string,
     unknown
   > | null;
+}
+
+@Entity({ name: 'news_articles' })
+@Unique('ux_news_article_url', ['urlHash'])
+@Index('ix_news_articles_sort', ['sortAt', 'id'])
+export class NewsArticleEntity extends EntityBase {
+  @Column({ name: 'canonical_url', type: 'text' }) canonicalUrl!: string;
+  @Column({ name: 'url_hash', type: 'char', length: 64 }) urlHash!: string;
+  @Column({ name: 'sort_at', ...instantColumn }) sortAt!: Date;
+  @Column({ name: 'first_observed_at', ...instantColumn }) firstObservedAt!: Date;
 }
 
 @Entity({ name: 'news_items' })
@@ -874,6 +894,7 @@ export const ENTITIES = [
   CompanyAliasEntity,
   WatchlistItemEntity,
   SourceItemEntity,
+  NewsArticleEntity,
   NewsItemEntity,
   PriceBarEntity,
   IrSourceEntity,

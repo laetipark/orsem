@@ -29,6 +29,7 @@ const source = (): SourceItemEntity =>
     title: 'NVIDIA (NVDA) reports revenue growth',
     rawHash: 'a'.repeat(64),
     rightsMode: RightsMode.OFFICIAL_PUBLIC_DATA,
+    sourcePolicyJson: { aiAllowed: true },
     url: 'https://example.com/news',
     provenanceUrl: 'https://example.com/news',
     firstObservedAt: now,
@@ -67,6 +68,18 @@ describe('local news translation boundaries', () => {
       expect(translationInput(Object.assign(source(), { rightsMode }), news())).toBeNull();
     },
   );
+  it('blocks NAVER despite a stale allow policy and blocks unknown/missing AI policies', () => {
+    expect(translationInput(Object.assign(source(), { source: 'NAVER' }), news())).toBeNull();
+    expect(
+      translationInput(Object.assign(source(), { sourcePolicyJson: null }), news()),
+    ).toBeNull();
+    expect(
+      translationInput(
+        Object.assign(source(), { sourcePolicyJson: { aiAllowed: 'UNKNOWN' } }),
+        news(),
+      ),
+    ).toBeNull();
+  });
   it('translates only supported news and caps an already-collected description', () => {
     expect(
       translationInput(source(), Object.assign(news(), { description: 'x'.repeat(1500) }))
@@ -335,6 +348,7 @@ describe('news translation retry and persistence', () => {
       queue(),
       config,
       translations,
+      queue(),
     ).onModuleInit();
     expect(translations.add).toHaveBeenCalledWith(
       'translate-news-batch',
@@ -354,6 +368,7 @@ describe('news translation retry and persistence', () => {
       queue(),
       loadWorkerConfig({}),
       translations,
+      queue(),
     ).onModuleInit();
     expect(translations.removeRepeatableByKey).toHaveBeenCalledWith('translation-repeat');
     expect(translations.add).not.toHaveBeenCalled();

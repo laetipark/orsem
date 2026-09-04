@@ -1,8 +1,15 @@
 import { createHash } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
-import { ConnectorStatus, ProcessingStatus, RightsMode, WatchPriority } from '@orsem/contracts';
+import {
+  ConnectorStatus,
+  ProcessingStatus,
+  RightsMode,
+  WatchPriority,
+  sourceKindForSource,
+} from '@orsem/contracts';
 import {
   CompanyEntity,
+  CompanyAliasEntity,
   ConnectorHealthEntity,
   FilingEntity,
   IngestionRunEntity,
@@ -11,6 +18,7 @@ import {
   SourceCheckpointEntity,
   SourceItemEntity,
   WatchlistItemEntity,
+  attachNewsArticle,
 } from '@orsem/database';
 import { DataSource, In } from 'typeorm';
 import { WORKER_CONFIG, type WorkerConfig } from '../config/worker-config';
@@ -27,7 +35,10 @@ import {
   type ConnectorName,
   type DiscoveryCandidate,
   type DiscoveryScope,
+  type FeedCheckpointStore,
+  type FeedCheckpoint,
 } from './connector-adapters';
+import { matchNewsCompany } from './news-company-matching';
 import { projectSecFilingEvents } from './sec-event-projection';
 
 const MAX_CANDIDATES_PER_DISCOVERY_BATCH = 500;
@@ -107,6 +118,8 @@ export class NewsDiscoveryService {
       message: string | null;
     }>[]
   > {
+    // Saved repeat/outbox jobs from before the isolated search rollout are inert.
+    if (job.connectors.includes('NAVER')) return [];
     const stream = discoveryStream(job);
     const irSources = job.connectors.includes('IR')
       ? await this.dataSource.getRepository(IrSourceEntity).find({
@@ -142,6 +155,9 @@ export class NewsDiscoveryService {
       ...this.config,
       irFeedUrls: Object.freeze([...feedUrls]),
     };
+    const aliases = job.connectors.some((connector) => ['NEWS_RSS', 'GDELT'].includes(connector))
+      ? await this.dataSource.getRepository(CompanyAliasEntity).find()
+      : [];
     const scopedCompanies = await this.loadDiscoveryCompanies(job);
     const scopedCompanyValues = scopedCompanies.map((company) =>
       Object.freeze({
@@ -210,7 +226,11 @@ export class NewsDiscoveryService {
       message: string | null;
     }> = [];
     const requestedConnectors = new Set<ConnectorName>(job.connectors);
-    for (const adapter of createLinkDiscoveryAdapters(effectiveConfig, this.fetchImpl)) {
+    for (const adapter of createLinkDiscoveryAdapters(
+      effectiveConfig,
+      this.fetchImpl,
+      this.feedCheckpointStore(),
+    )) {
       if (!requestedConnectors.has(adapter.name)) continue;
       const configured = adapter.health();
       const discoveryMetadata = {
@@ -250,7 +270,7 @@ export class NewsDiscoveryService {
         const adapterScopes =
           adapter.name === 'SEC'
             ? secScopes
-            : ['IR', 'NEWS_RSS'].includes(adapter.name)
+            : ['IR', 'NEWS_RSS', 'GDELT'].includes(adapter.name)
               ? discoveryScopes.slice(0, 1)
               : discoveryScopes;
         for (const scope of adapterScopes) {
@@ -267,14 +287,26 @@ export class NewsDiscoveryService {
           const initialIssuers = await this.initialSecIssuers(issuerCiks);
           const candidates = await adapter.discoverLinks(scope);
           seen += candidates.length;
-          const selected = candidates.slice(0, MAX_CANDIDATES_PER_DISCOVERY_BATCH);
+          // RSS/IR parsers already bound each feed. Persist every returned feed item before
+          // saving HTTP validators, otherwise a 304 could hide unpersisted articles forever.
+          const selected = ['NEWS_RSS', 'IR'].includes(adapter.name)
+            ? candidates
+            : candidates.slice(0, MAX_CANDIDATES_PER_DISCOVERY_BATCH);
           truncated ||= candidates.length > selected.length;
           for (const candidate of selected) {
             const suppressAlerts =
               job.suppressAlerts ||
               job.reason === 'BACKFILL' ||
               (candidate.connector === 'SEC' && initialIssuers.has(String(candidate.metadata.cik)));
-            if (await this.persistCandidate(candidate, irCompanyIdsByUrl, job, suppressAlerts)) {
+            if (
+              await this.persistCandidate(
+                candidate,
+                irCompanyIdsByUrl,
+                job,
+                suppressAlerts,
+                matchNewsCompany(candidate.title, aliases),
+              )
+            ) {
               created += 1;
             }
           }
@@ -286,8 +318,13 @@ export class NewsDiscoveryService {
           adapter instanceof PublisherNewsRssConnector
             ? adapter.discoveryFailureCount
             : 0;
-        if (adapter instanceof PublisherNewsRssConnector)
+        if (
+          adapter instanceof PublisherNewsRssConnector ||
+          adapter instanceof RegisteredIrFeedConnector
+        ) {
           truncated ||= adapter.discoveryWasTruncated;
+          await adapter.commitFeedCheckpoints();
+        }
         const completedAt = new Date();
         run.status = ProcessingStatus.COMPLETED;
         run.itemsSeen = String(seen);
@@ -317,7 +354,10 @@ export class NewsDiscoveryService {
           stream,
           {
             ...discoveryMetadata,
-            ...(adapter instanceof PublisherNewsRssConnector ? adapter.discoveryMetadata : {}),
+            ...(adapter instanceof PublisherNewsRssConnector ||
+            adapter instanceof RegisteredIrFeedConnector
+              ? adapter.discoveryMetadata
+              : {}),
           },
           adapter.name === 'SEC'
             ? { degradedMessage: secScopeWarning, recordSuccessInstant: secScopes.length > 0 }
@@ -326,7 +366,7 @@ export class NewsDiscoveryService {
         results.push({
           connector: adapter.name,
           status:
-            partialFailureCount > 0 || (adapter.name === 'SEC' && secScopeWarning)
+            partialFailureCount > 0 || truncated || (adapter.name === 'SEC' && secScopeWarning)
               ? ConnectorStatus.DEGRADED
               : ConnectorStatus.HEALTHY,
           seen,
@@ -342,7 +382,10 @@ export class NewsDiscoveryService {
         await runs.save(run);
         await this.recordFailure(adapter.name, adapter.rightsMode, failedAt, message, stream, {
           ...discoveryMetadata,
-          ...(adapter instanceof PublisherNewsRssConnector ? adapter.discoveryMetadata : {}),
+          ...(adapter instanceof PublisherNewsRssConnector ||
+          adapter instanceof RegisteredIrFeedConnector
+            ? adapter.discoveryMetadata
+            : {}),
           ...(error instanceof ConnectorRequestError
             ? {
                 httpStatus: error.httpStatus,
@@ -392,6 +435,62 @@ export class NewsDiscoveryService {
       else results.push(degraded);
     }
     return Object.freeze(results.map((result) => Object.freeze(result)));
+  }
+
+  private feedCheckpointStore(): FeedCheckpointStore {
+    const repository = this.dataSource.getRepository(SourceCheckpointEntity);
+    const streamFor = (url: string): string =>
+      `RSS_HTTP:${createHash('sha256').update(url).digest('hex')}`;
+    return {
+      load: async (connector, url) => {
+        const row = await repository.findOne({ where: { connector, stream: streamFor(url) } });
+        const metadata = row?.metadataJson;
+        if (!metadata || typeof metadata.checkedAt !== 'string') return null;
+        const safe = (value: unknown): string | null =>
+          typeof value === 'string' && value.length <= 1024 && !/[\r\n]/.test(value) ? value : null;
+        return {
+          etag: safe(metadata.etag),
+          lastModified: safe(metadata.lastModified),
+          checkedAt: metadata.checkedAt,
+          httpStatus: Number(metadata.httpStatus),
+        } satisfies FeedCheckpoint;
+      },
+      save: async (connector, url, state) => {
+        const stream = streamFor(url);
+        const row =
+          (await repository.findOne({ where: { connector, stream } })) ??
+          repository.create({ connector, stream, lastSuccessDate: null, cursor: null });
+        row.lastSuccessAt = new Date(state.checkedAt);
+        row.metadataJson = {
+          ...row.metadataJson,
+          ...state,
+          feedUrl: url,
+          status: ConnectorStatus.HEALTHY,
+          errorMessage: null,
+        };
+        await repository.save(row);
+      },
+      recordFailure: async (connector, url, message, at) => {
+        const stream = streamFor(url);
+        const row =
+          (await repository.findOne({ where: { connector, stream } })) ??
+          repository.create({
+            connector,
+            stream,
+            lastSuccessDate: null,
+            cursor: null,
+            lastSuccessAt: null,
+          });
+        row.metadataJson = {
+          ...row.metadataJson,
+          feedUrl: url,
+          status: ConnectorStatus.DEGRADED,
+          lastFailureAt: at.toISOString(),
+          errorMessage: message,
+        };
+        await repository.save(row);
+      },
+    };
   }
 
   private async loadDiscoveryCompanies(job: DiscoverLinksJob): Promise<readonly CompanyEntity[]> {
@@ -526,7 +625,14 @@ export class NewsDiscoveryService {
     irCompanyIdsByUrl: ReadonlyMap<string, readonly string[]>,
     job: DiscoverLinksJob,
     suppressAlerts = false,
+    matchedCompanyId: string | null = null,
   ): Promise<boolean> {
+    if (
+      candidate.connector === 'NAVER' ||
+      candidate.sourcePolicy?.metadataStorageAllowed === false ||
+      (candidate.connector === 'GDELT' && candidate.sourcePolicy?.metadataStorageAllowed !== true)
+    )
+      return false;
     const candidateHash = rawHash(candidate);
     const externalId =
       candidate.externalId && candidate.externalId.length <= 255 ? candidate.externalId : null;
@@ -549,13 +655,15 @@ export class NewsDiscoveryService {
             where: [{ cik: secCik }, { cik: secCik.replace(/^0+/, '') }],
             order: { id: 'ASC' },
           })
-        : tickers.length === 0
-          ? []
-          : await manager.getRepository(CompanyEntity).find({
-              where: [{ ticker: In(tickers) }, { stockCode: In(tickers) }],
-              take: 2,
-            });
-      if (secCik)
+        : matchedCompanyId
+          ? await manager.getRepository(CompanyEntity).find({ where: { id: matchedCompanyId } })
+          : tickers.length === 0
+            ? []
+            : await manager.getRepository(CompanyEntity).find({
+                where: [{ ticker: In(tickers) }, { stockCode: In(tickers) }],
+                take: 2,
+              });
+      if (secCik || matchedCompanyId)
         tickers = boundedValues(
           companies.flatMap((company) => (company.ticker ? [company.ticker] : [])),
         ).sort();
@@ -586,24 +694,42 @@ export class NewsDiscoveryService {
       sourceItem.url = candidate.url;
       sourceItem.title = title;
       sourceItem.sourceName = candidate.sourceName?.slice(0, 255) ?? null;
-      sourceItem.author = null;
+      sourceItem.author =
+        typeof candidate.metadata.originalAuthor === 'string'
+          ? candidate.metadata.originalAuthor.slice(0, 255)
+          : null;
       sourceItem.publishedAt = publishedAt;
       sourceItem.processedAt = new Date();
       sourceItem.rawHash = candidateHash;
       sourceItem.rawObjectUri = null;
       sourceItem.rightsMode = candidate.rightsMode;
+      sourceItem.sourceKind = candidate.sourceKind ?? sourceKindForSource(candidate.connector);
+      sourceItem.sourcePolicyJson = candidate.sourcePolicy ?? {
+        rightsMode: candidate.rightsMode,
+        aiAllowed: 'UNKNOWN',
+        fullTextStorageAllowed: false,
+        metadataStorageAllowed: true,
+        displayAllowed: true,
+        publicRedistributionAllowed: 'UNKNOWN',
+        notifyAllowed: candidate.connector === 'SEC',
+        policyUrl: candidate.url,
+        checkedAt: '2026-09-05',
+      };
       sourceItem.provenanceUrl = candidate.url;
       sourceItem.rawMetadataJson = {
         ...candidate.metadata,
         ...(secCik ? { companyIds: companies.map((company) => company.id).sort() } : {}),
         tickers,
         tags,
+        matchedCompanyId,
+        companyMatchMethod: matchedCompanyId ? 'UNAMBIGUOUS_TITLE_ALIAS' : null,
         discoveryReason: job.reason,
         discoveryPriorities: job.priorities,
         triggerFilingId: job.triggerFilingId ?? null,
         externalIdTruncatedToHash: candidate.externalId !== null && externalId === null,
       };
       sourceItem = await sourceRepository.save(sourceItem);
+      await attachNewsArticle(manager, sourceItem);
       if (candidate.connector === 'SEC')
         await projectSecFilingEvents(manager, sourceItem, companies);
 
@@ -623,7 +749,7 @@ export class NewsDiscoveryService {
       // Publisher RSS is authorized for collection only, without outgoing notifications.
       if (
         created &&
-        candidate.connector !== 'NEWS_RSS' &&
+        candidate.connector === 'SEC' &&
         !suppressAlerts &&
         !job.suppressAlerts &&
         job.reason !== 'BACKFILL'
@@ -675,7 +801,7 @@ export class NewsDiscoveryService {
         (await health.findOne({ where: { connector: connector.toLowerCase() } })) ??
         health.create({ connector: connector.toLowerCase() });
       row.status =
-        partialFailureCount > 0 || completion.degradedMessage
+        partialFailureCount > 0 || truncated || completion.degradedMessage
           ? ConnectorStatus.DEGRADED
           : ConnectorStatus.HEALTHY;
       row.message =

@@ -10,7 +10,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run build && node --test dist/contracts.spec.js",
+    "test": "npm run build && node --test dist/*.spec.js",
     "test:unit": "npm run test"
   },
   "dependencies": {

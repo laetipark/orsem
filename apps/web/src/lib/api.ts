@@ -27,6 +27,8 @@ import type {
   NotificationSettings,
   NotificationPreferences,
   BrowserSubscriptionInput,
+  NaverNewsSearchResult,
+  NewsSourceKind,
 } from '../types';
 
 const configuredBase = import.meta.env.VITE_API_BASE_URL?.trim().replace(/\/$/, '');
@@ -108,6 +110,16 @@ export interface EventFilters {
   limit?: number;
 }
 
+export interface NewsFilters {
+  region?: Region;
+  sourceKind?: NewsSourceKind;
+  publisher?: string;
+  q?: string;
+  companyId?: string;
+  cursor?: string | null;
+  limit?: number;
+}
+
 export const api = {
   notificationSettings: () => request<NotificationSettings>('/notifications/settings'),
   updateNotificationSettings: (payload: NotificationPreferences) =>
@@ -165,8 +177,18 @@ export const api = {
     return session;
   },
   dashboard: () => request<DashboardData>('/dashboard'),
-  news: ({ limit = 20, cursor }: { limit?: number; cursor?: string | null } = {}) =>
-    request<CursorPage<SourceItem>>(`/news${queryString({ source: 'NEWS_RSS', limit, cursor })}`),
+  news: ({ limit = 20, ...filters }: NewsFilters = {}) =>
+    request<CursorPage<SourceItem>>(`/news${queryString({ ...filters, limit })}`),
+  naverNewsSearch: (q: string, start = 1, sort: 'date' | 'sim' = 'date', signal?: AbortSignal) =>
+    request<NaverNewsSearchResult>('/news-search/naver', {
+      cache: 'no-store',
+      headers: {
+        'X-Orsem-News-Query': encodeURIComponent(q),
+        'X-Orsem-News-Start': String(start),
+        'X-Orsem-News-Sort': sort,
+      },
+      signal,
+    }),
   search: (q: string, limit = 5, region: Region = 'all') =>
     request<SearchResults>(`/search${queryString({ q, limit, region })}`),
   events: (filters: EventFilters) =>

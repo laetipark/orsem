@@ -17,7 +17,17 @@ import {
 } from './schedule-definitions';
 
 const REPEAT_RETENTION = { count: 100 } as const;
-const RETIRED_DISCOVERY_SCHEDULE_IDS = new Set(['connector-link-discovery-fifteen-minutes']);
+const RETIRED_DISCOVERY_SCHEDULES = [
+  {
+    id: 'connector-link-discovery-fifteen-minutes',
+    pattern: '*/15 * * * *',
+    timezone: 'Asia/Seoul',
+  },
+  { id: 'naver-news-p1-twenty-minutes', pattern: '*/20 * * * *', timezone: 'Asia/Seoul' },
+  { id: 'naver-news-p2-hourly', pattern: '0 * * * *', timezone: 'Asia/Seoul' },
+  { id: 'registered-ir-thirty-minutes', pattern: '*/30 * * * *', timezone: 'Asia/Seoul' },
+  { id: 'publisher-news-rss-thirty-minutes', pattern: '*/30 * * * *', timezone: 'Asia/Seoul' },
+];
 
 @Injectable()
 export class WorkerSchedulerService implements OnModuleInit {
@@ -32,6 +42,7 @@ export class WorkerSchedulerService implements OnModuleInit {
     private readonly marketDataQueue: Queue,
     @Inject(WORKER_CONFIG) private readonly config: WorkerConfig,
     @InjectQueue(QueueName.NEWS_TRANSLATION) private readonly translationQueue: Queue,
+    @InjectQueue(QueueName.MARKET_NEWS) private readonly marketNewsQueue: Queue,
   ) {}
 
   public async onModuleInit(): Promise<void> {
@@ -150,18 +161,25 @@ export class WorkerSchedulerService implements OnModuleInit {
     await Promise.all(
       NEWS_DISCOVERY_SCHEDULES.filter(
         (schedule) =>
-          !schedule.payload.connectors.includes('NEWS_RSS') || this.config.newsRssFeeds.length > 0,
+          (!schedule.payload.connectors.includes('NEWS_RSS') ||
+            this.config.newsRssFeeds.length > 0) &&
+          (!schedule.payload.connectors.includes('GDELT') ||
+            (this.config.gdeltEnabled && this.config.gdeltApprovedDomains.length > 0)),
       ).map((schedule) =>
-        this.healthQueue.add(JobName.DISCOVER_LINKS, schedule.payload, {
-          jobId: schedule.id,
-          repeat: {
-            pattern: schedule.pattern,
-            tz: schedule.timezone,
+        (schedule.payload.connectors.includes('SEC') ? this.healthQueue : this.marketNewsQueue).add(
+          JobName.DISCOVER_LINKS,
+          schedule.payload,
+          {
+            jobId: schedule.id,
+            repeat: {
+              pattern: schedule.pattern,
+              tz: schedule.timezone,
+            },
+            attempts: 1,
+            removeOnComplete: REPEAT_RETENTION,
+            removeOnFail: REPEAT_RETENTION,
           },
-          attempts: 1,
-          removeOnComplete: REPEAT_RETENTION,
-          removeOnFail: REPEAT_RETENTION,
-        }),
+        ),
       ),
     );
     if (this.config.alpacaApiKey && this.config.alpacaApiSecret) {
@@ -276,21 +294,18 @@ export class WorkerSchedulerService implements OnModuleInit {
   }
 
   private async removeRetiredDiscoverySchedules(): Promise<void> {
-    const repeatable = await this.healthQueue.getRepeatableJobs();
-    await Promise.all(
-      repeatable
-        .filter(
-          (job) =>
-            Boolean(job.id && RETIRED_DISCOVERY_SCHEDULE_IDS.has(job.id)) ||
-            (this.config.newsRssFeeds.length === 0 &&
-              NEWS_DISCOVERY_SCHEDULES.some(
-                (schedule) =>
-                  schedule.payload.connectors.includes('NEWS_RSS') &&
-                  matchesRepeatSchedule(job, JobName.DISCOVER_LINKS, schedule),
-              )),
+    // BullMQ v5 repeat identities may omit their ID; the managed job name is stable.
+    // Reconcile both old and new queues so a restart cannot leave parallel schedules behind.
+    for (const queue of [this.healthQueue, this.marketNewsQueue]) {
+      for (const repeat of await queue.getRepeatableJobs()) {
+        if (
+          [...NEWS_DISCOVERY_SCHEDULES, ...RETIRED_DISCOVERY_SCHEDULES].some((schedule) =>
+            matchesRepeatSchedule(repeat, JobName.DISCOVER_LINKS, schedule),
+          )
         )
-        .map((job) => this.healthQueue.removeRepeatableByKey(job.key)),
-    );
+          await queue.removeRepeatableByKey(repeat.key);
+      }
+    }
   }
 
   private async configureTranslationSchedule(): Promise<void> {

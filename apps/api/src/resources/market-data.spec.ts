@@ -132,7 +132,7 @@ test('missing Toss credentials produce an explicit empty state without loading h
   assert.equal(queries.length, 0);
 });
 
-test('recovered NAVER Cloud health has no misleading unverified-connection message', async () => {
+test('NAVER manual search ignores stale collection health and never claims a recent collection', async () => {
   const { data } = dataService(
     [],
     loadAppConfig({
@@ -156,9 +156,9 @@ test('recovered NAVER Cloud health has no misleading unverified-connection messa
   data.hasCompatibleIrSources = async () => false;
   const naver = (await data.connectorSourceViews()).find((source) => source.id === 'naver');
   assert.equal(naver?.name, 'NAVER Cloud 뉴스검색');
-  assert.equal(naver?.status, ConnectorStatus.HEALTHY);
-  assert.equal(naver?.message, null);
-  assert.equal(naver?.lastSuccessAt, checkedAt);
+  assert.equal(naver?.status, ConnectorStatus.DISABLED);
+  assert.match(String(naver?.message), /수동 검색/);
+  assert.equal(naver?.lastSuccessAt, null);
 });
 
 test('retired price providers are rejected with HTTP 400 and hidden from market health', async () => {

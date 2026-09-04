@@ -15,7 +15,6 @@ import {
   RelationSource,
   ReviewTaskStatus,
   SubmissionKind,
-  WatchPriority,
   type DisclosureDetailType,
 } from '@orsem/contracts';
 import {
@@ -534,34 +533,6 @@ export class OpenDartIngestionService {
           company.nameKo,
           suppressAlerts,
         );
-        if (!suppressAlerts) {
-          const discoveryDedupeKey = `naver:filing:${filing.rceptNo}:discovery:v1`;
-          if (
-            !(await outboxRepository.findOne({
-              where: {
-                kind: 'DISCOVER_NEWS_LINKS',
-                dedupeKey: discoveryDedupeKey,
-              },
-            }))
-          ) {
-            await outboxRepository.save({
-              kind: 'DISCOVER_NEWS_LINKS',
-              dedupeKey: discoveryDedupeKey,
-              payloadJson: {
-                connectors: ['NAVER'],
-                priorities: [WatchPriority.P3],
-                companyIds: [company.id],
-                reason: 'DISCLOSURE_TRIGGER',
-                triggerFilingId: filing.id,
-              },
-              status: ProcessingStatus.PENDING,
-              availableAt: observedAt,
-              attempts: 0,
-              lockedAt: null,
-              lastError: null,
-            });
-          }
-        }
       }
       return created;
     });

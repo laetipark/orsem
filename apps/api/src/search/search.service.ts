@@ -67,6 +67,7 @@ interface SourceRow {
   rceptDate: string | null;
   rawHash?: string | null;
   translationJson?: unknown;
+  sourcePolicyJson?: unknown;
 }
 interface FilingRow {
   id: string;
@@ -139,7 +140,7 @@ function companyItem(row: CompanyRow): SearchItem {
 
 function sourceItem(row: SourceRow): SearchItem | null {
   const url = publicSourceUrl(row.url);
-  if (!url || !metadataRights.includes(row.rightsMode)) return null;
+  if (row.source === 'NAVER' || !url || !metadataRights.includes(row.rightsMode)) return null;
   return {
     id: row.id,
     type: row.source === 'SEC' ? 'FILING' : 'NEWS',
@@ -301,13 +302,14 @@ export class SearchService {
         'item.firstObservedAt AS firstObservedAt',
         'item.rawHash AS rawHash',
         'item.translationJson AS translationJson',
+        'item.sourcePolicyJson AS sourcePolicyJson',
       ])
       // SEC의 날짜 필드만 추출하고 원본 메타데이터 객체는 조회 결과에 포함하지 않습니다.
       .addSelect(
         secOnly ? "JSON_UNQUOTE(JSON_EXTRACT(item.rawMetadataJson, '$.filingDate'))" : 'NULL',
         'rceptDate',
       )
-      .where(secOnly ? "item.source = 'SEC'" : "item.source <> 'SEC'")
+      .where(secOnly ? "item.source = 'SEC'" : "item.source NOT IN ('SEC', 'NAVER')")
       .andWhere('item.rightsMode IN (:...rights)', parameters)
       .andWhere(
         `(item.title LIKE :pattern ESCAPE '!' OR item.externalId LIKE :pattern ESCAPE '!' OR ${companyCondition()} OR ${newsTranslationSearchCondition('item', 'pattern')})`,

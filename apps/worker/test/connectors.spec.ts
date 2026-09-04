@@ -4,8 +4,20 @@ import {
   createLinkDiscoveryAdapters,
   GdeltMetadataConnector,
   RegisteredIrFeedConnector,
+  NaverNewsConnector,
 } from '../src/connectors/connector-adapters';
 import { loadWorkerConfig } from '../src/config/worker-config';
+
+function standaloneNaver(env: Record<string, string>, fetcher: typeof fetch) {
+  const config = loadWorkerConfig(env);
+  return new NaverNewsConnector(
+    config.naverClientId,
+    config.naverClientSecret,
+    fetcher,
+    config.httpTimeoutMs,
+    config.naverApiProvider,
+  );
+}
 
 describe('connector adapter gates', () => {
   it('disables only connectors with missing credentials', () => {
@@ -15,12 +27,11 @@ describe('connector adapter gates', () => {
     const health = Object.fromEntries(
       createLinkDiscoveryAdapters(config).map((adapter) => [adapter.name, adapter.health()]),
     );
-    expect(health.NAVER?.status).toBe(ConnectorStatus.UNCONFIGURED);
+    expect(health.NAVER).toBeUndefined();
     expect(health.SEC?.status).toBe(ConnectorStatus.DEGRADED);
     expect(health.SEC?.metadata?.healthSource).toBe('SEC_INGESTION');
-    expect(health.GDELT?.status).toBe(ConnectorStatus.HEALTHY);
+    expect(health.GDELT?.status).toBe(ConnectorStatus.UNCONFIGURED);
     expect(health.KRX).toBeUndefined();
-    expect(health.NAVER?.rightsMode).toBe(RightsMode.STORE_METADATA_ONLY);
     expect(health.SEC?.rightsMode).toBe(RightsMode.OFFICIAL_PUBLIC_DATA);
     expect(health.ALPACA).toBeUndefined();
     expect(health.GDELT?.rightsMode).toBe(RightsMode.STORE_METADATA_ONLY);
@@ -55,13 +66,13 @@ describe('connector adapter gates', () => {
         { status: 200, headers: { 'content-type': 'application/json' } },
       );
     };
-    const adapter = createLinkDiscoveryAdapters(
-      loadWorkerConfig({
+    const adapter = standaloneNaver(
+      {
         NAVER_CLIENT_ID: 'client',
         NAVER_CLIENT_SECRET: 'secret',
-      }),
+      },
       fetcher,
-    ).find((candidate) => candidate.name === 'NAVER');
+    );
     const items = await adapter?.discoverLinks({
       companies: [
         {
@@ -100,13 +111,13 @@ describe('connector adapter gates', () => {
         }),
         { status: 200 },
       );
-    const adapter = createLinkDiscoveryAdapters(
-      loadWorkerConfig({
+    const adapter = standaloneNaver(
+      {
         NAVER_CLIENT_ID: 'client',
         NAVER_CLIENT_SECRET: 'secret',
-      }),
+      },
       fetcher,
-    ).find((candidate) => candidate.name === 'NAVER');
+    );
     await expect(
       adapter?.discoverLinks({
         companies: [
@@ -140,14 +151,14 @@ describe('connector adapter gates', () => {
           { status: 200 },
         ),
     );
-    const adapter = createLinkDiscoveryAdapters(
-      loadWorkerConfig({
+    const adapter = standaloneNaver(
+      {
         NAVER_API_PROVIDER: 'ncloud',
         NAVER_CLIENT_ID: 'cloud-client',
         NAVER_CLIENT_SECRET: 'cloud-secret',
-      }),
+      },
       fetcher,
-    ).find((candidate) => candidate.name === 'NAVER')!;
+    );
     const items = await adapter.discoverLinks({
       companies: [
         {
@@ -196,10 +207,10 @@ describe('connector adapter gates', () => {
 
   it('leaves the Cloud connector disabled if either required credential is missing', async () => {
     const fetcher = jest.fn();
-    const adapter = createLinkDiscoveryAdapters(
-      loadWorkerConfig({ NAVER_API_PROVIDER: 'ncloud', NAVER_CLIENT_ID: 'cloud-client' }),
+    const adapter = standaloneNaver(
+      { NAVER_API_PROVIDER: 'ncloud', NAVER_CLIENT_ID: 'cloud-client' },
       fetcher,
-    ).find((candidate) => candidate.name === 'NAVER')!;
+    );
     expect(await adapter.check()).toMatchObject({
       status: ConnectorStatus.UNCONFIGURED,
       metadata: { provider: 'ncloud' },
@@ -213,13 +224,13 @@ describe('connector adapter gates', () => {
       calls += 1;
       return new Response(JSON.stringify({ items: [] }), { status: 200 });
     };
-    const adapter = createLinkDiscoveryAdapters(
-      loadWorkerConfig({
+    const adapter = standaloneNaver(
+      {
         NAVER_CLIENT_ID: 'client',
         NAVER_CLIENT_SECRET: 'secret',
-      }),
+      },
       fetcher,
-    ).find((candidate) => candidate.name === 'NAVER');
+    );
     await expect(adapter?.discoverLinks({ companies: [] })).resolves.toEqual([]);
     expect(calls).toBe(0);
   });
@@ -251,7 +262,7 @@ describe('connector adapter gates', () => {
     await expect(adapter.check()).resolves.toMatchObject({
       status: ConnectorStatus.DEGRADED,
     });
-    expect(adapter.fetchFeed).toHaveBeenCalledTimes(4);
+    expect(adapter.fetchFeed).toHaveBeenCalledTimes(2);
   });
 
   it('rejects invalid explicitly configured IR feeds during config loading', () => {

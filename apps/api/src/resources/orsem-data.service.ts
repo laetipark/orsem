@@ -19,6 +19,7 @@ import {
   RelationSource,
   ReviewTaskStatus,
   RightsMode,
+  NEWS_RSS_FEEDS,
   publicHttpsFeedUrlSchema,
   candleSourceSchema,
   matchesRegion,
@@ -55,6 +56,8 @@ import {
   IrSourceEntity,
   JobOutboxEntity,
   NewsItemEntity,
+  NewsArticleEntity,
+  SourceCheckpointEntity,
   ParseRunEntity,
   PlanExecutionMatchEntity,
   PriceBarEntity,
@@ -91,6 +94,13 @@ import {
 import { DatabaseRuntimeService } from '../persistence/database-runtime.service';
 import { FixtureStoreService } from '../fixtures/fixture-store.service';
 import { literalSearchPattern, newsTranslationSearchCondition } from '../common/news-translation';
+import {
+  newsFiltersSql,
+  newsFilterParameters,
+  representativeNewsSql,
+  NEWS_GROUP_ID,
+  NEWS_GROUP_SORT,
+} from './news-query';
 import {
   mapCompany,
   mapFixtureEvent,
@@ -803,6 +813,7 @@ export class OrsemDataService {
             SELECT 1 FROM event_cluster_items nqi
             JOIN source_items nqs ON nqs.id = nqi.item_id
             WHERE nqi.event_cluster_id = event.id AND nqi.item_type = 'SOURCE_ITEM'
+              AND nqs.source <> 'NAVER'
               AND (nqs.title LIKE :translationPattern ESCAPE '!' OR ${newsTranslationSearchCondition('nqs', 'translationPattern')})
           ))`,
         { q: `%${query.q}%`, translationPattern: literalSearchPattern(query.q) },
@@ -900,7 +911,23 @@ export class OrsemDataService {
     if (this.fixtureMode) {
       const filtered = this.fixtures.sourceItems
         .map((item) => mapFixtureSourceItem(item))
+        .filter((item) => item.source !== 'NAVER')
+        .filter(
+          (item) =>
+            !query.companyId ||
+            this.fixtures.companies.some(
+              (company) =>
+                company.id === query.companyId &&
+                [company.ticker, company.stockCode].some(
+                  (ticker) => ticker && item.tickers.includes(ticker),
+                ),
+            ),
+        )
         .filter((item) => !query.source || item.source === query.source)
+        .filter((item) => !query.sourceKind || item.sourceKind === query.sourceKind)
+        .filter(
+          (item) => !query.publisher || (item.publisherId ?? item.sourceName) === query.publisher,
+        )
         .filter((item) => this.fixtureSourceMatchesRegion(item, query.region))
         .filter(
           (item) => !query.q || item.title.toLowerCase().includes(String(query.q).toLowerCase()),
@@ -913,45 +940,68 @@ export class OrsemDataService {
       return paginateFixture(filtered, query, (item) => item.publishedAt ?? item.firstObservedAt);
     }
     const cursor = decodeCursor(query.cursor);
-    const qb = this.source().getRepository(SourceItemEntity).createQueryBuilder('source');
-    if (query.source) qb.andWhere('source.source = :sourceFilter', { sourceFilter: query.source });
-    if (query.region && query.region !== 'all') {
+    const qb = this.source()
+      .getRepository(SourceItemEntity)
+      .createQueryBuilder('source')
+      .leftJoinAndMapOne(
+        'source.newsArticle',
+        NewsArticleEntity,
+        'article',
+        'article.id = source.news_article_id',
+      )
+      .where(newsFiltersSql('source', query), newsFilterParameters(query))
+      .andWhere(representativeNewsSql(query));
+    if (cursor)
       qb.andWhere(
-        `(EXISTS (SELECT 1 FROM companies regional_company WHERE regional_company.id = source.company_id AND regional_company.market IN (:...regionMarkets)) OR source.source = :regionSource OR (source.source = 'NEWS_RSS' AND JSON_UNQUOTE(JSON_EXTRACT(source.rawMetadataJson, '$.marketRegion')) IN ('global', :newsRegion)))`,
-        {
-          regionMarkets: marketsForRegion(query.region),
-          regionSource: query.region === 'kr' ? 'OPENDART' : 'SEC',
-          newsRegion: query.region,
-        },
-      );
-    }
-    if (query.q)
-      qb.andWhere(
-        `(source.title LIKE :q ESCAPE '!' OR ${newsTranslationSearchCondition('source', 'q')})`,
-        { q: literalSearchPattern(query.q) },
-      );
-    if (cursor) {
-      qb.andWhere(
-        '(COALESCE(source.publishedAt, source.firstObservedAt) < :sort OR (COALESCE(source.publishedAt, source.firstObservedAt) = :sort AND source.id < :id))',
+        `(${NEWS_GROUP_SORT} < :sort OR (${NEWS_GROUP_SORT} = :sort AND ${NEWS_GROUP_ID} < :id))`,
         { sort: cursorInstant(cursor.sort), id: cursor.id },
       );
-    }
     const rows = await qb
-      .orderBy('COALESCE(source.publishedAt, source.firstObservedAt)', 'DESC')
-      .addOrderBy('source.id', 'DESC')
-      .take(query.limit + 1)
+      .orderBy(NEWS_GROUP_SORT, 'DESC')
+      .addOrderBy(NEWS_GROUP_ID, 'DESC')
+      .limit(query.limit + 1)
       .getMany();
-    return pageRows(
-      rows,
-      query.limit,
-      (row) => mapSourceItem(row),
-      (row) => (row.publishedAt ?? row.firstObservedAt).toISOString(),
-    );
+    const visible = rows.slice(0, query.limit);
+    const articleIds = visible.flatMap((row) => (row.newsArticleId ? [row.newsArticleId] : []));
+    const provenance = articleIds.length
+      ? await this.source()
+          .getRepository(SourceItemEntity)
+          .findBy({ newsArticleId: In(articleIds) })
+      : [];
+    const items = visible.map((row) => {
+      const sources = provenance.filter(
+        (item) =>
+          item.newsArticleId === row.newsArticleId &&
+          item.source !== 'NAVER' &&
+          (!item.sourcePolicyJson || item.sourcePolicyJson.displayAllowed === true),
+      );
+      return {
+        ...mapSourceItem(row),
+        sourceCount: sources.length || 1,
+        sources: (sources.length ? sources : [row]).map((item) => ({
+          id: item.id,
+          source: item.source,
+          sourceName: item.sourceName,
+          url: item.url,
+        })),
+      };
+    });
+    const positions = rows.map((row) => ({
+      id: row.newsArticleId ?? row.id,
+      sort: (row.newsArticle?.sortAt ?? row.publishedAt ?? row.firstObservedAt).toISOString(),
+    }));
+    return finishPage(positions, query.limit, items, (row) => row.sort);
   }
 
   private fixtureSourceMatchesRegion(item: SourceItem, region: Region = 'all'): boolean {
     if (region === 'all') return true;
-    if (item.source === 'NEWS_RSS') return true;
+    if (item.source === 'NEWS_RSS')
+      return (
+        !item.marketRegion ||
+        item.marketRegion === 'unknown' ||
+        item.marketRegion === 'global' ||
+        item.marketRegion === region
+      );
     if (item.source === 'SEC') return region === 'us';
     if (item.source === 'OPENDART') return region === 'kr';
     return this.fixtures.companies.some(
@@ -975,18 +1025,21 @@ export class OrsemDataService {
   async getNews(id: string): Promise<SourceItem> {
     if (this.fixtureMode) {
       const row = this.fixtures.sourceItems.find(
-        (item) => item.id === id || item.externalId === id,
+        (item) => item.source !== 'NAVER' && (item.id === id || item.externalId === id),
       );
-      if (!row) throw new NotFoundException('뉴스 항목을 찾을 수 없습니다.');
+      if (!row || row.source === 'NAVER')
+        throw new NotFoundException('뉴스 항목을 찾을 수 없습니다.');
       return mapFixtureSourceItem(row);
     }
     const source = this.source();
     const row = await source
       .getRepository(SourceItemEntity)
       .createQueryBuilder('item')
-      .where('item.id = :id OR item.externalId = :id', { id })
+      .where('(item.id = :id OR item.externalId = :id)', { id })
+      .andWhere(newsFiltersSql('item', {}))
       .getOne();
-    if (!row) throw new NotFoundException('뉴스 항목을 찾을 수 없습니다.');
+    if (!row || row.source === 'NAVER')
+      throw new NotFoundException('뉴스 항목을 찾을 수 없습니다.');
     const news = await source.getRepository(NewsItemEntity).findOneBy({ sourceItemId: row.id });
     return mapSourceItem(row, news);
   }
@@ -1714,9 +1767,9 @@ export class OrsemDataService {
         id: 'gdelt',
         name: 'GDELT',
         category: 'NEWS',
-        configured: this.config.gdeltEnabled,
+        configured: this.config.gdeltEnabled && (this.config.gdeltNewsDomains?.length ?? 0) > 0,
         rightsMode: RightsMode.STORE_METADATA_ONLY,
-        missing: 'GDELT_ENABLED가 꺼져 있습니다.',
+        missing: '저장·표시 권한이 확인된 GDELT 언론 도메인이 없습니다.',
       },
       {
         id: 'ir',
@@ -1736,7 +1789,7 @@ export class OrsemDataService {
       },
       {
         id: 'news_rss',
-        name: '이투데이 증권 RSS',
+        name: '국내·미국 뉴스 RSS',
         category: 'NEWS',
         configured: this.config.newsRssFeeds.length > 0,
         rightsMode: RightsMode.STORE_METADATA_ONLY,
@@ -1751,32 +1804,85 @@ export class OrsemDataService {
         missing: 'AI 분류기가 비활성화되었습니다.',
       },
     ] as const;
-    return definitions.map((definition) => {
-      const health =
-        definition.id === 'toss' && !definition.configured ? undefined : byName.get(definition.id);
-      const lastSuccessAt = health?.lastSuccessAt ?? null;
+    const feedViews = await this.newsFeedSourceViews();
+    return [
+      ...definitions.map((definition) => {
+        const health =
+          definition.id === 'naver' ||
+          (['toss', 'gdelt'].includes(definition.id) && !definition.configured)
+            ? undefined
+            : byName.get(definition.id);
+        const lastSuccessAt = health?.lastSuccessAt ?? null;
+        return {
+          id: definition.id,
+          name: definition.name,
+          category: definition.category,
+          status:
+            health?.status ??
+            (definition.id === 'naver' || (definition.id === 'gdelt' && !definition.configured)
+              ? ConnectorStatus.DISABLED
+              : definition.configured
+                ? ConnectorStatus.DEGRADED
+                : ConnectorStatus.UNCONFIGURED),
+          lastSuccessAt,
+          lagSeconds: lastSuccessAt
+            ? Math.max(0, Math.floor((Date.now() - Date.parse(lastSuccessAt)) / 1000))
+            : null,
+          rightsMode: definition.rightsMode,
+          message:
+            definition.id === 'naver' && definition.configured
+              ? '별도 화면에서 수동 검색합니다. 정기 수집과 상태 점검은 사용하지 않습니다.'
+              : health
+                ? health.message
+                : definition.configured
+                  ? '설정됨; 아직 성공 상태가 기록되지 않았습니다.'
+                  : definition.missing,
+          checkedAt: health?.checkedAt ?? now,
+        };
+      }),
+      ...feedViews,
+    ];
+  }
+
+  private async newsFeedSourceViews(): Promise<Array<Record<string, unknown>>> {
+    const ids = this.config.newsRssFeeds;
+    if (!ids.length) return [];
+    const checkpoints =
+      this.database.dataSource && !this.fixtureMode
+        ? await this.source()
+            .getRepository(SourceCheckpointEntity)
+            .findBy({ connector: 'NEWS_RSS' })
+        : [];
+    const now = Date.now();
+    return ids.map((id) => {
+      const feed = NEWS_RSS_FEEDS[id];
+      const stream = `RSS_HTTP:${createHash('sha256').update(feed.url).digest('hex')}`;
+      const row = checkpoints.find((checkpoint) => checkpoint.stream === stream);
+      const lastSuccessAt = dateToIso(row?.lastSuccessAt);
+      const lagSeconds = lastSuccessAt
+        ? Math.max(0, Math.floor((now - Date.parse(lastSuccessAt)) / 1000))
+        : null;
+      const failed = row?.metadataJson?.status === ConnectorStatus.DEGRADED;
       return {
-        id: definition.id,
-        name: definition.name,
-        category: definition.category,
+        id: `news_rss:${id}`,
+        name: `${feed.publisher} · ${feed.categories.join(' / ')}`,
+        category: feed.sourceKind === 'OFFICIAL_RELEASE' ? 'OFFICIAL' : 'NEWS',
         status:
-          health?.status ??
-          (definition.id === 'gdelt' && !definition.configured
-            ? ConnectorStatus.DISABLED
-            : definition.configured
-              ? ConnectorStatus.DEGRADED
-              : ConnectorStatus.UNCONFIGURED),
+          failed || !lastSuccessAt || (lagSeconds ?? 0) > 45 * 60
+            ? ConnectorStatus.DEGRADED
+            : ConnectorStatus.HEALTHY,
         lastSuccessAt,
-        lagSeconds: lastSuccessAt
-          ? Math.max(0, Math.floor((Date.now() - Date.parse(lastSuccessAt)) / 1000))
-          : null,
-        rightsMode: definition.rightsMode,
-        message: health
-          ? health.message
-          : definition.configured
-            ? '설정됨; 아직 성공 상태가 기록되지 않았습니다.'
-            : definition.missing,
-        checkedAt: health?.checkedAt ?? now,
+        lagSeconds,
+        rightsMode: feed.policy.rightsMode,
+        checkedAt:
+          typeof row?.metadataJson?.lastFailureAt === 'string' && failed
+            ? row.metadataJson.lastFailureAt
+            : (lastSuccessAt ?? new Date(now).toISOString()),
+        message: failed
+          ? '최근 피드 수집에 실패했습니다. 다음 주기에 재시도합니다.'
+          : lastSuccessAt
+            ? '15분마다 수집합니다.'
+            : '첫 수집을 기다리고 있습니다.',
       };
     });
   }
@@ -3020,7 +3126,11 @@ export class OrsemDataService {
         const sourceRow = await source
           .getRepository(SourceItemEntity)
           .findOneBy({ id: item.itemId });
-        return sourceRow ? mapSourceItem(sourceRow) : null;
+        return sourceRow &&
+          sourceRow.source !== 'NAVER' &&
+          (!sourceRow.sourcePolicyJson || sourceRow.sourcePolicyJson.displayAllowed === true)
+          ? mapSourceItem(sourceRow)
+          : null;
       }),
     );
     const canonicalEventTypes = {

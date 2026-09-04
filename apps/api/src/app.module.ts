@@ -36,6 +36,8 @@ import { MarketsController } from './markets/markets.controller';
 import { MarketsService } from './markets/markets.service';
 import { NotificationsController } from './notifications/notifications.controller';
 import { NotificationsService } from './notifications/notifications.service';
+import { NaverNewsSearchController } from './news-search/naver-news-search.controller';
+import { NaverNewsSearchService } from './news-search/naver-news-search.service';
 
 @Module({
   imports: [
@@ -49,6 +51,7 @@ import { NotificationsService } from './notifications/notifications.service';
     AuthController,
     KakaoAuthController,
     SearchController,
+    NaverNewsSearchController,
     MarketsController,
     NotificationsController,
     ...RESOURCE_CONTROLLERS,
@@ -69,6 +72,7 @@ import { NotificationsService } from './notifications/notifications.service';
     MemberService,
     KakaoAuthService,
     SearchService,
+    NaverNewsSearchService,
     MarketsService,
     NotificationsService,
     BotService,

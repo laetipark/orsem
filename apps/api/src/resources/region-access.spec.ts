@@ -9,6 +9,7 @@ import {
   EventClusterEntity,
   FilingEntity,
   SourceItemEntity,
+  NewsArticleEntity,
   WatchlistItemEntity,
 } from '@orsem/database';
 import { DataSource, type EntityTarget, type ObjectLiteral } from 'typeorm';
@@ -34,6 +35,7 @@ function fixtureData() {
 
 test('regional fixture pages filter before limiting, preserving cursors and unknown news only in all', async () => {
   const { fixtures, data } = fixtureData();
+  fixtures.sourceItems[0]!.source = 'IR';
   const us = fixtures.companies.find((company) => company.market === Market.NASDAQ)!;
   fixtures.watchlist.push({ ...fixtures.watchlist[0]!, id: 'watch-us', company: us });
   fixtures.sourceItems.push(
@@ -97,6 +99,7 @@ test('resource SQL binds regional markets before limit and filters SEC/OpenDART 
     EventClusterEntity,
     FilingEntity,
     SourceItemEntity,
+    NewsArticleEntity,
     WatchlistItemEntity,
   ];
   const metadata = new DataSource({
@@ -149,6 +152,7 @@ test('resource SQL binds regional markets before limit and filters SEC/OpenDART 
 
 test('RSS news source filtering precedes limit and cursor in every fixture region', async () => {
   const { fixtures, data } = fixtureData();
+  fixtures.sourceItems[0]!.source = 'IR';
   const original = fixtures.sourceItems[0]!;
   fixtures.sourceItems.splice(
     0,
@@ -183,8 +187,8 @@ test('RSS news source filtering precedes limit and cursor in every fixture regio
     assert.equal(second.pageInfo.hasMore, false);
     assert.ok([...first.items, ...second.items].every((item) => item.source === 'NEWS_RSS'));
   }
-  assert.equal((await controller.list({ limit: 100 })).items.length, 4);
-  for (const source of ['unknown', 'news_rss', ['NEWS_RSS', 'NAVER']]) {
+  assert.equal((await controller.list({ limit: 100 })).items.length, 3);
+  for (const source of ['NAVER', 'unknown', 'news_rss', ['NEWS_RSS', 'NAVER']]) {
     assert.throws(
       () => controller.list({ source }),
       (error: unknown) => error instanceof HttpException && error.getStatus() === 400,
@@ -196,7 +200,7 @@ test('RSS news SQL combines source, global feed region and cursor predicates bef
   const metadata = new DataSource({
     type: 'mysql',
     database: 'test',
-    entities: [CompanyEntity, SourceItemEntity],
+    entities: [CompanyEntity, SourceItemEntity, NewsArticleEntity],
     synchronize: false,
   });
   await (metadata as unknown as { buildMetadatas(): Promise<void> }).buildMetadatas();
@@ -225,12 +229,13 @@ test('RSS news SQL combines source, global feed region and cursor predicates bef
   for (const region of ['kr', 'us'] as const) {
     await data.listNews({ source: 'NEWS_RSS', region, limit: 6, cursor });
     const query = captured.at(-1)!;
-    assert.match(query.sql, /WHERE `source`\.`source` = \? AND \(EXISTS/u);
-    assert.match(query.sql, /`source`\.`source` = 'NEWS_RSS' AND JSON_UNQUOTE/u);
+    assert.match(query.sql, /`source`\.`source` <> 'NAVER'/u);
+    assert.match(query.sql, /NOT EXISTS \(SELECT 1 FROM source_items duplicate/u);
+    assert.ok(query.values.includes('NEWS_RSS'));
     assert.match(query.sql, /JSON_EXTRACT\(`source`\.`raw_metadata_json`, '\$\.marketRegion'\)/u);
     assert.match(query.sql, /IN \('global', \?\)/u);
-    assert.match(query.sql, /`source`\.`id` < \?/u);
-    assert.match(query.sql, /ORDER BY COALESCE.*DESC, `source`\.`id` DESC LIMIT 7$/u);
+    assert.match(query.sql, /COALESCE\(`source`\.`news_article_id`, `source`\.`id`\) < \?/u);
+    assert.match(query.sql, /ORDER BY COALESCE.*DESC, COALESCE.*DESC LIMIT 7$/u);
     assert.equal(query.values[0], 'NEWS_RSS');
     assert.ok(query.values.includes(region));
     assert.ok(query.values.includes(region === 'kr' ? 'KOSPI' : 'NASDAQ'));

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { isAbsolute, relative } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { loadWebPushConfig, type WebPushConfig } from '@orsem/database';
+import { APPROVED_GDELT_DOMAINS, NEWS_RSS_FEED_IDS } from '@orsem/contracts';
 
 const DEVELOPMENT_DATABASE_URL = 'mysql://orsem:change-me@127.0.0.1:3306/orsem';
 
@@ -95,6 +96,24 @@ const schema = z
     // 자격증명 없이 검색하는 worker의 기본값과 맞춥니다.
     // GDELT를 사용하지 않는 배포 환경은 GDELT_ENABLED=false를 명시해야 합니다.
     gdeltEnabled: booleanFromEnv.default(true),
+    gdeltNewsDomains: z.preprocess(
+      (value) =>
+        typeof value === 'string'
+          ? [
+              ...new Set(
+                value
+                  .split(',')
+                  .map((domain) => domain.trim().toLowerCase())
+                  .filter(Boolean),
+              ),
+            ]
+          : (value ?? []),
+      z.array(
+        z.string().refine((domain) => APPROVED_GDELT_DOMAINS.includes(domain), {
+          message: 'GDELT news domains require an approved publisher policy',
+        }),
+      ),
+    ),
     irFeedUrls: optionalString,
     newsRssFeeds: z.preprocess(
       (value) =>
@@ -108,7 +127,7 @@ const schema = z
               ),
             ]
           : (value ?? []),
-      z.array(z.literal('etoday-market')),
+      z.array(z.enum(NEWS_RSS_FEED_IDS)),
     ),
     aiEnabled: booleanFromEnv.default(false),
     aiBaseUrl: optionalString,
@@ -230,6 +249,7 @@ export function loadAppConfig(environment: NodeJS.ProcessEnv = process.env): App
     alpacaApiKey: environment.ALPACA_API_KEY,
     alpacaApiSecret: environment.ALPACA_API_SECRET,
     gdeltEnabled: environment.GDELT_ENABLED,
+    gdeltNewsDomains: environment.GDELT_NEWS_DOMAINS,
     irFeedUrls: environment.IR_FEED_URLS,
     newsRssFeeds: environment.NEWS_RSS_FEEDS,
     aiEnabled: environment.AI_ENABLED,

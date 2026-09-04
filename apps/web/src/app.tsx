@@ -39,6 +39,11 @@ const SearchPage = lazy(() =>
 const NewsPage = lazy(() =>
   import('./pages/news-page').then((module) => ({ default: module.NewsPage })),
 );
+const NaverNewsSearchPage = lazy(() =>
+  import('./pages/naver-news-search-page').then((module) => ({
+    default: module.NaverNewsSearchPage,
+  })),
+);
 
 const MarketsPage = lazy(() =>
   import('./pages/markets-page').then((module) => ({ default: module.MarketsPage })),
@@ -113,6 +118,7 @@ export function App() {
           <Route path="events" element={<EventsPage />} />
           <Route path="search" element={<SearchPage />} />
           <Route path="news" element={<NewsPage />} />
+          <Route path="news/naver" element={<NaverNewsSearchPage />} />
           <Route path="events/:id" element={<EventDetailPage />} />
           <Route path="companies/:id" element={<CompanyPage />} />
           <Route path="settings/notifications" element={<NotificationsPage />} />

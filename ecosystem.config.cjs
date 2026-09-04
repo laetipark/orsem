@@ -73,6 +73,7 @@ const connectorEnvironment = fileBackedEnvironment([
   'ALPACA_API_SECRET',
   'ALPACA_TRADING_BASE_URL',
   'GDELT_ENABLED',
+  'GDELT_NEWS_DOMAINS',
   'IR_FEED_URLS',
   'NEWS_RSS_FEEDS',
   'HTTP_TIMEOUT_MS',

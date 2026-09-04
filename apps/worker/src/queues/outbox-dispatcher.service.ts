@@ -82,6 +82,19 @@ export class OutboxDispatcherService {
     let dispatched = 0;
     for (const row of claimed) {
       try {
+        // Retired NAVER jobs must finish without sending a request or retaining a retry loop.
+        if (
+          row.kind === 'DISCOVER_NEWS_LINKS' &&
+          Array.isArray(row.payloadJson.connectors) &&
+          row.payloadJson.connectors.includes('NAVER')
+        ) {
+          await repository.update(
+            { id: row.id, status: ProcessingStatus.PROCESSING },
+            { status: ProcessingStatus.COMPLETED, lockedAt: null, lastError: null },
+          );
+          dispatched += 1;
+          continue;
+        }
         const resolved =
           row.kind === 'ENRICH_FILING'
             ? {

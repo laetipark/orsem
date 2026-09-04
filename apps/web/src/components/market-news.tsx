@@ -24,22 +24,31 @@ export function MarketNewsFreshness() {
     refetchInterval: NEWS_REFRESH_INTERVAL,
     staleTime: 30_000,
   });
-  const source = freshness.data?.items.find((item) => item.id === 'news_rss');
+  const sources =
+    freshness.data?.items.filter(
+      (item) => item.category === 'NEWS' && !item.id.toLowerCase().includes('naver'),
+    ) ?? [];
+  const latest = sources.reduce<string | null>(
+    (value, item) =>
+      !item.lastSuccessAt || (value && value >= item.lastSuccessAt) ? value : item.lastSuccessAt,
+    null,
+  );
+  const status: SourceFreshness['status'] | null = sources.some((item) => item.status === 'FAILED')
+    ? 'FAILED'
+    : sources.some((item) => item.status === 'DEGRADED')
+      ? 'DEGRADED'
+      : sources.some((item) => item.status === 'HEALTHY')
+        ? 'HEALTHY'
+        : null;
   return (
     <div className="market-news__freshness">
-      <span>RSS 30분마다 수집</span>
-      {source ? (
+      <span>뉴스 소스별 15~30분마다 수집</span>
+      {status ? (
         <>
-          <span
-            className={`market-news__status market-news__status--${source.status.toLowerCase()}`}
-          >
-            {statusLabels[source.status]}
+          <span className={`market-news__status market-news__status--${status.toLowerCase()}`}>
+            {statusLabels[status]}
           </span>
-          <span>
-            {source.lastSuccessAt
-              ? `마지막 수집 ${formatKst(source.lastSuccessAt)}`
-              : '수집 기록 없음'}
-          </span>
+          <span>{latest ? `마지막 수집 ${formatKst(latest)}` : '수집 기록 없음'}</span>
         </>
       ) : null}
       {freshness.isError ? <span>수집 상태를 확인하지 못했습니다.</span> : null}
@@ -51,7 +60,7 @@ export function MarketNewsList({ items }: { items: SourceItem[] }) {
   return (
     <ul className="market-news__list">
       {items.map((item) => (
-        <li className="market-news__item" key={item.id}>
+        <li className="market-news__item" key={item.articleId ?? item.id}>
           <a
             className="market-news__link"
             href={item.url}
@@ -61,7 +70,13 @@ export function MarketNewsList({ items }: { items: SourceItem[] }) {
             <span className="market-news__copy">
               <strong>{item.title}</strong>
               <span className="market-news__meta">
-                <span className="market-news__publisher">{item.sourceName || '시장 뉴스 RSS'}</span>
+                <span className="market-news__publisher">{item.sourceName || '뉴스 출처'}</span>
+                {item.marketRegion ? (
+                  <span>{{ kr: '국내', us: '미국', global: '글로벌' }[item.marketRegion]}</span>
+                ) : null}
+                {(item.sourceCount ?? 1) > 1 ? (
+                  <span>{item.sourceCount}개 출처에서 확인</span>
+                ) : null}
                 {item.publishedAt ? (
                   <time dateTime={item.publishedAt}>발행 {formatKst(item.publishedAt)}</time>
                 ) : (
@@ -94,7 +109,7 @@ export function MarketNewsEmpty() {
 
 export function DashboardNews() {
   const news = useQuery({
-    queryKey: ['news', 'NEWS_RSS', 'latest', 6],
+    queryKey: ['news', 'latest', 6],
     queryFn: () => api.news({ limit: 6 }),
     refetchInterval: NEWS_REFRESH_INTERVAL,
     staleTime: 30_000,

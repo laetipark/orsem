@@ -309,6 +309,40 @@ describe('personal push fan-out and source policy', () => {
     expect(await fanout.enqueueAlert(h.manager, sampleAlert(), NOW)).toBe(0);
   });
 
+  it('cancels queued NAVER notifications on eligibility recheck and blocks new market feeds', async () => {
+    const h = harness();
+    const fanout = new PushFanoutService();
+    const news = {
+      id: uuid(7),
+      sourceItemId: uuid(8),
+      companyId: uuid(4),
+      title: 'Official news',
+      publishedAt: earlier,
+    } as NewsItemEntity;
+    const source = {
+      id: uuid(8),
+      source: 'SEC',
+      firstObservedAt: earlier,
+      rightsMode: RightsMode.OFFICIAL_PUBLIC_DATA,
+    } as SourceItemEntity;
+    h.tables.get(NewsItemEntity)!.push(news);
+    h.tables.get(SourceItemEntity)!.push(source);
+    expect(await fanout.enqueueNews(h.manager, news, source, NOW)).toBe(1);
+    const delivery = h.tables.get(PushDeliveryEntity)![0] as PushDeliveryEntity;
+    source.source = 'NAVER';
+    expect(await fanout.resolveDelivery(h.manager, delivery, NOW)).toBeNull();
+    for (const connector of ['NAVER', 'NEWS_RSS', 'IR', 'GDELT']) {
+      expect(
+        await fanout.enqueueNews(
+          h.manager,
+          { ...news, id: uuid(9) },
+          { ...source, source: connector },
+          NOW,
+        ),
+      ).toBe(0);
+    }
+  });
+
   it('enqueues only recent first-observed news, deduplicates repeated hooks, and rejects old or unknown publication dates', async () => {
     const h = harness();
     const fanout = new PushFanoutService();

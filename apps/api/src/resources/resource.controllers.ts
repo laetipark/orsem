@@ -24,6 +24,7 @@ import {
   updateReviewSchema,
   updateWatchlistItemSchema,
   watchlistQuotesQuerySchema,
+  NewsSourceKind,
 } from '@orsem/contracts';
 import { parseWith } from '../common/zod';
 import { RateLimit, ReadOnlyMemberAccess } from '../security/security';
@@ -141,7 +142,10 @@ export class NewsController {
     const parsed = parseWith(
       cursorQuerySchema.extend({
         q: z.string().trim().max(120).optional(),
-        source: z.enum(['NEWS_RSS', 'NAVER', 'IR', 'SEC', 'GDELT', 'OPENDART']).optional(),
+        source: z.enum(['NEWS_RSS', 'IR', 'SEC', 'GDELT', 'OPENDART']).optional(),
+        sourceKind: z.enum(NewsSourceKind).optional(),
+        publisher: z.string().trim().max(255).optional(),
+        companyId: z.string().uuid().optional(),
       }),
       query,
     );

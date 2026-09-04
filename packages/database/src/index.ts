@@ -18,3 +18,5 @@ export * from './utc-mysql-driver';
 export * from './parse-integrity-metrics';
 export * from './filing-alert-gate';
 export * from './migrations/1788400000000-RepairLegacyParserClock';
+export * from './news-articles';
+export * from './migrations/1788401000000-AddNewsArticles';

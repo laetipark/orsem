@@ -89,6 +89,32 @@ function memoryDatabase() {
     );
   };
   const getRepository = (target: unknown) => ({
+    findOneByOrFail: jest.fn(async (where: Record<string, unknown>) =>
+      rows(target).find((row) => Object.entries(where).every(([key, value]) => row[key] === value)),
+    ),
+    update: jest.fn(async (id: string, values: Record<string, unknown>) => {
+      Object.assign(
+        rows(target).find((row) => row.id === id)!,
+        values,
+      );
+      return { affected: 1 };
+    }),
+    createQueryBuilder: jest.fn(() => {
+      let incoming: Record<string, unknown>;
+      const builder = {
+        insert: () => builder,
+        values: (value: Record<string, unknown>) => {
+          incoming = value;
+          return builder;
+        },
+        orIgnore: () => builder,
+        execute: async () => {
+          if (!rows(target).some((row) => row.urlHash === incoming.urlHash))
+            rows(target).push(incoming);
+        },
+      };
+      return builder;
+    }),
     find: jest.fn(async (options?: { where?: unknown }) =>
       rows(target).filter((row) => matches(row, options?.where)),
     ),

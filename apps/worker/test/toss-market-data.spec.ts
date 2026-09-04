@@ -415,6 +415,7 @@ describe('Toss market-data protocol', () => {
         ALPACA_API_SECRET: 'secret',
       }),
       queue(),
+      queue(),
     ).onModuleInit();
     const names = jest.mocked(market.add).mock.calls.map(([name]) => name);
     expect(names).toContain('ingest-toss-candles');

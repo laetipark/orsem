@@ -188,6 +188,8 @@ export class PushFanoutService {
   private newsIsEligible(news: NewsItemEntity, source: SourceItemEntity, now: Date): boolean {
     return (
       source.id === news.sourceItemId &&
+      !['NAVER', 'NEWS_RSS', 'IR', 'GDELT'].includes(source.source) &&
+      source.sourcePolicyJson?.notifyAllowed !== false &&
       source.rightsMode !== RightsMode.NO_REDISTRIBUTION &&
       source.rightsMode !== RightsMode.PRIVATE_DISPLAY_ONLY &&
       isRecentPushEvent(source.firstObservedAt, now) &&

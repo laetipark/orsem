@@ -13,6 +13,7 @@ import { CompanyAvatar } from '../components/company-avatar';
 import { EventCompactRow } from '../components/event-row';
 import { EvidenceBadge, PriorityBadge, RightsBadge } from '../components/domain-badges';
 import { ObservationDisclaimer } from '../components/disclaimer';
+import { MarketNewsEmpty, MarketNewsList } from '../components/market-news';
 import {
   Badge,
   Button,
@@ -23,11 +24,43 @@ import {
   CompanyPageSkeleton,
   EmptyState,
   ErrorState,
+  LoadingState,
   cn,
 } from '../components/ui';
 
 const rangeOptions = ['1M', '3M', '1Y'] as const;
 const marketRefreshInterval = 2_000;
+
+function RelatedCompanyNews({ companyId }: { companyId: string }) {
+  const news = useQuery({
+    queryKey: ['news', 'company', companyId],
+    queryFn: () => api.news({ companyId, limit: 6 }),
+    enabled: Boolean(companyId),
+    staleTime: 30_000,
+  });
+  return (
+    <Card className="market-news">
+      <CardHeader>
+        <div>
+          <span className="section-kicker">RELATED NEWS</span>
+          <h2>관련 뉴스</h2>
+        </div>
+        <Link className="text-link" to={`/news?companyId=${encodeURIComponent(companyId)}`}>
+          전체 보기
+        </Link>
+      </CardHeader>
+      {news.isPending ? <LoadingState label="관련 뉴스를 불러오는 중입니다." /> : null}
+      {news.isError ? (
+        <ErrorState
+          message="관련 뉴스를 불러오지 못했습니다."
+          onRetry={() => void news.refetch()}
+        />
+      ) : null}
+      {news.data?.items.length ? <MarketNewsList items={news.data.items} /> : null}
+      {news.data && !news.data.items.length && !news.isError ? <MarketNewsEmpty /> : null}
+    </Card>
+  );
+}
 
 export function CompanyPage() {
   const session = useOutletContext<Session | undefined>();
@@ -379,6 +412,7 @@ export function CompanyPage() {
         </Card>
       ) : null}
 
+      <RelatedCompanyNews companyId={data.id} />
       <section className="detail-grid">
         <Card>
           <CardHeader>

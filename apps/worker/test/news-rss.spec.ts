@@ -3,6 +3,7 @@ import {
   ConnectorHealthEntity,
   IngestionRunEntity,
   NewsItemEntity,
+  NewsArticleEntity,
   SourceCheckpointEntity,
   SourceItemEntity,
 } from '@orsem/database';
@@ -34,6 +35,9 @@ function memoryDatabase() {
       findOne: jest.Mock;
       create: jest.Mock;
       save: jest.Mock;
+      update: jest.Mock;
+      createQueryBuilder: jest.Mock;
+      findOneByOrFail: jest.Mock;
     }
   >();
   let nextId = 1;
@@ -44,6 +48,34 @@ function memoryDatabase() {
   const repository = (target: unknown) => {
     if (!repositories.has(target))
       repositories.set(target, {
+        findOneByOrFail: jest.fn(async (where: Record<string, unknown>) =>
+          rows(target).find((row) =>
+            Object.entries(where).every(([key, value]) => row[key] === value),
+          ),
+        ),
+        update: jest.fn(async (id: string, values: Record<string, unknown>) => {
+          Object.assign(
+            rows(target).find((row) => row.id === id)!,
+            values,
+          );
+          return { affected: 1 };
+        }),
+        createQueryBuilder: jest.fn(() => {
+          let incoming: Record<string, unknown>;
+          const builder = {
+            insert: () => builder,
+            values: (value: Record<string, unknown>) => {
+              incoming = value;
+              return builder;
+            },
+            orIgnore: () => builder,
+            execute: async () => {
+              if (!rows(target).some((row) => row.urlHash === incoming.urlHash))
+                rows(target).push(incoming);
+            },
+          };
+          return builder;
+        }),
         find: jest.fn(async () => rows(target)),
         findOne: jest.fn(
           async ({ where }: { where: Record<string, unknown> }) =>
@@ -99,7 +131,7 @@ describe('allowlisted publisher RSS', () => {
         originalTitle: '시장 &amp; 기업',
         originalGuid: 'source-guid',
         originalPublishedAt: 'Fri, 04 Sep 2026 09:15:00 +0900',
-        marketRegion: 'global',
+        marketRegion: 'kr',
         rightsContext: 'NONCOMMERCIAL_RSS_READER',
         rightsPolicyUrl: 'https://www.etoday.co.kr/rss/',
       },
@@ -178,6 +210,40 @@ describe('allowlisted publisher RSS', () => {
 });
 
 describe('publisher RSS ingestion', () => {
+  it('groups one article across feeds while retaining both provenance records and all aggregate feed items', async () => {
+    const db = memoryDatabase();
+    const push = { enqueueNews: jest.fn() };
+    const service = new NewsDiscoveryService(
+      db.dataSource,
+      loadWorkerConfig({ NEWS_RSS_FEEDS: 'etoday-market,etoday-finance' }),
+      jest.fn(),
+      push as unknown as PushFanoutService,
+    );
+    const feed = (start: number, end: number) =>
+      rss(
+        Array.from({ length: end - start }, (_, offset) =>
+          article(`News ${start + offset}`).replace('/123?', `/${start + offset}?`),
+        ).join(''),
+      );
+    jest
+      .spyOn(PublisherNewsRssConnector.prototype, 'fetchFeed')
+      .mockImplementation(async (id) =>
+        parseNewsRssFeed(id, id === 'etoday-market' ? feed(0, 301) : feed(300, 601)),
+      );
+    expect(await service.discover(job)).toMatchObject([
+      { created: 602, status: ConnectorStatus.HEALTHY },
+    ]);
+    expect(db.rows(SourceItemEntity)).toHaveLength(602);
+    expect(db.rows(NewsArticleEntity)).toHaveLength(601);
+    const duplicate = db
+      .rows(SourceItemEntity)
+      .filter((source) => String(source.url).includes('/300?'));
+    expect(duplicate).toHaveLength(2);
+    expect(duplicate[0]?.newsArticleId).toBe(duplicate[1]?.newsArticleId);
+    expect(duplicate[0]?.externalId).not.toBe(duplicate[1]?.externalId);
+    expect(push.enqueueNews).not.toHaveBeenCalled();
+  });
+
   it('upserts repeated articles, preserves first observation and never enqueues notifications', async () => {
     const db = memoryDatabase();
     const push = { enqueueNews: jest.fn() };
@@ -243,6 +309,7 @@ describe('publisher RSS ingestion', () => {
     db.rows(ConnectorHealthEntity).push({
       id: 'rss-health',
       connector: 'news_rss',
+      metadataJson: { healthSource: 'NEWS_RSS_INGESTION' },
       status: ConnectorStatus.DEGRADED,
       message: 'feed failed',
       checkedAt: now,
@@ -276,7 +343,7 @@ describe('publisher RSS ingestion', () => {
   });
 
   it.each(['legacy', 'hash'] as const)(
-    'registers RSS only when enabled and removes only its %s repeat identity when disabled',
+    'moves only approved %s schedule identities into the market-news queue',
     async (identity) => {
       const queue = (): Queue =>
         ({
@@ -285,25 +352,7 @@ describe('publisher RSS ingestion', () => {
           removeRepeatableByKey: jest.fn().mockResolvedValue(true),
         }) as unknown as Queue;
       const health = queue();
-      await new WorkerSchedulerService(
-        queue(),
-        queue(),
-        health,
-        queue(),
-        config,
-        queue(),
-      ).onModuleInit();
-      expect(health.add).toHaveBeenCalledWith(
-        'discover-news-links',
-        job,
-        expect.objectContaining({
-          jobId: 'publisher-news-rss-thirty-minutes',
-          repeat: { pattern: '*/30 * * * *', tz: 'Asia/Seoul' },
-        }),
-      );
-      jest.mocked(health.add).mockClear();
-      const rssKey = identity === 'hash' ? 'eb93a621822e68d985e804f19c7fde3c' : 'rss-repeat';
-      const irKey = identity === 'hash' ? '6e1f4988d68307b5eadf0ee641d81b71' : 'ir-repeat';
+      const marketNews = queue();
       const common = {
         name: 'discover-news-links',
         pattern: '*/30 * * * *',
@@ -311,6 +360,8 @@ describe('publisher RSS ingestion', () => {
         endDate: null,
         next: 1788534000000,
       };
+      const rssKey = identity === 'hash' ? 'eb93a621822e68d985e804f19c7fde3c' : 'rss-repeat';
+      const irKey = identity === 'hash' ? '6e1f4988d68307b5eadf0ee641d81b71' : 'ir-repeat';
       jest.mocked(health.getRepeatableJobs).mockResolvedValue([
         {
           ...common,
@@ -322,21 +373,36 @@ describe('publisher RSS ingestion', () => {
           key: irKey,
           ...(identity === 'legacy' ? { id: 'registered-ir-thirty-minutes' } : {}),
         },
+        { ...common, key: 'unmanaged', id: 'someone-elses-news-schedule' },
       ] as Awaited<ReturnType<Queue['getRepeatableJobs']>>);
       await new WorkerSchedulerService(
         queue(),
         queue(),
         health,
         queue(),
-        loadWorkerConfig({}),
+        config,
         queue(),
+        marketNews,
       ).onModuleInit();
-      expect(health.removeRepeatableByKey).toHaveBeenCalledTimes(1);
       expect(health.removeRepeatableByKey).toHaveBeenCalledWith(rssKey);
-      expect(health.removeRepeatableByKey).not.toHaveBeenCalledWith(irKey);
+      expect(health.removeRepeatableByKey).toHaveBeenCalledWith(irKey);
+      expect(health.removeRepeatableByKey).not.toHaveBeenCalledWith('unmanaged');
+      expect(marketNews.add).toHaveBeenCalledWith(
+        'discover-news-links',
+        job,
+        expect.objectContaining({
+          jobId: 'publisher-news-rss-fifteen-minutes',
+          repeat: { pattern: '*/15 * * * *', tz: 'Asia/Seoul' },
+        }),
+      );
       expect(health.add).not.toHaveBeenCalledWith(
         'discover-news-links',
-        expect.objectContaining({ connectors: ['NEWS_RSS'] }),
+        expect.objectContaining({ connectors: ['NAVER'] }),
+        expect.anything(),
+      );
+      expect(marketNews.add).not.toHaveBeenCalledWith(
+        'discover-news-links',
+        expect.objectContaining({ connectors: ['GDELT'] }),
         expect.anything(),
       );
     },

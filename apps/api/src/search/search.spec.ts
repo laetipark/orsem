@@ -81,7 +81,7 @@ test('검색은 지역을 그룹별 한도 전에 적용하고 지역 불명 뉴
   const { fixtures, controller } = fixtureSearch();
   const original = fixtures.sourceItems[0]!;
   fixtures.sourceItems.push(
-    { ...original, id: 'unassigned', title: '지역 검색 뉴스', tickers: [] },
+    { ...original, source: 'GDELT', id: 'unassigned', title: '지역 검색 뉴스', tickers: [] },
     { ...original, id: 'sec', title: '지역 검색 공시', source: 'SEC', tickers: [] },
   );
   assert.equal((await controller.search({ q: 'NVDA', region: 'kr' })).companies.length, 0);
@@ -132,7 +132,11 @@ test('시장 전반 RSS는 종목 연결 없이 양 지역 검색에 포함하�
     assert.equal(result.news[0]?.translation, null);
   }
   const all = await controller.search({ q: '시장 전반 테스트', region: 'all', limit: 1 });
-  assert.equal(all.news[0]?.id, 'unassigned-newest');
+  assert.equal(all.news[0]?.id, 'rss-03');
+  assert.equal(
+    all.news.some((item) => item.source === 'NAVER'),
+    false,
+  );
 });
 
 test('검색 SQL은 RSS의 명시적 global 또는 해당 지역 메타데이터를 종목 연결과 함께 조회한다', async () => {
@@ -167,7 +171,9 @@ test('검색 SQL은 RSS의 명시적 global 또는 해당 지역 메타데이터
   for (const region of ['kr', 'us'] as const) {
     captured.length = 0;
     await service.search({ q: '시장', region, limit: 1 });
-    const news = captured.find((query) => query.sql.includes("`item`.`source` <> 'SEC'"))!;
+    const news = captured.find((query) =>
+      query.sql.includes("`item`.`source` NOT IN ('SEC', 'NAVER')"),
+    )!;
     assert.ok(news);
     assert.match(news.sql, /LEFT JOIN `companies`/u);
     assert.match(news.sql, /OR \(`item`\.`source` = 'NEWS_RSS' AND JSON_UNQUOTE/u);
@@ -215,13 +221,14 @@ test('실제 TypeORM SQL은 입력을 바인딩하고 원문·권리 제한 데�
     url: 'https://example.com/news',
     companyId: 'company',
     companyName: '기업',
-    source: 'NAVER',
+    source: 'IR',
     sourceName: '뉴스 제공자',
     rightsMode: RightsMode.STORE_METADATA_ONLY,
     publishedAt: now,
     firstObservedAt: now,
     rceptDate: null,
     rawHash: 'a'.repeat(64),
+    sourcePolicyJson: { aiAllowed: true },
     translationJson: {
       version: 1,
       status: 'COMPLETED',
@@ -292,6 +299,7 @@ test('실제 TypeORM SQL은 입력을 바인딩하고 원문·권리 제한 데�
                       ]
                     : [
                         news,
+                        { ...news, id: 'legacy-naver', source: 'NAVER' },
                         { ...news, id: 'restricted', rightsMode: RightsMode.NO_REDISTRIBUTION },
                         { ...news, id: 'unsafe', url: 'javascript:alert(1)' },
                       ];
@@ -331,12 +339,13 @@ test('실제 TypeORM SQL은 입력을 바인딩하고 원문·권리 제한 데�
       assert.match(query.sql, /translation_json/u);
       assert.match(query.sql, /\$\.inputHash/u);
       assert.match(query.sql, /BINARY 'COMPLETED'/u);
-      assert.match(query.sql, /'NAVER', 'GDELT', 'IR'/u);
+      assert.match(query.sql, /'GDELT', 'IR'/u);
+      assert.match(query.sql, /source_policy_json/u);
       assert.match(query.sql, /LIKE \? ESCAPE '!'/u);
     }
   }
   assert.equal(result.news.length, 1);
-  assert.equal(result.news[0]?.source, 'NAVER');
+  assert.equal(result.news[0]?.source, 'IR');
   assert.equal(result.news[0]?.rightsMode, RightsMode.STORE_METADATA_ONLY);
   assert.equal(result.news[0]?.title, '보존된 제목');
   assert.equal(result.news[0]?.translation?.title, '별도로 번역한 제목');

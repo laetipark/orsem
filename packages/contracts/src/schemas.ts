@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { regionSchema } from './region';
+import { NewsSourceKind } from './news-sources';
 import {
   AlertStatus,
   ClassificationReviewResult,
@@ -272,6 +273,21 @@ export type NewsTranslation = z.infer<typeof newsTranslationSchema>;
 
 export const sourceItemSchema = z.object({
   id: idSchema,
+  articleId: idSchema.nullable().optional(),
+  sourceKind: z.enum(NewsSourceKind).optional(),
+  sourceCount: z.number().int().positive().optional(),
+  publisherId: z.string().nullable().optional(),
+  marketRegion: z.enum(['kr', 'us', 'global', 'unknown']).optional(),
+  sources: z
+    .array(
+      z.object({
+        id: idSchema,
+        source: z.string(),
+        sourceName: z.string().nullable(),
+        url: httpUrlSchema,
+      }),
+    )
+    .optional(),
   source: z.string(),
   externalId: z.string().nullable(),
   url: httpUrlSchema,

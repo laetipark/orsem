@@ -26,6 +26,7 @@ import { ConnectorHealthProcessor } from './processors/connector-health.processo
 import { AiReviewProcessor } from './processors/ai-review.processor';
 import { FilingProcessor } from './processors/filing.processor';
 import { OutboxProcessor } from './processors/outbox.processor';
+import { MarketNewsProcessor } from './processors/market-news.processor';
 import { MarketDataProcessor } from './processors/market-data.processor';
 import { PollProcessor } from './processors/poll.processor';
 import { OutboxDispatcherService } from './queues/outbox-dispatcher.service';
@@ -72,6 +73,7 @@ const fetchImplementation: FetchImplementation = (input, init) => globalThis.fet
       { name: QueueName.OUTBOX },
       { name: QueueName.CONNECTOR_HEALTH },
       { name: QueueName.MARKET_DATA },
+      { name: QueueName.MARKET_NEWS },
     ),
   ],
   providers: [
@@ -112,6 +114,7 @@ const fetchImplementation: FetchImplementation = (input, init) => globalThis.fet
     OutboxProcessor,
     ConnectorHealthProcessor,
     MarketDataProcessor,
+    MarketNewsProcessor,
   ],
 })
 export class WorkerModule {}

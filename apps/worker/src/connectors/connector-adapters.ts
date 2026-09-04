@@ -2,7 +2,18 @@ import { createHash } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
 import { request as httpsRequest } from 'node:https';
 import { isIP } from 'node:net';
-import { ConnectorStatus, RightsMode } from '@orsem/contracts';
+import {
+  ConnectorStatus,
+  RightsMode,
+  NewsSourceKind,
+  canonicalNewsUrl,
+  APPROVED_GDELT_SOURCE_POLICIES,
+  NEWS_RSS_FEEDS,
+  NEWS_RSS_FEED_IDS,
+  type NewsRssFeedId,
+  type NewsSourcePolicy,
+} from '@orsem/contracts';
+export { NEWS_RSS_FEED_IDS, type NewsRssFeedId } from '@orsem/contracts';
 import { assertLexicalXmlComplexity, assertSafeXml } from '@orsem/opendart-parser';
 import { XMLParser, XMLValidator } from 'fast-xml-parser';
 import { z } from 'zod';
@@ -27,6 +38,8 @@ export interface DiscoveryCandidate {
   readonly tickers: readonly string[];
   readonly tags: readonly string[];
   readonly rightsMode: RightsMode;
+  readonly sourceKind?: NewsSourceKind;
+  readonly sourcePolicy?: NewsSourcePolicy;
   readonly metadata: Readonly<Record<string, unknown>>;
 }
 
@@ -298,13 +311,39 @@ function assertPublicHttpLink(value: string, base?: URL): URL {
   return url;
 }
 
+export interface FeedCheckpoint {
+  readonly etag: string | null;
+  readonly lastModified: string | null;
+  readonly checkedAt: string;
+  readonly httpStatus: number;
+}
+
+export interface FeedCheckpointStore {
+  load(connector: ConnectorName, url: string): Promise<FeedCheckpoint | null>;
+  save(connector: ConnectorName, url: string, checkpoint: FeedCheckpoint): Promise<void>;
+  recordFailure?(connector: ConnectorName, url: string, message: string, at: Date): Promise<void>;
+}
+
+export interface FeedResponse {
+  readonly status: number;
+  readonly bytes: Uint8Array;
+  readonly etag: string | null;
+  readonly lastModified: string | null;
+}
+
+export type FeedTransport = typeof fetchPinnedHttpsBytes;
+
+function feedValidator(value: string | string[] | undefined): string | null {
+  return typeof value === 'string' && value.length <= 1024 && !/[\r\n]/.test(value) ? value : null;
+}
+
 async function fetchPinnedHttpsBytes(
   connector: ConnectorName,
   operation: string,
   url: URL,
   headers: Readonly<Record<string, string>>,
   timeoutMs: number,
-): Promise<Uint8Array> {
+): Promise<FeedResponse> {
   const hostname = url.hostname.replace(/^\[|\]$/g, '');
   let dnsTimer: ReturnType<typeof setTimeout> | undefined;
   const addresses = await Promise.race([
@@ -324,7 +363,7 @@ async function fetchPinnedHttpsBytes(
     throw new Error('Configured endpoint resolves to a disallowed address.');
   }
   const selected = addresses[0]!;
-  return new Promise<Uint8Array>((resolve, reject) => {
+  return new Promise<FeedResponse>((resolve, reject) => {
     let settled = false;
     let wallTimer: ReturnType<typeof setTimeout> | undefined;
     const clearWallTimer = (): void => {
@@ -350,6 +389,15 @@ async function fetchPinnedHttpsBytes(
       },
       (response) => {
         const status = response.statusCode ?? 0;
+        const etag = feedValidator(response.headers.etag);
+        const lastModified = feedValidator(response.headers['last-modified']);
+        if (status === 304) {
+          response.resume();
+          settled = true;
+          clearWallTimer();
+          resolve({ status, bytes: new Uint8Array(), etag, lastModified });
+          return;
+        }
         if (status < 200 || status >= 300) {
           response.resume();
           fail(new ConnectorRequestError(connector, operation, status));
@@ -388,7 +436,7 @@ async function fetchPinnedHttpsBytes(
             output.set(chunk, offset);
             offset += chunk.byteLength;
           }
-          resolve(output);
+          resolve({ status, bytes: output, etag, lastModified });
         });
       },
     );
@@ -994,16 +1042,37 @@ function gdeltRequestState(fetchImpl: FetchImplementation): GdeltRequestState {
 export class GdeltMetadataConnector extends ConnectorBase {
   public override readonly name = 'GDELT' as const;
   public override readonly rightsMode = RightsMode.STORE_METADATA_ONLY;
-  protected override readonly disabledMessage = 'GDELT_ENABLED=false';
+  protected override readonly disabledMessage =
+    'GDELT is disabled or has no approved publisher domains';
   private readonly requestState: GdeltRequestState;
 
   public constructor(
     protected override readonly configured: boolean,
     private readonly fetchImpl: FetchImplementation,
     private readonly timeoutMs: number,
+    private readonly approvedDomains: readonly string[] = [],
   ) {
     super();
+    if (
+      approvedDomains.some(
+        (domain) =>
+          APPROVED_GDELT_SOURCE_POLICIES[domain]?.metadataStorageAllowed !== true ||
+          APPROVED_GDELT_SOURCE_POLICIES[domain]?.displayAllowed !== true,
+      )
+    )
+      throw new Error('GDELT domains require a reviewed source policy.');
     this.requestState = gdeltRequestState(fetchImpl);
+  }
+
+  public override health(now = new Date()): ConnectorHealthCheck {
+    return {
+      ...super.health(now),
+      metadata: {
+        healthSource: 'GDELT_INGESTION',
+        configured: this.configured,
+        approvedDomains: this.approvedDomains,
+      },
+    };
   }
 
   private assertNotCoolingDown(): void {
@@ -1106,12 +1175,15 @@ export class GdeltMetadataConnector extends ConnectorBase {
           externalId: null,
           title: item.title,
           url: assertPublicHttpLink(item.url).toString(),
-          publishedAt: gdeltInstant(item.seendate),
+          // GDELT seendate is a crawl observation, never the publisher's date.
+          publishedAt: null,
           sourceName: item.domain ?? null,
           tickers: Object.freeze([]),
           tags: Object.freeze([]),
           rightsMode: this.rightsMode,
           metadata: Object.freeze({
+            observedBySourceAt: gdeltInstant(item.seendate),
+            originalSeenDate: item.seendate ?? null,
             country: item.sourcecountry ?? null,
             language: item.language ?? null,
           }),
@@ -1131,28 +1203,34 @@ export class GdeltMetadataConnector extends ConnectorBase {
     };
   }
 
-  public override async discoverLinks(
-    scope?: DiscoveryScope,
-  ): Promise<readonly DiscoveryCandidate[]> {
-    const results: DiscoveryCandidate[] = [];
-    for (const company of scope?.companies ?? []) {
-      const query = company.nameEn?.trim() || company.ticker;
-      if (!query) continue;
-      const candidates = await this.search(`"${query.replaceAll('"', '')}"`, 10);
-      results.push(
-        ...candidates.map((candidate) =>
-          Object.freeze({
-            ...candidate,
-            tickers: Object.freeze(company.ticker ? [company.ticker] : []),
-            metadata: Object.freeze({
-              ...candidate.metadata,
-              discoveryQuery: query,
-            }),
-          }),
-        ),
-      );
-    }
-    return Object.freeze(results);
+  public override async discoverLinks(): Promise<readonly DiscoveryCandidate[]> {
+    if (!this.configured || this.approvedDomains.length === 0) return [];
+    const domains = this.approvedDomains.map((domain) => `domainis:${domain}`).join(' OR ');
+    const query = `(economy OR earnings OR market OR industry OR company) (${domains})`;
+    const candidates = await this.search(query, 250, { timespan: '1h' });
+    return Object.freeze(
+      candidates
+        .filter((candidate) => {
+          const hostname = new URL(candidate.url).hostname.toLowerCase();
+          return this.approvedDomains.some(
+            (domain) => hostname === domain || hostname.endsWith(`.${domain}`),
+          );
+        })
+        .map((candidate) => ({
+          ...candidate,
+          externalId: createHash('sha256').update(candidate.url).digest('hex'),
+          sourceKind: NewsSourceKind.INDEPENDENT_MEDIA,
+          sourcePolicy:
+            APPROVED_GDELT_SOURCE_POLICIES[
+              this.approvedDomains.find(
+                (domain) =>
+                  new URL(candidate.url).hostname === domain ||
+                  new URL(candidate.url).hostname.endsWith(`.${domain}`),
+              )!
+            ],
+          metadata: { ...candidate.metadata, discoveryQuery: query, discoveryProvider: 'GDELT' },
+        })),
+    );
   }
 }
 
@@ -1165,7 +1243,6 @@ export function assertRegisteredFeedUrl(value: string): URL {
 }
 
 export const MAX_REGISTERED_IR_FEEDS = 100;
-const MAX_IR_DISCOVERY_CANDIDATES = 500;
 
 function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : value === undefined || value === null ? [] : [value];
@@ -1185,23 +1262,73 @@ function textValue(value: unknown): string {
   return typeof object['#text'] === 'string' ? object['#text'] : '';
 }
 
+/** Validator updates are committed only after the associated feed items are persisted. */
+class ConditionalFeedReader {
+  private readonly pending = new Map<string, FeedCheckpoint>();
+  public notModifiedCount = 0;
+  public constructor(
+    private readonly connector: ConnectorName,
+    private readonly timeoutMs: number,
+    private readonly store?: FeedCheckpointStore,
+    private readonly transport: FeedTransport = fetchPinnedHttpsBytes,
+  ) {}
+  public reset(): void {
+    this.pending.clear();
+    this.notModifiedCount = 0;
+  }
+  public async fetch(url: URL, operation: string): Promise<Uint8Array | null> {
+    const previous = await this.store?.load(this.connector, url.toString());
+    const headers: Record<string, string> = {
+      Accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml',
+      'User-Agent': 'Orsem/0.1 (noncommercial RSS reader)',
+    };
+    if (previous?.etag) headers['If-None-Match'] = previous.etag;
+    if (previous?.lastModified) headers['If-Modified-Since'] = previous.lastModified;
+    const response = await this.transport(this.connector, operation, url, headers, this.timeoutMs);
+    if (response.status === 304 && !previous?.etag && !previous?.lastModified)
+      throw new Error('RSS returned 304 without an established cached response.');
+    this.pending.set(url.toString(), {
+      etag: response.etag ?? (response.status === 304 ? (previous?.etag ?? null) : null),
+      lastModified:
+        response.lastModified ??
+        (response.status === 304 ? (previous?.lastModified ?? null) : null),
+      checkedAt: new Date().toISOString(),
+      httpStatus: response.status,
+    });
+    if (response.status === 304) {
+      this.notModifiedCount += 1;
+      return null;
+    }
+    return response.bytes;
+  }
+  public async fail(url: string, message: string): Promise<void> {
+    this.pending.delete(url);
+    await this.store?.recordFailure?.(this.connector, url, message, new Date());
+  }
+  public async commit(): Promise<void> {
+    for (const [url, checkpoint] of this.pending)
+      await this.store?.save(this.connector, url, checkpoint);
+    this.pending.clear();
+  }
+}
+
 export class RegisteredIrFeedConnector extends ConnectorBase {
   public override readonly name = 'IR' as const;
   public override readonly rightsMode = RightsMode.OFFICIAL_PUBLIC_DATA;
   protected override readonly configured: boolean;
   protected override readonly disabledMessage = 'IR_FEED_URLS has no registered feeds';
   private latestDiscoveryFailureCount = 0;
-  private readonly parser = new XMLParser({
-    ignoreAttributes: false,
-    attributeNamePrefix: '',
-    processEntities: false,
-  });
+  private truncated = false;
+  private readonly reader: ConditionalFeedReader;
 
   public constructor(
     private readonly feedUrls: readonly string[],
     private readonly timeoutMs: number,
+    checkpointStore?: FeedCheckpointStore,
+    transport?: FeedTransport,
   ) {
     super();
+    this.reader = new ConditionalFeedReader(this.name, timeoutMs, checkpointStore, transport);
     if (feedUrls.length > MAX_REGISTERED_IR_FEEDS) {
       throw new Error(`Registered IR feeds exceed the safety limit of ${MAX_REGISTERED_IR_FEEDS}.`);
     }
@@ -1213,69 +1340,59 @@ export class RegisteredIrFeedConnector extends ConnectorBase {
     return this.latestDiscoveryFailureCount;
   }
 
+  public get discoveryWasTruncated(): boolean {
+    return this.truncated;
+  }
+  public async commitFeedCheckpoints(): Promise<void> {
+    await this.reader.commit();
+  }
+  public get discoveryMetadata(): Readonly<Record<string, unknown>> {
+    return {
+      failedItemOrFeedCount: this.latestDiscoveryFailureCount,
+      truncated: this.truncated,
+      notModifiedCount: this.reader.notModifiedCount,
+    };
+  }
+  public override health(now = new Date()): ConnectorHealthCheck {
+    return {
+      ...super.health(now),
+      metadata: {
+        healthSource: 'IR_INGESTION',
+        configured: this.configured,
+        feeds: this.feedUrls.length,
+      },
+    };
+  }
+  public override async check(now = new Date()): Promise<ConnectorHealthCheck> {
+    const health = this.health(now);
+    return this.configured
+      ? {
+          ...health,
+          status: ConnectorStatus.DEGRADED,
+          message: 'Configured; health is determined by scheduled IR discovery.',
+        }
+      : health;
+  }
+
   public async fetchFeed(feedUrl: string): Promise<readonly DiscoveryCandidate[]> {
     if (!this.feedUrls.includes(feedUrl)) {
       throw new Error('IR feed is not registered.');
     }
     const url = assertRegisteredFeedUrl(feedUrl);
-    const bytes = await fetchPinnedHttpsBytes(
-      this.name,
-      'registered-feed',
-      url,
-      {
-        Accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml',
-      },
-      this.timeoutMs,
+    const bytes = await this.reader.fetch(url, 'registered-feed');
+    if (bytes === null) return [];
+    const parsed = parseIrRssFeed(
+      url.toString(),
+      new TextDecoder('utf-8', { fatal: true }).decode(bytes),
     );
-    const xml = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-    assertSafeXml(xml, url.toString());
-    assertLexicalXmlComplexity(
-      xml,
-      { nodes: 0 },
-      {
-        maxDepth: 64,
-        maxNodes: 100_000,
-      },
-    );
-    const parsed = objectValue(this.parser.parse(xml));
-    const channel = objectValue(objectValue(parsed.rss).channel);
-    const rssItems = asArray(channel.item).map(objectValue);
-    const atomItems = asArray(objectValue(parsed.feed).entry).map(objectValue);
-    const entries = rssItems.length > 0 ? rssItems : atomItems;
-    return Object.freeze(
-      entries.map((entry) => {
-        const linkValues = asArray(entry.link);
-        const linkObjects = linkValues
-          .map(objectValue)
-          .filter((candidate) => Object.keys(candidate).length > 0);
-        const alternate =
-          linkObjects.find((candidate) => ['alternate', ''].includes(textValue(candidate.rel))) ??
-          linkObjects.find((candidate) => Boolean(candidate.href));
-        const link =
-          linkValues.map(textValue).find(Boolean) ||
-          textValue(alternate?.href) ||
-          String(alternate?.href ?? '');
-        const title = textValue(entry.title).trim();
-        if (!title || !link) throw new Error('IR feed item lacks title or link.');
-        const publishedRaw =
-          textValue(entry.pubDate) || textValue(entry.published) || textValue(entry.updated);
-        return Object.freeze({
-          connector: this.name,
-          externalId: textValue(entry.guid) || textValue(entry.id) || null,
-          title,
-          url: assertPublicHttpLink(link, url).toString(),
-          publishedAt:
-            publishedRaw && !Number.isNaN(Date.parse(publishedRaw))
-              ? new Date(publishedRaw).toISOString()
-              : null,
-          sourceName: url.hostname,
-          tickers: Object.freeze([]),
-          tags: Object.freeze(['IR']),
-          rightsMode: this.rightsMode,
-          metadata: Object.freeze({ feedUrl: url.toString() }),
-        });
-      }),
-    );
+    this.latestDiscoveryFailureCount += parsed.skippedItems;
+    this.truncated ||= parsed.truncated;
+    if (parsed.skippedItems > 0 || parsed.truncated)
+      await this.reader.fail(
+        url.toString(),
+        `${parsed.skippedItems} malformed IR item(s); truncated=${parsed.truncated}`,
+      );
+    return parsed.candidates;
   }
 
   protected override async probe(): Promise<Readonly<Record<string, unknown>>> {
@@ -1301,34 +1418,30 @@ export class RegisteredIrFeedConnector extends ConnectorBase {
   }
 
   public override async discoverLinks(): Promise<readonly DiscoveryCandidate[]> {
+    this.latestDiscoveryFailureCount = 0;
+    this.truncated = false;
+    this.reader.reset();
     const results: DiscoveryCandidate[] = [];
     let failedFeeds = 0;
     for (const feed of this.feedUrls) {
       try {
         const candidates = await this.fetchFeed(feed);
-        const remaining = MAX_IR_DISCOVERY_CANDIDATES - results.length;
-        if (remaining > 0) results.push(...candidates.slice(0, remaining));
-      } catch {
+        results.push(...candidates);
+      } catch (error) {
         failedFeeds += 1;
+        await this.reader.fail(feed, connectorFailureMessage(error).slice(0, 1000));
       }
     }
-    this.latestDiscoveryFailureCount = failedFeeds;
+    this.latestDiscoveryFailureCount += failedFeeds;
+    if (
+      (this.configured && failedFeeds === this.feedUrls.length) ||
+      (results.length === 0 && this.latestDiscoveryFailureCount > 0)
+    )
+      throw new Error('Registered IR discovery failed; no healthy feed items were retained.');
     return Object.freeze(results);
   }
 }
 
-export const NEWS_RSS_FEED_IDS = ['etoday-market'] as const;
-export type NewsRssFeedId = (typeof NEWS_RSS_FEED_IDS)[number];
-
-const NEWS_RSS_FEEDS = Object.freeze({
-  'etoday-market': Object.freeze({
-    url: 'https://rss.etoday.co.kr/eto/market_news.xml',
-    publisher: '이투데이',
-    marketRegion: 'global',
-    rightsContext: 'NONCOMMERCIAL_RSS_READER',
-    rightsPolicyUrl: 'https://www.etoday.co.kr/rss/',
-  }),
-});
 const MAX_NEWS_RSS_CANDIDATES = 500;
 
 interface ParsedNewsRssFeed {
@@ -1355,6 +1468,53 @@ function decodedFeedText(value: string): string {
 export function parseNewsRssFeed(feedId: NewsRssFeedId, xml: string): ParsedNewsRssFeed {
   const feed = NEWS_RSS_FEEDS[feedId];
   if (!feed) throw new Error('NEWS_RSS feed is not allowlisted.');
+  return parseRegisteredFeed(feedId, feed, xml, 'NEWS_RSS');
+}
+
+export function parseIrRssFeed(feedUrl: string, xml: string): ParsedNewsRssFeed {
+  const url = assertRegisteredFeedUrl(feedUrl);
+  return parseRegisteredFeed(
+    url.toString(),
+    {
+      url: url.toString(),
+      publisher: url.hostname,
+      marketRegion: 'global',
+      sourceKind: NewsSourceKind.COMPANY_IR,
+      rightsContext: 'REGISTERED_OFFICIAL_IR',
+      rightsPolicyUrl: url.toString(),
+      policy: {
+        rightsMode: RightsMode.OFFICIAL_PUBLIC_DATA,
+        aiAllowed: 'UNKNOWN',
+        fullTextStorageAllowed: false,
+        publicRedistributionAllowed: 'UNKNOWN',
+        displayAllowed: true,
+        metadataStorageAllowed: true,
+        notifyAllowed: false,
+        policyUrl: url.toString(),
+        checkedAt: '2026-09-05',
+      },
+    },
+    xml,
+    'IR',
+  );
+}
+
+function parseRegisteredFeed(
+  feedId: string,
+  feed: {
+    url: string;
+    publisher: string;
+    marketRegion: string;
+    sourceKind: NewsSourceKind;
+    rightsContext: string;
+    rightsPolicyUrl: string;
+    policy: NewsSourcePolicy;
+    categories?: readonly string[];
+    publisherId?: string;
+  },
+  xml: string,
+  connector: 'IR' | 'NEWS_RSS',
+): ParsedNewsRssFeed {
   if (Buffer.byteLength(xml, 'utf8') > MAX_METADATA_BYTES) {
     throw new Error('NEWS_RSS response exceeded its size limit.');
   }
@@ -1416,31 +1576,47 @@ export function parseNewsRssFeed(feedId: NewsRssFeedId, xml: string): ParsedNews
       // A fragment does not identify another article. Keep the original link in provenance metadata.
       articleUrl.hash = '';
       const url = articleUrl.toString();
-      const externalId = createHash('sha256').update(url).digest('hex');
+      const externalId = createHash('sha256')
+        .update(`${feedId}:${canonicalNewsUrl(url)}`)
+        .digest('hex');
       if (seenIds.has(externalId)) continue;
       seenIds.add(externalId);
       const publication = originalPublishedAt ? decodedFeedText(originalPublishedAt).trim() : '';
       // A source date without a timezone is not a collection instant or an assumed KST instant.
       const publishedAt =
-        /(?:Z|[+-]\d{2}:?\d{2}|GMT|UTC|UT)$/i.test(publication) &&
+        /(?:Z|[+-]\d{2}:?\d{2}|GMT|UTC|UT|EST|EDT|CST|CDT|MST|MDT|PST|PDT)$/i.test(publication) &&
         !Number.isNaN(Date.parse(publication))
           ? new Date(publication).toISOString()
           : null;
       candidates.push(
         Object.freeze({
-          connector: 'NEWS_RSS',
+          connector,
           externalId,
           title,
           url,
           publishedAt,
           sourceName: feed.publisher,
           tickers: Object.freeze([]),
-          tags: Object.freeze(['MARKET', 'RSS']),
-          rightsMode: RightsMode.STORE_METADATA_ONLY,
+          tags: Object.freeze(
+            connector === 'IR' ? ['IR', 'RSS'] : [...(feed.categories ?? ['MARKET']), 'RSS'],
+          ),
+          rightsMode: feed.policy.rightsMode,
+          sourceKind: feed.sourceKind,
+          sourcePolicy: feed.policy,
           metadata: Object.freeze({
             feedId,
             feedUrl: feed.url,
             publisher: feed.publisher,
+            publisherId: feed.publisherId ?? null,
+            originalAuthor:
+              textValue(entry.author) ||
+              textValue(objectValue(entry.author).name) ||
+              textValue(entry['dc:creator']) ||
+              null,
+            originalCategories: asArray(entry.category)
+              .map(textValue)
+              .filter(Boolean)
+              .slice(0, 100),
             marketRegion: feed.marketRegion,
             rightsContext: feed.rightsContext,
             rightsPolicyUrl: feed.rightsPolicyUrl,
@@ -1467,12 +1643,16 @@ export class PublisherNewsRssConnector extends ConnectorBase {
   private failedFeeds = 0;
   private skippedItems = 0;
   private truncated = false;
+  private readonly reader: ConditionalFeedReader;
 
   public constructor(
     feedIds: readonly NewsRssFeedId[],
     private readonly timeoutMs: number,
+    checkpointStore?: FeedCheckpointStore,
+    transport?: FeedTransport,
   ) {
     super();
+    this.reader = new ConditionalFeedReader(this.name, timeoutMs, checkpointStore, transport);
     if (feedIds.some((id) => !NEWS_RSS_FEED_IDS.includes(id))) {
       throw new Error('NEWS_RSS feed is not allowlisted.');
     }
@@ -1516,28 +1696,35 @@ export class PublisherNewsRssConnector extends ConnectorBase {
   public get discoveryMetadata(): Readonly<Record<string, unknown>> {
     return {
       failedFeedCount: this.failedFeeds,
+      notModifiedCount: this.reader.notModifiedCount,
       skippedItemCount: this.skippedItems,
       truncated: this.truncated,
     };
   }
 
+  public async commitFeedCheckpoints(): Promise<void> {
+    await this.reader.commit();
+  }
+
   public async fetchFeed(feedId: NewsRssFeedId): Promise<ParsedNewsRssFeed> {
     if (!this.feedIds.includes(feedId)) throw new Error('NEWS_RSS feed is not enabled.');
     const url = assertRegisteredFeedUrl(NEWS_RSS_FEEDS[feedId].url);
-    const bytes = await fetchPinnedHttpsBytes(
-      this.name,
+    const bytes = await this.reader.fetch(url, feedId);
+    if (bytes === null) return { candidates: [], skippedItems: 0, truncated: false };
+    const parsed = parseNewsRssFeed(
       feedId,
-      url,
-      {
-        Accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml',
-        'User-Agent': 'Orsem/0.1 (noncommercial RSS reader)',
-      },
-      this.timeoutMs,
+      new TextDecoder('utf-8', { fatal: true }).decode(bytes),
     );
-    return parseNewsRssFeed(feedId, new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+    if (parsed.skippedItems > 0 || parsed.truncated)
+      await this.reader.fail(
+        url.toString(),
+        `${parsed.skippedItems} malformed RSS item(s); truncated=${parsed.truncated}`,
+      );
+    return parsed;
   }
 
   public override async discoverLinks(): Promise<readonly DiscoveryCandidate[]> {
+    this.reader.reset();
     this.failedFeeds = 0;
     this.skippedItems = 0;
     this.truncated = false;
@@ -1546,11 +1733,14 @@ export class PublisherNewsRssConnector extends ConnectorBase {
       try {
         const parsed = await this.fetchFeed(feedId);
         this.skippedItems += parsed.skippedItems;
-        const remaining = MAX_NEWS_RSS_CANDIDATES - candidates.length;
-        candidates.push(...parsed.candidates.slice(0, remaining));
-        this.truncated ||= parsed.truncated || parsed.candidates.length > remaining;
-      } catch {
+        candidates.push(...parsed.candidates);
+        this.truncated ||= parsed.truncated;
+      } catch (error) {
         this.failedFeeds += 1;
+        await this.reader.fail(
+          NEWS_RSS_FEEDS[feedId].url,
+          connectorFailureMessage(error).slice(0, 1000),
+        );
       }
     }
     if (
@@ -1568,18 +1758,17 @@ export class PublisherNewsRssConnector extends ConnectorBase {
 export function createLinkDiscoveryAdapters(
   config: WorkerConfig,
   fetchImpl: FetchImplementation = globalThis.fetch,
+  checkpointStore?: FeedCheckpointStore,
 ): readonly LinkDiscoveryAdapter[] {
   return Object.freeze([
-    new NaverNewsConnector(
-      config.naverClientId,
-      config.naverClientSecret,
+    new SecSubmissionsConnector(config.secUserAgent, fetchImpl, config.httpTimeoutMs),
+    new GdeltMetadataConnector(
+      config.gdeltEnabled && config.gdeltApprovedDomains.length > 0,
       fetchImpl,
       config.httpTimeoutMs,
-      config.naverApiProvider,
+      config.gdeltApprovedDomains,
     ),
-    new SecSubmissionsConnector(config.secUserAgent, fetchImpl, config.httpTimeoutMs),
-    new GdeltMetadataConnector(config.gdeltEnabled, fetchImpl, config.httpTimeoutMs),
-    new RegisteredIrFeedConnector(config.irFeedUrls, config.httpTimeoutMs),
-    new PublisherNewsRssConnector(config.newsRssFeeds, config.httpTimeoutMs),
+    new RegisteredIrFeedConnector(config.irFeedUrls, config.httpTimeoutMs, checkpointStore),
+    new PublisherNewsRssConnector(config.newsRssFeeds, config.httpTimeoutMs, checkpointStore),
   ]);
 }

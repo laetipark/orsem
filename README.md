@@ -49,7 +49,7 @@ OpenDART 재검증과 UTC 이관, 현재 검토 수치 및 CSV 내보내기는 [
 
 기업 페이지가 보이는 동안 선택한 차트와 현재가를 2초마다 조회합니다. 분봉 화면은 이벤트 수익률에 필요한 일봉 데이터도 갱신합니다. worker가 토스 공식 봉과 실시간 시세를 수집하며, 시각과 신선도 상태를 통해 수신 시점을 확인할 수 있습니다.
 
-[아키텍처](docs/ARCHITECTURE.md), [API](docs/API.md), [소스 어댑터](docs/SOURCES.md), [데이터 이용 권리](docs/RIGHTS.md), [보안](docs/SECURITY.md), [카카오 로그인 설정](docs/KAKAO_LOGIN.md), [서비스별 자격 증명 관리](docs/CREDENTIALS.md), [테스트](docs/TESTING.md), [운영](docs/OPERATIONS.md), [배포](docs/DEPLOYMENT.md) 문서를 참고하세요.
+[아키텍처](docs/ARCHITECTURE.md), [API](docs/API.md), [뉴스 수집과 NAVER 분리](docs/NEWS_COLLECTION.md), [소스 어댑터](docs/SOURCES.md), [데이터 이용 권리](docs/RIGHTS.md), [보안](docs/SECURITY.md), [카카오 로그인 설정](docs/KAKAO_LOGIN.md), [서비스별 자격 증명 관리](docs/CREDENTIALS.md), [테스트](docs/TESTING.md), [운영](docs/OPERATIONS.md), [배포](docs/DEPLOYMENT.md) 문서를 참고하세요.
 
 ## 화면과 통합 검색
 

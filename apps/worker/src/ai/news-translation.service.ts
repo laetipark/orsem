@@ -9,7 +9,7 @@ import {
   type NewsTranslationInput,
 } from './local-news-translation.client';
 
-const TRANSLATABLE_SOURCES = ['NAVER', 'GDELT', 'IR'];
+const TRANSLATABLE_SOURCES = ['GDELT', 'IR', 'NEWS_RSS'];
 const DESCRIPTION_RIGHTS = new Set<RightsMode>([
   RightsMode.OFFICIAL_PUBLIC_DATA,
   RightsMode.PRIVATE_DISPLAY_ONLY,
@@ -42,6 +42,8 @@ export function translationInput(
   news: NewsItemEntity,
 ): NewsTranslationInput | null {
   if (
+    source.source === 'NAVER' ||
+    source.sourcePolicyJson?.aiAllowed !== true ||
     !TRANSLATABLE_SOURCES.includes(source.source) ||
     source.rightsMode === RightsMode.LINK_ONLY ||
     source.rightsMode === RightsMode.NO_REDISTRIBUTION ||
@@ -85,6 +87,7 @@ export class NewsTranslationService {
       .innerJoin(NewsItemEntity, 'news', 'news.sourceItemId = source.id')
       .where('source.source IN (:...sources)', { sources: TRANSLATABLE_SOURCES })
       .andWhere('source.rawHash IS NOT NULL')
+      .andWhere("JSON_EXTRACT(source.sourcePolicyJson, '$.aiAllowed') = CAST('true' AS JSON)")
       .andWhere(
         new Brackets((query) => {
           query
@@ -158,7 +161,13 @@ export class NewsTranslationService {
         lock: { mode: 'pessimistic_write' },
       });
       const now = new Date();
-      if (!source?.rawHash || !translationIsDue(source, now)) return null;
+      if (
+        !source?.rawHash ||
+        source.source === 'NAVER' ||
+        source.sourcePolicyJson?.aiAllowed !== true ||
+        !translationIsDue(source, now)
+      )
+        return null;
       const news = await manager
         .getRepository(NewsItemEntity)
         .findOne({ where: { sourceItemId: id } });

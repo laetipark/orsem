@@ -11,9 +11,10 @@ interface TranslationSource {
   rightsMode: RightsMode;
   rawHash?: string | null;
   translationJson?: unknown;
+  sourcePolicyJson?: unknown;
 }
 
-const translationSources = ['NAVER', 'GDELT', 'IR'] as const;
+const translationSources = ['GDELT', 'IR'] as const;
 const translationRights: readonly RightsMode[] = [
   RightsMode.OFFICIAL_PUBLIC_DATA,
   RightsMode.PRIVATE_DISPLAY_ONLY,
@@ -36,8 +37,20 @@ const storedTranslationSchema = z.object({
 });
 
 export function publicNewsTranslation(source: TranslationSource): NewsTranslation | null {
+  let policy = source.sourcePolicyJson;
+  if (typeof policy === 'string') {
+    try {
+      policy = JSON.parse(policy);
+    } catch {
+      return null;
+    }
+  }
   if (
     !translationSources.some((allowed) => allowed === source.source) ||
+    !policy ||
+    typeof policy !== 'object' ||
+    !('aiAllowed' in policy) ||
+    policy.aiAllowed !== true ||
     !translationRights.includes(source.rightsMode) ||
     !source.rawHash
   )
@@ -84,7 +97,9 @@ export function newsTranslationSearchCondition(alias: string, parameter: string)
     throw new Error('Invalid translation search identifier.');
   const json = `${alias}.translation_json`;
   const value = (field: string) => `JSON_UNQUOTE(JSON_EXTRACT(${json}, '$.${field}'))`;
-  return `(${alias}.source IN ('NAVER', 'GDELT', 'IR')
+  return `(${alias}.source IN ('GDELT', 'IR')
+    AND JSON_TYPE(JSON_EXTRACT(${alias}.source_policy_json, '$.aiAllowed')) = 'BOOLEAN'
+    AND JSON_EXTRACT(${alias}.source_policy_json, '$.aiAllowed') = true
     AND ${alias}.rights_mode IN ('OFFICIAL_PUBLIC_DATA', 'PRIVATE_DISPLAY_ONLY', 'STORE_METADATA_ONLY')
     AND ${alias}.raw_hash IS NOT NULL
     AND JSON_TYPE(JSON_EXTRACT(${json}, '$.version')) = 'INTEGER'

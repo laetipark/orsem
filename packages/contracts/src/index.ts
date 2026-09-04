@@ -4,3 +4,4 @@ export * from './market';
 export * from './region';
 export * from './notifications';
 export * from './filing-classification';
+export * from './news-sources';

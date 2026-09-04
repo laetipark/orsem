@@ -65,7 +65,7 @@ export class ConnectorHealthService {
     const adapters = createLinkDiscoveryAdapters(effectiveConfig, this.fetchImpl);
     const adapterChecks = await Promise.all(
       adapters.map((adapter) =>
-        ['NEWS_RSS', 'SEC'].includes(adapter.name)
+        ['NEWS_RSS', 'SEC', 'IR', 'GDELT'].includes(adapter.name)
           ? this.discoveryHealth(adapter.health())
           : adapter.check(),
       ),
@@ -109,14 +109,21 @@ export class ConnectorHealthService {
     const repository = this.dataSource.getRepository(ConnectorHealthEntity);
     for (const check of checks) {
       const marketDataHealth = check.metadata?.healthSource === 'TOSS_INGESTION';
-      const rssDiscoveryHealth = check.metadata?.healthSource === 'NEWS_RSS_INGESTION';
+      const rssDiscoveryHealth = ['NEWS_RSS_INGESTION', 'IR_INGESTION', 'GDELT_INGESTION'].includes(
+        String(check.metadata?.healthSource),
+      );
       const secDiscoveryHealth = check.metadata?.healthSource === 'SEC_INGESTION';
       // 시세 커넥터가 설정되어 있으면 마지막으로 저장된 토스 상태를 읽기만 합니다.
       // 여기서 이전 상태를 다시 저장하면 checkAll 실행 중에 커밋된 수집 결과를
       // 경합으로 덮어쓸 수 있습니다.
       if (marketDataHealth && check.metadata?.credentialsConfigured === true) continue;
       // RSS health comes from real collection. Do not add a probe request or overwrite a newer run.
-      if (rssDiscoveryHealth && check.metadata?.configured === true) continue;
+      if (
+        rssDiscoveryHealth &&
+        check.metadata?.configured === true &&
+        check.metadata?.ingestionStateAvailable === true
+      )
+        continue;
       if (
         secDiscoveryHealth &&
         check.metadata?.configured === true &&
@@ -137,7 +144,10 @@ export class ConnectorHealthService {
       const preserveMarketDataFreshness =
         marketDataHealth || rssDiscoveryHealth || secDiscoveryHealth;
       // A legacy SEC probe/empty-scope success is not evidence of an ingestion success.
-      if (secDiscoveryHealth && check.metadata?.ingestionStateAvailable === false)
+      if (
+        (secDiscoveryHealth || rssDiscoveryHealth) &&
+        check.metadata?.ingestionStateAvailable === false
+      )
         row.lastSuccessAt = null;
       if (!preserveMarketDataFreshness && check.status === ConnectorStatus.HEALTHY) {
         row.lastSuccessAt = check.checkedAt;
@@ -163,6 +173,7 @@ export class ConnectorHealthService {
     const usable =
       existing &&
       existing.status !== ConnectorStatus.UNCONFIGURED &&
+      existing.metadataJson?.healthSource === configured.metadata?.healthSource &&
       (!isSec ||
         (existing.metadataJson?.healthSource === 'SEC_INGESTION' &&
           existing.metadataJson?.ingestionStateAvailable !== false));
@@ -175,7 +186,7 @@ export class ConnectorHealthService {
       metadata: {
         ...existing?.metadataJson,
         ...configured.metadata,
-        ...(isSec ? { ingestionStateAvailable: Boolean(usable) } : {}),
+        ingestionStateAvailable: Boolean(usable),
       },
     });
   }

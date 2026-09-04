@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { loadAppConfig } from './app-config';
+import { NEWS_RSS_FEED_IDS } from '@orsem/contracts';
 
 test('fixture configuration has safe local defaults', () => {
   const config = loadAppConfig({ NODE_ENV: 'test', FIXTURE_MODE: 'true' });
@@ -24,7 +25,7 @@ test('NAVER API provider is explicitly selected and rejects unknown endpoints', 
   );
 });
 
-test('news RSS is off by default and accepts only the approved feed identifier', () => {
+test('news RSS is off by default and accepts only the approved feed identifiers', () => {
   for (const environment of [
     { NODE_ENV: 'test' },
     { NODE_ENV: 'test', FIXTURE_MODE: 'true' },
@@ -37,6 +38,10 @@ test('news RSS is off by default and accepts only the approved feed identifier',
       .newsRssFeeds,
     ['etoday-market'],
   );
+  assert.deepEqual(
+    loadAppConfig({ NODE_ENV: 'test', NEWS_RSS_FEEDS: NEWS_RSS_FEED_IDS.join(',') }).newsRssFeeds,
+    [...NEWS_RSS_FEED_IDS],
+  );
   for (const feed of [
     'unknown',
     'newsis-bank',
@@ -46,6 +51,17 @@ test('news RSS is off by default and accepts only the approved feed identifier',
   ]) {
     assert.throws(() => loadAppConfig({ NODE_ENV: 'test', NEWS_RSS_FEEDS: feed }));
   }
+});
+
+test('GDELT market search defaults to no domains and rejects publishers without approved rights', () => {
+  assert.deepEqual(loadAppConfig({ NODE_ENV: 'test' }).gdeltNewsDomains, []);
+  assert.deepEqual(
+    loadAppConfig({ NODE_ENV: 'test', GDELT_NEWS_DOMAINS: ' , ' }).gdeltNewsDomains,
+    [],
+  );
+  assert.throws(() =>
+    loadAppConfig({ NODE_ENV: 'test', GDELT_NEWS_DOMAINS: 'unapproved.example' }),
+  );
 });
 
 test('Kakao external credentials are optional, overrideable and isolated from malformed files', () => {

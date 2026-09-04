@@ -39,7 +39,13 @@ export const reviewParseWithAiJobSchema = z.object({
 });
 export type ReviewParseWithAiJob = z.infer<typeof reviewParseWithAiJobSchema>;
 
-export const scheduledDiscoveryConnectorSchema = z.enum(['NAVER', 'SEC', 'IR', 'NEWS_RSS']);
+export const scheduledDiscoveryConnectorSchema = z.enum([
+  'NAVER',
+  'SEC',
+  'IR',
+  'NEWS_RSS',
+  'GDELT',
+]);
 
 export const discoverLinksJobSchema = z
   .object({
@@ -108,7 +114,7 @@ export const discoverLinksJobSchema = z
     const signature = `${[...value.connectors].sort().join(',')}:${[...value.priorities]
       .sort()
       .join(',')}`;
-    if (!['NAVER:P1', 'NAVER:P2', 'SEC:P1,P2', 'IR:', 'NEWS_RSS:'].includes(signature)) {
+    if (!['NAVER:P1', 'NAVER:P2', 'SEC:P1,P2', 'IR:', 'NEWS_RSS:', 'GDELT:'].includes(signature)) {
       context.addIssue({
         code: 'custom',
         message: 'Scheduled discovery does not match an approved source cadence.',

@@ -1,4 +1,11 @@
 export type Region = 'all' | 'kr' | 'us';
+export type NewsSourceKind =
+  | 'OFFICIAL_DISCLOSURE'
+  | 'OFFICIAL_RELEASE'
+  | 'COMPANY_IR'
+  | 'PRESS_RELEASE'
+  | 'INDEPENDENT_MEDIA'
+  | 'UNKNOWN';
 export type DisclosureType = 'D001' | 'D002' | 'D005' | 'NEWS' | 'SEC';
 export type Priority = 'P1' | 'P2' | 'P3' | 'P4';
 export type Direction = 'INCREASE' | 'DECREASE' | 'NEUTRAL' | 'UNKNOWN';
@@ -35,6 +42,23 @@ export interface CursorPage<T> {
   nextCursor: string | null;
 }
 
+export interface NaverNewsSearchItem {
+  title: string;
+  originallink: string;
+  link: string;
+  description: string;
+  pubDate: string;
+}
+
+export interface NaverNewsSearchResult {
+  provider: 'NAVER';
+  lastBuildDate: string;
+  total: number;
+  start: number;
+  display: number;
+  items: NaverNewsSearchItem[];
+}
+
 export interface NewsTranslation {
   language: 'ko';
   title: string;
@@ -46,6 +70,12 @@ export interface NewsTranslation {
 
 export interface SourceItem {
   id: string;
+  articleId?: string | null;
+  sourceCount?: number;
+  sourceKind?: NewsSourceKind;
+  publisherId?: string | null;
+  marketRegion?: 'kr' | 'us' | 'global' | null;
+  sources?: Array<{ id: string; source: string; sourceName: string | null; url: string }>;
   source: string;
   externalId: string | null;
   url: string;

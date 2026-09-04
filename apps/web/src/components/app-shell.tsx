@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   LogOut,
   Moon,
+  Newspaper,
   Search,
   ShieldCheck,
   Star,
@@ -27,6 +28,7 @@ const navigation = [
   { to: '/', label: '오늘', icon: LayoutDashboard, end: true },
   { to: '/markets', label: '시장', icon: ChartNoAxesCombined },
   { to: '/events', label: '이벤트', icon: FileSearch },
+  { to: '/news', label: '뉴스', icon: Newspaper },
   { to: '/watchlist', label: '관심기업', icon: Star },
 ];
 const administration = [
@@ -39,6 +41,7 @@ const routeTitles: Array<[RegExp, string]> = [
   [/^\/sources$/, '데이터 출처·신선도'],
   [/^\/markets/, '시장 지표'],
   [/^\/search/, '통합 검색'],
+  [/^\/news\/naver$/, '네이버 뉴스 검색'],
   [/^\/news$/, '시장 뉴스'],
   [/^\/events\/[^/]+$/, '이벤트 근거'],
   [/^\/events/, '이벤트 탐색'],

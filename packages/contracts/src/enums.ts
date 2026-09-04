@@ -216,6 +216,7 @@ export const WorkerQueueName = {
   OUTBOX: 'orsem-outbox',
   CONNECTOR_HEALTH: 'orsem-connector-health',
   MARKET_DATA: 'orsem-market-data',
+  MARKET_NEWS: 'orsem-market-news',
 } as const;
 export type WorkerQueueName = (typeof WorkerQueueName)[keyof typeof WorkerQueueName];
 

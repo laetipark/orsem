@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { APPROVED_GDELT_DOMAINS, APPROVED_GDELT_SOURCE_POLICIES } from '@orsem/contracts';
 import { readFileSync } from 'node:fs';
 import { loadWebPushConfig, type WebPushConfig } from '@orsem/database';
 import {
@@ -135,6 +136,28 @@ const workerConfigSchema = z
     alpacaApiSecret: optionalTrimmed,
     alpacaTradingBaseUrl,
     gdeltEnabled: enabledByDefaultFromEnv,
+    gdeltApprovedDomains: z
+      .string()
+      .optional()
+      .transform((value) => [
+        ...new Set(
+          (value ?? '')
+            .split(',')
+            .map((domain) => domain.trim().toLowerCase())
+            .filter(Boolean),
+        ),
+      ])
+      .refine(
+        (domains) =>
+          domains.every(
+            (domain) =>
+              APPROVED_GDELT_DOMAINS.includes(domain) &&
+              APPROVED_GDELT_SOURCE_POLICIES[domain]?.metadataStorageAllowed === true &&
+              APPROVED_GDELT_SOURCE_POLICIES[domain]?.displayAllowed === true,
+          ),
+        'GDELT domains require a reviewed source policy.',
+      )
+      .transform((domains) => Object.freeze(domains)),
     irFeedUrls: registeredIrFeedUrls,
     newsRssFeeds: z
       .string()
@@ -223,6 +246,7 @@ export function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerCo
     alpacaApiSecret: env.ALPACA_API_SECRET,
     alpacaTradingBaseUrl: env.ALPACA_TRADING_BASE_URL,
     gdeltEnabled: env.GDELT_ENABLED,
+    gdeltApprovedDomains: env.GDELT_NEWS_DOMAINS,
     irFeedUrls: env.IR_FEED_URLS,
     newsRssFeeds: env.NEWS_RSS_FEEDS,
     aiBaseUrl: env.AI_BASE_URL,

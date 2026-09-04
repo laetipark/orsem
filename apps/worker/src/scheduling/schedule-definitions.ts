@@ -25,7 +25,7 @@ export interface NewsDiscoveryScheduleDefinition {
   readonly pattern: string;
   readonly timezone: 'Asia/Seoul';
   readonly payload: Readonly<{
-    connectors: readonly ('NAVER' | 'SEC' | 'IR' | 'NEWS_RSS')[];
+    connectors: readonly ('SEC' | 'IR' | 'NEWS_RSS' | 'GDELT')[];
     priorities: readonly (
       typeof WatchPriority.P1 | typeof WatchPriority.P2 | typeof WatchPriority.P3
     )[];
@@ -35,28 +35,6 @@ export interface NewsDiscoveryScheduleDefinition {
 }
 
 export const NEWS_DISCOVERY_SCHEDULES: readonly NewsDiscoveryScheduleDefinition[] = Object.freeze([
-  Object.freeze({
-    id: 'naver-news-p1-twenty-minutes',
-    pattern: '*/20 * * * *',
-    timezone: 'Asia/Seoul' as const,
-    payload: Object.freeze({
-      connectors: Object.freeze(['NAVER'] as const),
-      priorities: Object.freeze([WatchPriority.P1]),
-      companyIds: Object.freeze([]),
-      reason: 'SCHEDULED' as const,
-    }),
-  }),
-  Object.freeze({
-    id: 'naver-news-p2-hourly',
-    pattern: '0 * * * *',
-    timezone: 'Asia/Seoul' as const,
-    payload: Object.freeze({
-      connectors: Object.freeze(['NAVER'] as const),
-      priorities: Object.freeze([WatchPriority.P2]),
-      companyIds: Object.freeze([]),
-      reason: 'SCHEDULED' as const,
-    }),
-  }),
   Object.freeze({
     id: 'sec-submissions-p1-p2-ten-minutes',
     pattern: '*/10 * * * *',
@@ -69,8 +47,8 @@ export const NEWS_DISCOVERY_SCHEDULES: readonly NewsDiscoveryScheduleDefinition[
     }),
   }),
   Object.freeze({
-    id: 'registered-ir-thirty-minutes',
-    pattern: '*/30 * * * *',
+    id: 'registered-ir-fifteen-minutes',
+    pattern: '*/15 * * * *',
     timezone: 'Asia/Seoul' as const,
     payload: Object.freeze({
       connectors: Object.freeze(['IR'] as const),
@@ -80,11 +58,22 @@ export const NEWS_DISCOVERY_SCHEDULES: readonly NewsDiscoveryScheduleDefinition[
     }),
   }),
   Object.freeze({
-    id: 'publisher-news-rss-thirty-minutes',
-    pattern: '*/30 * * * *',
+    id: 'publisher-news-rss-fifteen-minutes',
+    pattern: '*/15 * * * *',
     timezone: 'Asia/Seoul' as const,
     payload: Object.freeze({
       connectors: Object.freeze(['NEWS_RSS'] as const),
+      priorities: Object.freeze([]),
+      companyIds: Object.freeze([]),
+      reason: 'SCHEDULED' as const,
+    }),
+  }),
+  Object.freeze({
+    id: 'approved-gdelt-thirty-minutes',
+    pattern: '*/30 * * * *',
+    timezone: 'Asia/Seoul' as const,
+    payload: Object.freeze({
+      connectors: Object.freeze(['GDELT'] as const),
       priorities: Object.freeze([]),
       companyIds: Object.freeze([]),
       reason: 'SCHEDULED' as const,
