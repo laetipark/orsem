@@ -1,0 +1,131 @@
+.search-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  color: var(--teal);
+}
+.search-heading > svg {
+  flex-shrink: 0;
+  margin-top: 5px;
+}
+.search-heading h2 {
+  margin: 0;
+  font-size: 24px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.search-heading p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.7;
+}
+.search-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.search-tabs .button {
+  gap: 8px;
+}
+.search-tabs .button > span {
+  font-size: 12px;
+  opacity: 0.75;
+}
+.search-group .card__header h2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.search-result {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) 18px;
+  gap: 16px;
+  align-items: center;
+  padding: 22px 24px;
+  transition: background-color 0.15s ease;
+}
+.search-result + .search-result {
+  border-top: 1px solid var(--border);
+}
+.search-result:hover {
+  background: var(--surface-2);
+}
+.search-result__icon {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--teal);
+  background: var(--teal-soft);
+}
+.search-result__copy {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.search-result__copy > strong {
+  color: var(--text);
+  font-size: 16px;
+  line-height: 1.6;
+}
+.search-result__copy > span {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.search-result__copy .search-result__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin-top: 3px;
+  color: var(--subtle);
+  font-size: 12px;
+}
+.search-result > svg {
+  color: var(--subtle);
+}
+.search-group__empty {
+  padding: 12px 24px 26px;
+  color: var(--muted);
+  font-size: 14px;
+}
+.search-expand {
+  align-self: center;
+}
+.search-limit {
+  margin: 0;
+  color: var(--subtle);
+  font-size: 13px;
+  line-height: 1.7;
+  text-align: center;
+}
+@media (max-width: 620px) {
+  .search-heading h2 {
+    font-size: 21px;
+  }
+  .search-tabs {
+    gap: 6px;
+  }
+  .search-tabs .button {
+    padding-inline: 10px;
+  }
+  .search-result {
+    grid-template-columns: 30px minmax(0, 1fr) 16px;
+    gap: 10px;
+    padding: 18px 14px;
+  }
+  .search-result__icon {
+    width: 30px;
+    height: 34px;
+    border-radius: 8px;
+  }
+  .search-result__copy > strong {
+    font-size: 15px;
+  }
+}

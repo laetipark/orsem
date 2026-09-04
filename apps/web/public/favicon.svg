@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" preserveAspectRatio="xMidYMid meet" fill="none">
+  <title>오름셈 — 상승하는 새싹 캐릭터</title>
+  <path d="M4 124L30 87L43 96L67 65L80 75L103 23L91 15L119 5L124 35L112 28L86 91L71 81L46 114L33 105L20 124Z" fill="#F56D73" stroke="#AC505B" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <g transform="translate(0 11) scale(.85)">
+  <path d="M33 28C48 25 59 8 77 7C94 6 105 18 100 38C79 45 43 44 33 28Z" fill="#52B89A" stroke="#318F82" stroke-width="4" stroke-linejoin="round"/>
+  <circle cx="64" cy="75" r="48" fill="#FFD56E" stroke="#FFA25E" stroke-width="4"/>
+  <circle cx="36" cy="75" r="7" fill="#FFB398"/>
+  <circle cx="92" cy="79" r="7" fill="#FFB398"/>
+  <path d="M43 57L51 65L41 65M84 59L76 66L87 68" stroke="#794D4C" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M50 77L78 80C76 99 72 106 62 105C50 104 47 95 50 77Z" fill="#BC6470" stroke="#BE6972" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M51 79L76 82L75 87L50 84Z" fill="#FFF"/>
+  <path d="M50 92C59 91 68 94 73 99C68 108 51 106 50 92Z" fill="#EB8C92"/>
+  </g>
+</svg>

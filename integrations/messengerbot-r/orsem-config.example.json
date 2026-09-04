@@ -1,0 +1,8 @@
+{
+  "apiBaseUrl": "https://orsem.laetipark.me/api/v1/bots/messenger",
+  "packageName": "com.kakao.talk",
+  "pollIntervalMs": 15000,
+  "heartbeatIntervalMs": 60000,
+  "requestTimeoutMs": 10000,
+  "deliveryLedgerSize": 500
+}

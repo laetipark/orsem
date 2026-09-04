@@ -1,0 +1,110 @@
+.connector-freshness .card__header {
+  flex-wrap: wrap;
+  gap: 14px;
+}
+.connector-freshness h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.connector-freshness__intro {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin-bottom: 20px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.connector-freshness__intro p {
+  margin: 0;
+}
+.connector-freshness__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.connector-source {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+.connector-source__heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+.connector-source__heading > div {
+  min-width: 0;
+}
+.connector-source__heading > .badge {
+  flex-shrink: 0;
+}
+.connector-source__category {
+  color: var(--subtle);
+  font-size: 11px;
+}
+.connector-source h3 {
+  margin: 5px 0 0;
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.connector-source dl {
+  display: grid;
+  gap: 8px;
+  margin: 20px 0 16px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.connector-source dl > div {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+.connector-source dt {
+  color: var(--muted);
+}
+.connector-source dd {
+  margin: 0;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.connector-freshness__operations {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 40px;
+  margin-top: 16px;
+  color: var(--teal);
+  font-size: 13px;
+  font-weight: 700;
+}
+.connector-freshness__empty {
+  padding-block: 20px;
+  color: var(--muted);
+  font-size: 13px;
+}
+@media (max-width: 1100px) {
+  .connector-freshness__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 620px) {
+  .connector-freshness__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .connector-source {
+    padding: 16px;
+  }
+}

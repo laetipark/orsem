@@ -1,0 +1,309 @@
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+}
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  background: color-mix(in srgb, var(--bg) 95%, transparent);
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(16px);
+}
+.site-header__inner {
+  display: grid;
+  grid-template-columns: auto auto minmax(180px, 1fr) auto;
+  align-items: center;
+  gap: 28px;
+  width: min(100%, 1480px);
+  min-height: 80px;
+  margin-inline: auto;
+  padding: 12px 28px;
+}
+.site-header .brand {
+  color: var(--text);
+  white-space: nowrap;
+}
+.header-navigation {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.header-navigation__link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 42px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  color: var(--muted);
+  font-weight: 700;
+  font-size: 14px;
+  white-space: nowrap;
+}
+.header-navigation__link:hover,
+.header-navigation__link.is-active {
+  color: var(--teal);
+  background: var(--teal-soft);
+}
+.site-header__actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.site-header__actions .button {
+  white-space: nowrap;
+}
+.header-search {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 3px 6px 3px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--subtle);
+}
+.header-search:focus-within {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+.header-search > svg {
+  flex-shrink: 0;
+}
+.header-search input {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  outline: none;
+}
+.header-search input::placeholder {
+  color: var(--subtle);
+}
+.header-search button {
+  flex-shrink: 0;
+  min-height: 34px;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--surface-3);
+  color: var(--text);
+  font: inherit;
+  font-weight: 700;
+  font-size: 12px;
+  cursor: pointer;
+}
+.app-shell .main-content {
+  flex: 1;
+  width: min(100%, 1480px);
+  margin: 0 auto;
+  padding: 28px 28px 40px;
+}
+.workspace-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.workspace-heading h1 {
+  margin: 0;
+  color: var(--text);
+  font-size: 23px;
+  line-height: 1.4;
+  letter-spacing: -0.03em;
+}
+.workspace-heading > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.workspace-access {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.site-footer {
+  margin-top: auto;
+  border-top: 1px solid var(--border);
+  color: var(--subtle);
+  background: var(--surface);
+}
+.site-footer__inner {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  width: min(100%, 1480px);
+  min-height: 76px;
+  margin-inline: auto;
+  padding: 20px 28px;
+  font-size: 12px;
+}
+.site-footer strong {
+  letter-spacing: 0.08em;
+}
+.site-footer__logo {
+  display: block;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+}
+.site-footer nav {
+  display: flex;
+  gap: 10px;
+}
+.site-footer a {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 6px 10px;
+  border-radius: 7px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.site-footer a:hover,
+.site-footer a.is-active {
+  color: var(--teal);
+  background: var(--teal-soft);
+}
+.site-footer__sources {
+  font-weight: 700;
+}
+@media (max-width: 1100px) {
+  .site-header__inner {
+    grid-template-columns: auto 1fr auto;
+    gap: 10px 24px;
+    padding: 12px 22px;
+  }
+  .header-navigation {
+    justify-self: center;
+  }
+  .site-header__actions {
+    grid-column: 3;
+    grid-row: 1;
+    justify-self: end;
+  }
+  .header-search {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
+@media (max-width: 620px) {
+  .header-search input {
+    font-size: 16px;
+  }
+  .site-header {
+    position: relative;
+  }
+  .site-header__inner {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+    padding: 14px 16px 8px;
+  }
+  .site-header__actions {
+    grid-column: 2;
+  }
+  .site-header__actions .logout-label {
+    display: none;
+  }
+  .site-header__actions .button {
+    min-width: 36px;
+    padding-inline: 8px;
+  }
+  .header-search {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .header-navigation {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    justify-self: stretch;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 4px;
+  }
+  .header-navigation__link {
+    gap: 6px;
+    padding-inline: 6px;
+    font-size: 13px;
+  }
+  .app-shell .main-content {
+    padding: 22px 12px 28px;
+  }
+  .workspace-heading {
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+  .workspace-heading h1 {
+    font-size: 21px;
+  }
+  .workspace-heading .badge {
+    font-size: 10px;
+  }
+  .site-footer__inner {
+    padding: 16px;
+    gap: 12px;
+  }
+}
+
+.site-footer__inner {
+  flex-wrap: wrap;
+}
+
+@media (max-width: 380px) {
+  .header-navigation__link {
+    flex-direction: column;
+    gap: 3px;
+    padding: 7px 3px;
+    min-height: 54px;
+    font-size: 11px;
+  }
+  .header-navigation__link svg {
+    width: 17px;
+    height: 17px;
+  }
+}
+.header-notification-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  color: var(--muted);
+  border-radius: 8px;
+}
+.header-notification-link:hover,
+.header-notification-link.active {
+  background: var(--teal-soft);
+  color: var(--teal);
+}
+@media (min-width: 621px) and (max-width: 800px) {
+  .site-header__inner {
+    gap: 10px 12px;
+    padding-inline: 16px;
+  }
+  .header-navigation__link {
+    padding-inline: 8px;
+  }
+  .site-header__actions .logout-label {
+    display: none;
+  }
+}

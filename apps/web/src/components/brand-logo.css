@@ -1,0 +1,77 @@
+.brand-logo {
+  display: inline-flex;
+  flex-shrink: 0;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+  line-height: 1;
+  white-space: nowrap;
+}
+.brand-logo .brand-logo__mark {
+  display: block;
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+}
+.brand-logo .brand-logo__wordmark {
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+}
+.brand-logo--large {
+  gap: 13px;
+}
+.brand-logo--large .brand-logo__mark {
+  width: 52px;
+  height: 52px;
+}
+.brand-logo--large .brand-logo__wordmark {
+  font-size: 20px;
+  letter-spacing: 0.16em;
+}
+.brand-logo--compact {
+  gap: 7px;
+}
+.brand-logo--compact .brand-logo__mark {
+  width: 32px;
+  height: 32px;
+}
+.brand-logo--compact .brand-logo__wordmark {
+  font-size: 12px;
+  letter-spacing: 0.12em;
+}
+.site-footer__brand {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.site-footer__brand > span:last-child {
+  font-size: 11px;
+}
+@media (max-width: 380px) {
+  .brand-logo .brand-logo__mark {
+    width: 40px;
+    height: 40px;
+  }
+  .brand-logo .brand-logo__wordmark {
+    font-size: 14px;
+  }
+  .brand-logo--large .brand-logo__mark {
+    width: 48px;
+    height: 48px;
+  }
+  .brand-logo--large .brand-logo__wordmark {
+    font-size: 18px;
+  }
+  .brand-logo--compact .brand-logo__mark {
+    width: 30px;
+    height: 30px;
+  }
+  .brand-logo--compact .brand-logo__wordmark {
+    font-size: 12px;
+  }
+}

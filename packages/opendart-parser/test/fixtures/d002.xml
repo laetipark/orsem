@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<DOCUMENT>
+  <BODY>
+    <TABLE>
+      <TR><TD>보고자</TD><TD>홍길동</TD><TD>직위</TD><TD>대표이사</TD></TR>
+      <TR><TD>발행회사와의 관계</TD><TD>등기임원</TD><TD></TD><TD></TD></TR>
+    </TABLE>
+    <TABLE>
+      <TR>
+        <TH ROWSPAN="2">소유상황 변동일</TH>
+        <TH ROWSPAN="2">특정증권등의 종류</TH>
+        <TH ROWSPAN="2">취득/처분방법</TH>
+        <TH COLSPAN="2">변동 내역</TH>
+      </TR>
+      <TR><TH>증감수량</TH><TH>주당 거래단가</TH></TR>
+      <TR>
+        <TD>2026년 09월 01일</TD><TD>보통주</TD><TD>장내매수</TD><TD>+10,000주</TD><TD>32,500원</TD>
+      </TR>
+      <TR>
+        <TD>2026.09.02</TD><TD>보통주</TD><TD>주식매수선택권 행사</TD><TD>+2,000주</TD><TD>-</TD>
+      </TR>
+    </TABLE>
+  </BODY>
+</DOCUMENT>

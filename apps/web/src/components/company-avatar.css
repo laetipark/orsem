@@ -1,0 +1,41 @@
+.company-avatar {
+  display: inline-grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  color: var(--teal);
+  background: var(--teal-soft);
+}
+.company-avatar > span {
+  font-size: 14px;
+  line-height: 1;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+.company-avatar.company-avatar--image {
+  background: white;
+}
+.company-avatar img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 6px;
+}
+.company-avatar.company-heading__icon {
+  width: 56px;
+  height: 56px;
+}
+.company-avatar.company-heading__icon > span {
+  font-size: 20px;
+}
+@media (max-width: 900px) {
+  .company-avatar.company-heading__icon {
+    width: 42px;
+    height: 42px;
+  }
+}

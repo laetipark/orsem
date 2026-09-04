@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "baseUrl": ".",
+    "tsBuildInfoFile": "dist/.tsbuildinfo",
+    "types": ["node", "express", "express-session"]
+  },
+  "include": ["src/**/*.ts"]
+}

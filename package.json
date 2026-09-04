@@ -1,0 +1,50 @@
+{
+  "name": "orsem",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OpenDART-centered disclosure, insider ownership and market-news observatory",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=24.0.0",
+    "npm": ">=11.0.0"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build:packages": "npm run build -w @orsem/contracts && npm run build -w @orsem/database && npm run build -w @orsem/opendart-parser",
+    "build": "npm run build:packages && npm run build -w @orsem/api && npm run build -w @orsem/worker && npm run build -w @orsem/discord-bot && npm run build -w @orsem/web",
+    "typecheck": "npm run build:packages && npm run typecheck --workspaces --if-present",
+    "lint": "eslint .",
+    "test": "npm run build:packages && npm run test:scripts && npm run test --workspaces --if-present",
+    "test:unit": "npm run build:packages && npm run test:unit --workspaces --if-present",
+    "test:scripts": "node --test scripts/*.test.mjs",
+    "test:e2e": "npm run test:e2e --workspaces --if-present",
+    "test:boot": "node --test scripts/start-at-boot.test.mjs",
+    "test:doctor": "node --test scripts/check-kakao-config.test.mjs",
+    "dev:api": "npm run start:dev -w @orsem/api",
+    "dev:worker": "npm run start:dev -w @orsem/worker",
+    "dev:discord": "npm run start:dev -w @orsem/discord-bot",
+    "dev:web": "npm run dev -w @orsem/web",
+    "db:migrate": "npm run migration:run -w @orsem/database",
+    "db:revert": "npm run migration:revert -w @orsem/database",
+    "admin:create": "npm run admin:create -w @orsem/api --",
+    "doctor": "node scripts/doctor.mjs",
+    "push:setup": "node scripts/setup-web-push.mjs",
+    "check:messenger-script": "node --check integrations/messengerbot-r/orsem-api2.js",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run check:messenger-script"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.35.0",
+    "@types/node": "^24.3.0",
+    "eslint": "^9.35.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^16.3.0",
+    "prettier": "^3.6.2",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.42.0"
+  }
+}

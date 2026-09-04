@@ -1,0 +1,40 @@
+{
+  "fixturePolicy": "Synthetic and minimized XML only. Licensed real OpenDART ZIP golden files remain in the external raw object store and must be promoted through review, never auto-seeded.",
+  "parserVersion": "opendart-xml-v1",
+  "fixtures": [
+    {
+      "file": "d001.xml",
+      "detailType": "D001",
+      "scenario": "new large-holder report with a market purchase"
+    },
+    {
+      "file": "d002.xml",
+      "detailType": "D002",
+      "scenario": "rowspan/colspan, market purchase, and option exercise"
+    },
+    {
+      "file": "d005.xml",
+      "detailType": "D005",
+      "scenario": "planned market disposal with date and price ranges"
+    },
+    {
+      "file": "error-020.xml",
+      "detailType": null,
+      "scenario": "binary endpoint returns an API limit XML instead of ZIP"
+    }
+  ],
+  "requiredExternalGoldenScenarios": [
+    "market buy",
+    "market sell",
+    "off-hours block trade",
+    "gift in and gift out",
+    "stock-option exercise",
+    "RSU or RSA",
+    "convertible or warrant exercise",
+    "merger, split, or reverse split",
+    "D005 plan",
+    "D005 plan correction or withdrawal",
+    "D002 correction",
+    "D001 new and change reports"
+  ]
+}

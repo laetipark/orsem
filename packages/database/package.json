@@ -1,0 +1,29 @@
+{
+  "name": "@orsem/database",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "pretest": "npm run build --workspace=@orsem/contracts",
+    "test": "npm run build && node --test dist/*.spec.js",
+    "test:unit": "npm run test",
+    "migration:run": "typeorm-ts-node-commonjs -d src/data-source.ts migration:run",
+    "migration:revert": "typeorm-ts-node-commonjs -d src/data-source.ts migration:revert"
+  },
+  "dependencies": {
+    "@orsem/contracts": "0.1.0",
+    "dotenv": "^17.2.2",
+    "mysql2": "^3.14.4",
+    "reflect-metadata": "^0.2.2",
+    "typeorm": "^0.3.26"
+  },
+  "devDependencies": {
+    "ts-node": "^10.9.2"
+  }
+}
