@@ -1280,7 +1280,7 @@ class ConditionalFeedReader {
     const previous = await this.store?.load(this.connector, url.toString());
     const headers: Record<string, string> = {
       Accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml',
-      'User-Agent': 'Orsem/0.1 (noncommercial RSS reader)',
+      'User-Agent': 'Orsem/0.1 (+https://orsem.laetipark.me; noncommercial RSS reader)',
     };
     if (previous?.etag) headers['If-None-Match'] = previous.etag;
     if (previous?.lastModified) headers['If-Modified-Since'] = previous.lastModified;

@@ -11,7 +11,11 @@ import type { Queue } from 'bullmq';
 import type { DataSource } from 'typeorm';
 import type { CompatibleClassifierClient } from '../src/ai/compatible-classifier.client';
 import { loadWorkerConfig } from '../src/config/worker-config';
-import { parseNewsRssFeed, PublisherNewsRssConnector } from '../src/connectors/connector-adapters';
+import {
+  type FeedTransport,
+  parseNewsRssFeed,
+  PublisherNewsRssConnector,
+} from '../src/connectors/connector-adapters';
 import { ConnectorHealthService } from '../src/connectors/connector-health.service';
 import { NewsDiscoveryService } from '../src/connectors/news-discovery.service';
 import type { PushFanoutService } from '../src/push/push-fanout.service';
@@ -138,6 +142,26 @@ describe('allowlisted publisher RSS', () => {
     });
     expect(JSON.stringify(candidates)).not.toMatch(/Do not store|description|content/u);
     expect(candidates[0]?.externalId).toMatch(/^[a-f0-9]{64}$/u);
+  });
+
+  it('identifies the reader with contact information required by official feeds', async () => {
+    const transport: FeedTransport = async (_connector, _operation, _url, headers) => {
+      expect(headers['User-Agent']).toContain('https://orsem.laetipark.me');
+      return {
+        status: 200,
+        bytes: new TextEncoder().encode(rss(article())),
+        etag: null,
+        lastModified: null,
+      };
+    };
+    const adapter = new PublisherNewsRssConnector(
+      ['etoday-market'],
+      1000,
+      undefined,
+      transport,
+    );
+
+    await expect(adapter.fetchFeed('etoday-market')).resolves.toMatchObject({ skippedItems: 0 });
   });
 
   it('uses URL identity across title/GUID changes and duplicate feed entries', () => {
