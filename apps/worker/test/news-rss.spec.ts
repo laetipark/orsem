@@ -154,12 +154,7 @@ describe('allowlisted publisher RSS', () => {
         lastModified: null,
       };
     };
-    const adapter = new PublisherNewsRssConnector(
-      ['etoday-market'],
-      1000,
-      undefined,
-      transport,
-    );
+    const adapter = new PublisherNewsRssConnector(['etoday-market'], 1000, undefined, transport);
 
     await expect(adapter.fetchFeed('etoday-market')).resolves.toMatchObject({ skippedItems: 0 });
   });
