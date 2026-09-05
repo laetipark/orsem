@@ -5,6 +5,7 @@ import { loadWebPushConfig, type WebPushConfig } from '@orsem/database';
 import { DisclosureDetailType } from '@orsem/contracts';
 import {
   assertRegisteredFeedUrl,
+  isApprovedContentIrFeed,
   MAX_REGISTERED_IR_FEEDS,
   NEWS_RSS_FEED_IDS,
 } from '../connectors/connector-adapters';
@@ -13,11 +14,6 @@ import { DEFAULT_GLOBAL_ALERT_TYPES } from '../opendart/disclosure-policy';
 const booleanFromEnv = z
   .enum(['true', 'false'])
   .default('false')
-  .transform((value) => value === 'true');
-
-const enabledByDefaultFromEnv = z
-  .enum(['true', 'false'])
-  .default('true')
   .transform((value) => value === 'true');
 
 const DEFAULT_DATABASE_URL = 'mysql://orsem:change-me@127.0.0.1:3306/orsem';
@@ -104,6 +100,8 @@ const registeredIrFeedUrls = z
     urls.forEach((url, index) => {
       try {
         assertRegisteredFeedUrl(url);
+        if (!isApprovedContentIrFeed(url))
+          throw new Error('IR feed is not in the reviewed content-source registry.');
       } catch (error) {
         context.addIssue({
           code: 'custom',
@@ -150,7 +148,7 @@ const workerConfigSchema = z
     alpacaApiKey: optionalTrimmed,
     alpacaApiSecret: optionalTrimmed,
     alpacaTradingBaseUrl,
-    gdeltEnabled: enabledByDefaultFromEnv,
+    gdeltEnabled: booleanFromEnv,
     gdeltApprovedDomains: z
       .string()
       .optional()

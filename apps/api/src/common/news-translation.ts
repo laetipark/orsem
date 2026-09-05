@@ -14,11 +14,10 @@ interface TranslationSource {
   sourcePolicyJson?: unknown;
 }
 
-const translationSources = ['GDELT', 'IR'] as const;
+const translationSources = ['NEWS_RSS', 'IR'] as const;
 const translationRights: readonly RightsMode[] = [
   RightsMode.OFFICIAL_PUBLIC_DATA,
   RightsMode.PRIVATE_DISPLAY_ONLY,
-  RightsMode.STORE_METADATA_ONLY,
 ];
 const storedTranslationSchema = z.object({
   version: z.literal(1),
@@ -51,6 +50,14 @@ export function publicNewsTranslation(source: TranslationSource): NewsTranslatio
     typeof policy !== 'object' ||
     !('aiAllowed' in policy) ||
     policy.aiAllowed !== true ||
+    !('rightsMode' in policy) ||
+    policy.rightsMode !== source.rightsMode ||
+    !('metadataStorageAllowed' in policy) ||
+    policy.metadataStorageAllowed !== true ||
+    !('displayAllowed' in policy) ||
+    policy.displayAllowed !== true ||
+    !('fullTextStorageAllowed' in policy) ||
+    policy.fullTextStorageAllowed !== true ||
     !translationRights.includes(source.rightsMode) ||
     !source.rawHash
   )
@@ -91,16 +98,19 @@ export function publicNewsDescription(rightsMode: RightsMode, description: unkno
     : null;
 }
 
-export function newsTranslationSearchCondition(alias: string, parameter: string): string {
-  // 별칭과 파라미터 이름은 코드에서 정한 식별자만 받으며 검색어는 항상 바인딩합니다.
-  if (!/^[a-z_][a-z0-9_]*$/iu.test(alias) || !/^[a-z_][a-z0-9_]*$/iu.test(parameter))
-    throw new Error('Invalid translation search identifier.');
+export function completedNewsTranslationCondition(alias: string): string {
+  if (!/^[a-z_][a-z0-9_]*$/iu.test(alias))
+    throw new Error('Invalid translation source identifier.');
   const json = `${alias}.translation_json`;
   const value = (field: string) => `JSON_UNQUOTE(JSON_EXTRACT(${json}, '$.${field}'))`;
-  return `(${alias}.source IN ('GDELT', 'IR')
+  return `(${alias}.source IN ('NEWS_RSS', 'IR')
+    AND BINARY JSON_UNQUOTE(JSON_EXTRACT(${alias}.source_policy_json, '$.rightsMode')) = BINARY ${alias}.rights_mode
+    AND JSON_EXTRACT(${alias}.source_policy_json, '$.metadataStorageAllowed') = true
+    AND JSON_EXTRACT(${alias}.source_policy_json, '$.displayAllowed') = true
+    AND JSON_EXTRACT(${alias}.source_policy_json, '$.fullTextStorageAllowed') = true
     AND JSON_TYPE(JSON_EXTRACT(${alias}.source_policy_json, '$.aiAllowed')) = 'BOOLEAN'
     AND JSON_EXTRACT(${alias}.source_policy_json, '$.aiAllowed') = true
-    AND ${alias}.rights_mode IN ('OFFICIAL_PUBLIC_DATA', 'PRIVATE_DISPLAY_ONLY', 'STORE_METADATA_ONLY')
+    AND ${alias}.rights_mode IN ('OFFICIAL_PUBLIC_DATA', 'PRIVATE_DISPLAY_ONLY')
     AND ${alias}.raw_hash IS NOT NULL
     AND JSON_TYPE(JSON_EXTRACT(${json}, '$.version')) = 'INTEGER'
     AND JSON_EXTRACT(${json}, '$.version') = 1
@@ -118,6 +128,14 @@ export function newsTranslationSearchCondition(alias: string, parameter: string)
     AND JSON_TYPE(JSON_EXTRACT(${json}, '$.attemptedAt')) = 'STRING'
     AND JSON_TYPE(JSON_EXTRACT(${json}, '$.attempts')) = 'INTEGER'
     AND JSON_EXTRACT(${json}, '$.attempts') > 0
-    AND JSON_TYPE(JSON_EXTRACT(${json}, '$.nextAttemptAt')) IN ('STRING', 'NULL')
-    AND ${value('title')} LIKE :${parameter} ESCAPE '!')`;
+    AND JSON_TYPE(JSON_EXTRACT(${json}, '$.nextAttemptAt')) IN ('STRING', 'NULL'))`;
+}
+
+export function newsTranslationSearchCondition(alias: string, parameter: string): string {
+  // 별칭과 파라미터 이름은 코드에서 정한 식별자만 받으며 검색어는 항상 바인딩합니다.
+  if (!/^[a-z_][a-z0-9_]*$/iu.test(parameter))
+    throw new Error('Invalid translation search identifier.');
+  const json = `${alias}.translation_json`;
+  const title = `JSON_UNQUOTE(JSON_EXTRACT(${json}, '$.title'))`;
+  return `(${completedNewsTranslationCondition(alias)} AND ${title} LIKE :${parameter} ESCAPE '!')`;
 }

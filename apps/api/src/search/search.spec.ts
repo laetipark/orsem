@@ -4,7 +4,12 @@ import test from 'node:test';
 import { HttpException, type ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { RightsMode } from '@orsem/contracts';
-import { CompanyEntity, FilingEntity, SourceItemEntity } from '@orsem/database';
+import {
+  CompanyEntity,
+  FilingEntity,
+  NewsArticleContentEntity,
+  SourceItemEntity,
+} from '@orsem/database';
 import { DataSource, type EntityTarget } from 'typeorm';
 import type { AuthService } from '../auth/auth.service';
 import type { MemberService } from '../auth/member.service';
@@ -77,7 +82,7 @@ test('예시에서도 티커 검색과 그룹별 한도, 공시 날짜와 출처
   });
 });
 
-test('검색은 지역을 그룹별 한도 전에 적용하고 지역 불명 뉴스는 전체에서만 반환한다', async () => {
+test('검색은 지역을 그룹별 한도 전에 적용하고 미승인 뉴스는 모든 지역에서 제외한다', async () => {
   const { fixtures, controller } = fixtureSearch();
   const original = fixtures.sourceItems[0]!;
   fixtures.sourceItems.push(
@@ -88,7 +93,7 @@ test('검색은 지역을 그룹별 한도 전에 적용하고 지역 불명 뉴
   assert.equal((await controller.search({ q: 'NVDA', region: 'us' })).companies.length, 1);
   assert.equal((await controller.search({ q: '삼성', region: 'us' })).filings.length, 0);
   const all = await controller.search({ q: '지역 검색', region: 'all', limit: 1 });
-  assert.equal(all.news[0]?.id, 'unassigned');
+  assert.equal(all.news.length, 0);
   assert.equal(all.filings[0]?.id, 'sec');
   const kr = await controller.search({ q: '지역 검색', region: 'kr', limit: 1 });
   assert.deepEqual([kr.news.length, kr.filings.length], [0, 0]);
@@ -114,7 +119,13 @@ test('시장 전반 RSS는 종목 연결 없이 양 지역 검색에 포함하�
       id: `rss-${hour}`,
       title: '시장 전반 테스트',
       source: 'NEWS_RSS',
+      sourceKind: 'OFFICIAL_RELEASE' as const,
+      publisherId: 'federal-reserve',
       sourceName: '테스트 RSS 제공자',
+      contentState: 'AVAILABLE' as const,
+      contentSourceId: `rss-${hour}`,
+      contentLanguage: 'ko',
+      rightsMode: RightsMode.OFFICIAL_PUBLIC_DATA,
       tickers: [],
       publishedAt: `2026-09-04T${hour}:00:00.000Z`,
     })),
@@ -143,7 +154,7 @@ test('검색 SQL은 RSS의 명시적 global 또는 해당 지역 메타데이터
   const metadata = new DataSource({
     type: 'mysql',
     database: 'test',
-    entities: [CompanyEntity, FilingEntity, SourceItemEntity],
+    entities: [CompanyEntity, FilingEntity, SourceItemEntity, NewsArticleContentEntity],
     synchronize: false,
   });
   await (metadata as unknown as { buildMetadatas(): Promise<void> }).buildMetadatas();
@@ -182,7 +193,9 @@ test('검색 SQL은 RSS의 명시적 global 또는 해당 지역 메타데이터
     assert.match(news.sql, /LIMIT 2$/u);
     assert.ok(news.parameters.includes(region));
     assert.ok(news.parameters.includes(region === 'kr' ? 'KOSPI' : 'NASDAQ'));
-    assert.equal(news.sql.split(' FROM ')[0]?.includes('raw_metadata_json'), false);
+    const selection = news.sql.split(' FROM ')[0] ?? '';
+    assert.match(selection, /publisherId/u);
+    assert.equal(selection.includes('`item`.`raw_metadata_json` AS `rawMetadataJson`'), false);
   }
 });
 
@@ -209,7 +222,7 @@ test('실제 TypeORM SQL은 입력을 바인딩하고 원문·권리 제한 데�
     username: 'test',
     password: 'test',
     database: 'test',
-    entities: [CompanyEntity, FilingEntity, SourceItemEntity],
+    entities: [CompanyEntity, FilingEntity, SourceItemEntity, NewsArticleContentEntity],
     synchronize: false,
   });
   await (metadata as unknown as { buildMetadatas(): Promise<void> }).buildMetadatas();
@@ -223,12 +236,22 @@ test('실제 TypeORM SQL은 입력을 바인딩하고 원문·권리 제한 데�
     companyName: '기업',
     source: 'IR',
     sourceName: '뉴스 제공자',
-    rightsMode: RightsMode.STORE_METADATA_ONLY,
+    rightsMode: RightsMode.PRIVATE_DISPLAY_ONLY,
     publishedAt: now,
     firstObservedAt: now,
     rceptDate: null,
     rawHash: 'a'.repeat(64),
-    sourcePolicyJson: { aiAllowed: true },
+    sourcePolicyJson: {
+      rightsMode: RightsMode.PRIVATE_DISPLAY_ONLY,
+      metadataStorageAllowed: true,
+      displayAllowed: true,
+      fullTextStorageAllowed: true,
+      aiAllowed: true,
+    },
+    sourceKind: 'COMPANY_IR',
+    publisherId: 'samsung-global-newsroom',
+    contentState: 'AVAILABLE',
+    contentLanguage: 'en',
     translationJson: {
       version: 1,
       status: 'COMPLETED',
@@ -339,17 +362,17 @@ test('실제 TypeORM SQL은 입력을 바인딩하고 원문·권리 제한 데�
       assert.match(query.sql, /translation_json/u);
       assert.match(query.sql, /\$\.inputHash/u);
       assert.match(query.sql, /BINARY 'COMPLETED'/u);
-      assert.match(query.sql, /'GDELT', 'IR'/u);
+      assert.match(query.sql, /'NEWS_RSS', 'IR'/u);
       assert.match(query.sql, /source_policy_json/u);
       assert.match(query.sql, /LIKE \? ESCAPE '!'/u);
     }
   }
   assert.equal(result.news.length, 1);
   assert.equal(result.news[0]?.source, 'IR');
-  assert.equal(result.news[0]?.rightsMode, RightsMode.STORE_METADATA_ONLY);
+  assert.equal(result.news[0]?.rightsMode, RightsMode.PRIVATE_DISPLAY_ONLY);
   assert.equal(result.news[0]?.title, '보존된 제목');
   assert.equal(result.news[0]?.translation?.title, '별도로 번역한 제목');
-  assert.equal(result.news[0]?.translation?.description, null);
+  assert.equal(result.news[0]?.translation?.description, '권리에 따라 제외할 번역 설명');
   assert.equal(result.filings.length, 2);
   const sec = result.filings.find((item) => item.source === 'SEC');
   assert.equal(sec?.rceptDate, '2026-09-03');

@@ -40,8 +40,8 @@ export class ConnectorHealthService {
     for (const source of registeredIrSources) {
       try {
         if (
-          !['RSS', 'ATOM'].includes(source.sourceType.toUpperCase()) ||
-          source.rightsMode !== RightsMode.OFFICIAL_PUBLIC_DATA
+          source.sourceType.toUpperCase() !== 'RSS' ||
+          source.rightsMode !== RightsMode.PRIVATE_DISPLAY_ONLY
         ) {
           throw new Error('unsupported registered IR source contract');
         }
@@ -73,13 +73,16 @@ export class ConnectorHealthService {
     if (invalidIrSources > 0) {
       const index = adapterChecks.findIndex((check) => check.connector === 'IR');
       const existing = index >= 0 ? adapterChecks[index] : undefined;
-      const invalidMessage = `${invalidIrSources} active IR source(s) violate the registered HTTPS RSS/Atom and OFFICIAL_PUBLIC_DATA contract.`;
+      const invalidMessage = `${invalidIrSources} active IR source(s) violate the exact Samsung RSS and PRIVATE_DISPLAY_ONLY contract.`;
       const degraded = Object.freeze({
         connector: 'IR' as const,
         status: ConnectorStatus.DEGRADED,
-        message: existing?.message ? `${existing.message} ${invalidMessage}` : invalidMessage,
+        message:
+          existing?.status !== ConnectorStatus.UNCONFIGURED && existing?.message
+            ? `${existing.message} ${invalidMessage}`
+            : invalidMessage,
         checkedAt: new Date(),
-        rightsMode: RightsMode.OFFICIAL_PUBLIC_DATA,
+        rightsMode: RightsMode.PRIVATE_DISPLAY_ONLY,
         metadata: {
           ...(existing?.metadata ?? {}),
           invalidRegisteredSources: invalidIrSources,

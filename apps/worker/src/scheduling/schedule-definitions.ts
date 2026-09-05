@@ -69,17 +69,6 @@ export const NEWS_DISCOVERY_SCHEDULES: readonly NewsDiscoveryScheduleDefinition[
       reason: 'SCHEDULED' as const,
     }),
   }),
-  Object.freeze({
-    id: 'approved-gdelt-thirty-minutes',
-    pattern: '*/30 * * * *',
-    timezone: 'Asia/Seoul' as const,
-    payload: Object.freeze({
-      connectors: Object.freeze(['GDELT'] as const),
-      priorities: Object.freeze([]),
-      companyIds: Object.freeze([]),
-      reason: 'SCHEDULED' as const,
-    }),
-  }),
 ]);
 
 export const ALPACA_ASSET_SYNC_SCHEDULE = Object.freeze({

@@ -27,11 +27,10 @@ const newsStatusPriority: SourceFreshness['status'][] = [
 ];
 
 export function summarizeNewsFreshness(items: SourceFreshness[]) {
-  const sources = items.filter(
-    (item) =>
-      (item.category === 'NEWS' || item.category === 'OFFICIAL') &&
-      !item.id.toLowerCase().includes('naver'),
-  );
+  const sources = items.filter((item) => {
+    const id = item.id.toLowerCase();
+    return id === 'ir' || id === 'news_rss' || id.startsWith('news_rss:');
+  });
   const latest = sources.reduce<string | null>(
     (value, item) =>
       !item.lastSuccessAt || (value && value >= item.lastSuccessAt) ? value : item.lastSuccessAt,
@@ -71,7 +70,7 @@ export function MarketNewsFreshness() {
   const { latest, status } = summarizeNewsFreshness(freshness.data?.items ?? []);
   return (
     <div className="market-news__freshness">
-      <span>뉴스·공식 소스별 15~30분마다 수집</span>
+      <span>검토된 뉴스 소스를 15분마다 수집</span>
       {status ? (
         <>
           <span className={`market-news__status market-news__status--${status.toLowerCase()}`}>
@@ -125,21 +124,17 @@ export function MarketNewsList({ items }: { items: SourceItem[] }) {
     <ul className="market-news__list">
       {items.map((item) => {
         const itemUrl = safeNewsUrl(item.url);
+        const detailId = item.contentState === 'AVAILABLE' ? (item.articleId ?? item.id) : null;
         const sources = newsSourceLinks(item);
         const hasAdditionalSources = sources.some((source) => source.url !== itemUrl);
         return (
           <li className="market-news__item" key={item.articleId ?? item.id}>
-            {itemUrl ? (
-              <a
-                className="market-news__link"
-                href={itemUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
+            {detailId ? (
+              <Link className="market-news__link" to={`/news/${encodeURIComponent(detailId)}`}>
                 <NewsCopy item={item} />
-                <ArrowUpRight size={16} aria-hidden="true" />
-                <span className="sr-only">원문 새 창에서 보기</span>
-              </a>
+                <ChevronRight size={16} aria-hidden="true" />
+                <span className="sr-only">뉴스 상세 보기</span>
+              </Link>
             ) : (
               <div className="market-news__link market-news__link--unavailable">
                 <NewsCopy item={item} />
@@ -173,7 +168,7 @@ export function MarketNewsEmpty() {
   return (
     <EmptyState
       title="아직 수집된 시장 뉴스가 없습니다"
-      description="새 기사가 수집되면 이곳에 표시됩니다. 원문은 각 언론사에서 확인할 수 있습니다."
+      description="검토된 공식 소스의 본문 수집과 필요한 번역이 준비되면 이곳에 표시됩니다."
     />
   );
 }

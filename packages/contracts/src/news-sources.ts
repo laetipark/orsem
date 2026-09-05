@@ -9,6 +9,13 @@ export const NewsSourceKind = {
   UNKNOWN: 'UNKNOWN',
 } as const;
 export type NewsSourceKind = (typeof NewsSourceKind)[keyof typeof NewsSourceKind];
+export const NewsContentState = {
+  UNAVAILABLE: 'UNAVAILABLE',
+  PENDING: 'PENDING',
+  AVAILABLE: 'AVAILABLE',
+  FAILED: 'FAILED',
+} as const;
+export type NewsContentState = (typeof NewsContentState)[keyof typeof NewsContentState];
 export type NewsPermission = boolean | 'UNKNOWN';
 export interface NewsSourcePolicy {
   rightsMode: RightsMode;
@@ -22,12 +29,12 @@ export interface NewsSourcePolicy {
   checkedAt: string;
 }
 
-function readerPolicy(policyUrl: string, official = false): NewsSourcePolicy {
+function officialContentPolicy(policyUrl: string): NewsSourcePolicy {
   return Object.freeze({
-    rightsMode: official ? RightsMode.OFFICIAL_PUBLIC_DATA : RightsMode.STORE_METADATA_ONLY,
-    aiAllowed: false,
-    fullTextStorageAllowed: false,
-    publicRedistributionAllowed: false,
+    rightsMode: RightsMode.OFFICIAL_PUBLIC_DATA,
+    aiAllowed: true,
+    fullTextStorageAllowed: true,
+    publicRedistributionAllowed: true,
     displayAllowed: true,
     metadataStorageAllowed: true,
     notifyAllowed: false,
@@ -36,84 +43,136 @@ function readerPolicy(policyUrl: string, official = false): NewsSourcePolicy {
   });
 }
 
-const etoday = {
-  publisher: '이투데이',
-  publisherId: 'etoday',
-  marketRegion: 'kr' as const,
-  sourceKind: NewsSourceKind.INDEPENDENT_MEDIA,
-  rightsContext: 'NONCOMMERCIAL_RSS_READER',
-  rightsPolicyUrl: 'https://www.etoday.co.kr/rss/',
-  policy: readerPolicy('https://www.etoday.co.kr/rss/'),
-};
-const fed = {
+const fed = Object.freeze({
   publisher: 'Federal Reserve',
   publisherId: 'federal-reserve',
   marketRegion: 'us' as const,
   sourceKind: NewsSourceKind.OFFICIAL_RELEASE,
   rightsContext: 'OFFICIAL_RSS_READER',
   rightsPolicyUrl: 'https://www.federalreserve.gov/disclaimer.htm',
-  policy: readerPolicy('https://www.federalreserve.gov/disclaimer.htm', true),
-};
+  policy: officialContentPolicy('https://www.federalreserve.gov/disclaimer.htm'),
+});
+
+export const NEWS_RSS_FEED_IDS = Object.freeze([
+  'fed-press',
+  'fed-speeches',
+  'bls-latest',
+] as const);
+export type NewsRssFeedId = (typeof NEWS_RSS_FEED_IDS)[number];
+interface NewsRssFeedDefinition {
+  publisher: string;
+  publisherId: string;
+  marketRegion: 'kr' | 'us' | 'global';
+  sourceKind: NewsSourceKind;
+  rightsContext: string;
+  rightsPolicyUrl: string;
+  policy: NewsSourcePolicy;
+  url: string;
+  categories: readonly string[];
+}
+
+/** The complete runtime allowlist for the NEWS_RSS connector. */
 export const NEWS_RSS_FEEDS = Object.freeze({
-  'etoday-market': {
-    ...etoday,
-    url: 'https://rss.etoday.co.kr/eto/market_news.xml',
-    categories: ['MARKET'],
-  },
-  'etoday-finance': {
-    ...etoday,
-    url: 'https://rss.etoday.co.kr/eto/finance_news.xml',
-    categories: ['FINANCE'],
-  },
-  'etoday-industry': {
-    ...etoday,
-    url: 'https://rss.etoday.co.kr/eto/industry_news.xml',
-    categories: ['INDUSTRY'],
-  },
-  'etoday-economy': {
-    ...etoday,
-    url: 'https://rss.etoday.co.kr/eto/economy_news.xml',
-    categories: ['ECONOMY'],
-  },
-  'fed-press': {
+  'fed-press': Object.freeze({
     ...fed,
     url: 'https://www.federalreserve.gov/feeds/press_all.xml',
-    categories: ['ECONOMY', 'POLICY'],
-  },
-  'fed-speeches': {
+    categories: Object.freeze(['ECONOMY', 'POLICY']),
+  }),
+  'fed-speeches': Object.freeze({
     ...fed,
     url: 'https://www.federalreserve.gov/feeds/speeches_and_testimony.xml',
-    categories: ['ECONOMY', 'POLICY'],
-  },
-  'bls-latest': {
+    categories: Object.freeze(['ECONOMY', 'POLICY']),
+  }),
+  'bls-latest': Object.freeze({
     publisher: 'Bureau of Labor Statistics',
     publisherId: 'bls',
     marketRegion: 'us' as const,
     sourceKind: NewsSourceKind.OFFICIAL_RELEASE,
     rightsContext: 'OFFICIAL_RSS_READER',
     rightsPolicyUrl: 'https://www.bls.gov/opub/copyright-information.htm',
-    policy: readerPolicy('https://www.bls.gov/opub/copyright-information.htm', true),
+    policy: officialContentPolicy('https://www.bls.gov/opub/copyright-information.htm'),
     url: 'https://www.bls.gov/feed/bls_latest.rss',
-    categories: ['ECONOMY'],
-  },
+    categories: Object.freeze(['ECONOMY']),
+  }),
+} satisfies Record<NewsRssFeedId, NewsRssFeedDefinition>);
+
+export const DEFAULT_REGISTERED_IR_POLICY: NewsSourcePolicy = Object.freeze({
+  rightsMode: RightsMode.STORE_METADATA_ONLY,
+  aiAllowed: false,
+  fullTextStorageAllowed: false,
+  publicRedistributionAllowed: false,
+  displayAllowed: false,
+  metadataStorageAllowed: true,
+  notifyAllowed: false,
+  policyUrl: 'about:blank',
+  checkedAt: '2026-09-05',
 });
-export const NEWS_RSS_FEED_IDS = [
-  'etoday-market',
-  'etoday-finance',
-  'etoday-industry',
-  'etoday-economy',
-  'fed-press',
-  'fed-speeches',
-  'bls-latest',
-] as const;
-export type NewsRssFeedId = (typeof NEWS_RSS_FEED_IDS)[number];
+
+export const NEWS_IR_SOURCE_PROFILE_IDS = Object.freeze(['samsung-global'] as const);
+export type NewsIrSourceProfileId = (typeof NEWS_IR_SOURCE_PROFILE_IDS)[number];
+interface NewsIrSourceProfileDefinition {
+  url: string;
+  publisher: string;
+  publisherId: string;
+  marketRegion: 'kr' | 'us' | 'global';
+  sourceKind: NewsSourceKind;
+  rightsContext: string;
+  rightsPolicyUrl: string;
+  publishedAtMode: 'SOURCE_LOCAL_TIME';
+  publishedTimeZone: 'Asia/Seoul';
+  policy: NewsSourcePolicy;
+}
+
+/** The complete runtime IR allowlist. An arbitrary registered URL never inherits these rights. */
+export const NEWS_IR_SOURCE_PROFILES = Object.freeze({
+  'samsung-global': Object.freeze({
+    url: 'https://news.samsung.com/global/feed',
+    publisher: 'Samsung Global Newsroom',
+    publisherId: 'samsung-global-newsroom',
+    marketRegion: 'global' as const,
+    sourceKind: NewsSourceKind.COMPANY_IR,
+    rightsContext: 'PRIVATE_COMPANY_NEWSROOM_READER',
+    rightsPolicyUrl: 'https://news.samsung.com/global/terms',
+    publishedAtMode: 'SOURCE_LOCAL_TIME' as const,
+    publishedTimeZone: 'Asia/Seoul' as const,
+    policy: Object.freeze({
+      rightsMode: RightsMode.PRIVATE_DISPLAY_ONLY,
+      aiAllowed: true,
+      fullTextStorageAllowed: true,
+      publicRedistributionAllowed: false,
+      displayAllowed: true,
+      metadataStorageAllowed: true,
+      notifyAllowed: false,
+      policyUrl: 'https://news.samsung.com/global/terms',
+      checkedAt: '2026-09-05',
+    }) satisfies NewsSourcePolicy,
+  }),
+} satisfies Record<NewsIrSourceProfileId, NewsIrSourceProfileDefinition>);
+
+export function isNewsMetadataCollectionAllowed(policy: NewsSourcePolicy | null | undefined) {
+  return policy?.metadataStorageAllowed === true;
+}
+
+export function isNewsDisplayAllowed(policy: NewsSourcePolicy | null | undefined) {
+  return policy?.metadataStorageAllowed === true && policy.displayAllowed === true;
+}
+
+export function isNewsFullTextCollectionAllowed(policy: NewsSourcePolicy | null | undefined) {
+  return isNewsDisplayAllowed(policy) && policy?.fullTextStorageAllowed === true;
+}
 
 // Search availability does not grant the original publisher's storage/display rights.
 // Add a publisher only after recording those rights in this registry.
 export const APPROVED_GDELT_DOMAINS: readonly string[] = Object.freeze([]);
 export const APPROVED_GDELT_SOURCE_POLICIES: Readonly<Record<string, NewsSourcePolicy>> =
   Object.freeze({});
-export const NEWS_SOURCE_CANDIDATES = Object.freeze([
+/** Research inventory only. These entries are deliberately absent from every runtime allowlist. */
+export const NEWS_SOURCE_RESEARCH_CANDIDATES = Object.freeze([
+  {
+    publisher: '이투데이',
+    url: 'https://www.etoday.co.kr/rss/',
+    status: 'CONTENT_RIGHTS_NOT_APPROVED',
+  },
   { publisher: '매일경제', url: 'https://www.mk.co.kr/rss/', status: 'POLICY_REVIEW_REQUIRED' },
   { publisher: '뉴시스', url: 'https://www.newsis.com/RSS/', status: 'POLICY_REVIEW_REQUIRED' },
   {

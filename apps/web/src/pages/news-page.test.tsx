@@ -19,7 +19,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-it('normalizes an invalid source kind and offers the supported unknown-source filter', async () => {
+it('normalizes an invalid source kind and offers only approved content source filters', async () => {
   render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={['/news?sourceKind=NOT_A_KIND']}>
@@ -34,16 +34,19 @@ it('normalizes an invalid source kind and offers the supported unknown-source fi
     ),
   );
   expect(screen.getByRole('combobox', { name: '출처 유형' })).toHaveValue('');
-  expect(screen.getByRole('option', { name: '출처 유형 미확인' })).toHaveValue('UNKNOWN');
+  expect(screen.queryByRole('option', { name: '출처 유형 미확인' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('option', { name: /독립 언론/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole('option', { name: /이투데이/ })).not.toBeInTheDocument();
 
   fireEvent.change(screen.getByRole('combobox', { name: '출처 유형' }), {
-    target: { value: 'UNKNOWN' },
+    target: { value: 'COMPANY_IR' },
   });
   await waitFor(() =>
     expect(mocks.news).toHaveBeenLastCalledWith(
-      expect.objectContaining({ sourceKind: 'UNKNOWN', cursor: null }),
+      expect.objectContaining({ sourceKind: 'COMPANY_IR', cursor: null }),
     ),
   );
-  expect(parseNewsSourceKind('UNKNOWN')).toBe('UNKNOWN');
+  expect(parseNewsSourceKind('COMPANY_IR')).toBe('COMPANY_IR');
+  expect(parseNewsSourceKind('UNKNOWN')).toBeUndefined();
   expect(parseNewsSourceKind('NOT_A_KIND')).toBeUndefined();
 });

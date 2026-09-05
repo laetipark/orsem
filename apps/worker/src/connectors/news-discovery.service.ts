@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import {
+  canonicalNewsUrl,
   ConnectorStatus,
   ProcessingStatus,
   RightsMode,
@@ -14,7 +15,9 @@ import {
   FilingEntity,
   IngestionRunEntity,
   IrSourceEntity,
+  NewsArticleEntity,
   NewsItemEntity,
+  NewsArticleContentEntity,
   SourceCheckpointEntity,
   SourceItemEntity,
   WatchlistItemEntity,
@@ -30,6 +33,7 @@ import {
   connectorFailureMessage,
   ConnectorRequestError,
   MAX_REGISTERED_IR_FEEDS,
+  isApprovedContentIrFeed,
   RegisteredIrFeedConnector,
   PublisherNewsRssConnector,
   type ConnectorName,
@@ -100,6 +104,18 @@ function validInstant(value: string | null): Date | null {
   return new Date(value);
 }
 
+const SEC_NEWS_POLICY = Object.freeze({
+  rightsMode: RightsMode.OFFICIAL_PUBLIC_DATA,
+  aiAllowed: false,
+  fullTextStorageAllowed: false,
+  metadataStorageAllowed: true,
+  displayAllowed: true,
+  publicRedistributionAllowed: true,
+  notifyAllowed: true,
+  policyUrl: 'https://www.sec.gov/privacy.htm',
+  checkedAt: '2026-09-05',
+});
+
 @Injectable()
 export class NewsDiscoveryService {
   public constructor(
@@ -128,12 +144,13 @@ export class NewsDiscoveryService {
       : [];
     const compatibleIrSources: IrSourceEntity[] = [];
     const incompatibleIrSources: IrSourceEntity[] = [];
-    const feedUrls = new Set<string>(this.config.irFeedUrls);
+    const feedUrls = new Set<string>(this.config.irFeedUrls.filter(isApprovedContentIrFeed));
     for (const source of irSources) {
       try {
         if (
-          !['RSS', 'ATOM'].includes(source.sourceType.toUpperCase()) ||
-          source.rightsMode !== RightsMode.OFFICIAL_PUBLIC_DATA
+          source.sourceType.toUpperCase() !== 'RSS' ||
+          source.rightsMode !== RightsMode.PRIVATE_DISPLAY_ONLY ||
+          !isApprovedContentIrFeed(source.url)
         ) {
           throw new Error('unsupported registered IR source contract');
         }
@@ -421,18 +438,8 @@ export class NewsDiscoveryService {
           { id: In(incompatibleIrSources.map((source) => source.id)) },
           { lastCheckedAt: checkedAt },
         );
-      const warning = `${incompatibleIrSources.length} active IR source(s) were skipped: only credential-free public HTTPS RSS/Atom sources with OFFICIAL_PUBLIC_DATA rights are supported.`;
-      await this.recordFailure('IR', RightsMode.OFFICIAL_PUBLIC_DATA, checkedAt, warning, stream);
-      const existingIr = results.findIndex((result) => result.connector === 'IR');
-      const degraded = {
-        connector: 'IR' as const,
-        status: ConnectorStatus.DEGRADED,
-        seen: existingIr >= 0 ? results[existingIr]!.seen : 0,
-        created: existingIr >= 0 ? results[existingIr]!.created : 0,
-        message: warning,
-      };
-      if (existingIr >= 0) results[existingIr] = degraded;
-      else results.push(degraded);
+      // Retired/unreviewed IR sources stay inert. They are not connector failures because
+      // the reviewed content registry intentionally excludes them.
     }
     return Object.freeze(results.map((result) => Object.freeze(result)));
   }
@@ -483,6 +490,10 @@ export class NewsDiscoveryService {
           });
         row.metadataJson = {
           ...row.metadataJson,
+          // A content/parser failure must force a full feed response on the next poll.
+          // Retaining an earlier validator can produce a 304 and strand FAILED content.
+          etag: null,
+          lastModified: null,
           feedUrl: url,
           status: ConnectorStatus.DEGRADED,
           lastFailureAt: at.toISOString(),
@@ -627,11 +638,27 @@ export class NewsDiscoveryService {
     suppressAlerts = false,
     matchedCompanyId: string | null = null,
   ): Promise<boolean> {
+    const sourcePolicy =
+      candidate.sourcePolicy ?? (candidate.connector === 'SEC' ? SEC_NEWS_POLICY : null);
     if (
       candidate.connector === 'NAVER' ||
-      candidate.sourcePolicy?.metadataStorageAllowed === false ||
-      (candidate.connector === 'GDELT' && candidate.sourcePolicy?.metadataStorageAllowed !== true)
+      sourcePolicy?.metadataStorageAllowed !== true ||
+      sourcePolicy.displayAllowed !== true ||
+      sourcePolicy.rightsMode !== candidate.rightsMode
     )
+      return false;
+    const content = candidate.content;
+    const contentPolicyValid =
+      !content ||
+      (sourcePolicy.fullTextStorageAllowed === true &&
+        content.rightsPolicy.metadataStorageAllowed === true &&
+        content.rightsPolicy.displayAllowed === true &&
+        content.rightsPolicy.fullTextStorageAllowed === true &&
+        content.rightsPolicy.rightsMode === sourcePolicy.rightsMode &&
+        candidate.rightsMode === sourcePolicy.rightsMode &&
+        (content.language !== 'en' ||
+          (sourcePolicy.aiAllowed === true && content.rightsPolicy.aiAllowed === true)));
+    if (['IR', 'NEWS_RSS'].includes(candidate.connector) && (!content || !contentPolicyValid))
       return false;
     const candidateHash = rawHash(candidate);
     const externalId =
@@ -684,6 +711,31 @@ export class NewsDiscoveryService {
         : await sourceRepository.findOne({
             where: { source: candidate.connector, rawHash: candidateHash },
           });
+      if (
+        !sourceItem &&
+        candidate.connector === 'IR' &&
+        feedUrl &&
+        isApprovedContentIrFeed(feedUrl)
+      ) {
+        const canonicalUrlHash = createHash('sha256')
+          .update(canonicalNewsUrl(candidate.url))
+          .digest('hex');
+        const article = await manager.getRepository(NewsArticleEntity).findOne({
+          where: { urlHash: canonicalUrlHash },
+        });
+        if (article) {
+          const sameArticleSources = await sourceRepository.find({
+            where: { source: 'IR', newsArticleId: article.id },
+            order: { firstObservedAt: 'ASC', id: 'ASC' },
+          });
+          sourceItem =
+            sameArticleSources.find((source) => {
+              const storedFeedUrl = source.rawMetadataJson?.['feedUrl'];
+              return typeof storedFeedUrl === 'string' && isApprovedContentIrFeed(storedFeedUrl);
+            }) ?? null;
+          if (sourceItem) sourceItem.externalId = externalId;
+        }
+      }
       const created = !sourceItem;
       sourceItem ??= sourceRepository.create({
         source: candidate.connector,
@@ -704,17 +756,7 @@ export class NewsDiscoveryService {
       sourceItem.rawObjectUri = null;
       sourceItem.rightsMode = candidate.rightsMode;
       sourceItem.sourceKind = candidate.sourceKind ?? sourceKindForSource(candidate.connector);
-      sourceItem.sourcePolicyJson = candidate.sourcePolicy ?? {
-        rightsMode: candidate.rightsMode,
-        aiAllowed: 'UNKNOWN',
-        fullTextStorageAllowed: false,
-        metadataStorageAllowed: true,
-        displayAllowed: true,
-        publicRedistributionAllowed: 'UNKNOWN',
-        notifyAllowed: candidate.connector === 'SEC',
-        policyUrl: candidate.url,
-        checkedAt: '2026-09-05',
-      };
+      sourceItem.sourcePolicyJson = sourcePolicy;
       sourceItem.provenanceUrl = candidate.url;
       sourceItem.rawMetadataJson = {
         ...candidate.metadata,
@@ -730,6 +772,53 @@ export class NewsDiscoveryService {
       };
       sourceItem = await sourceRepository.save(sourceItem);
       await attachNewsArticle(manager, sourceItem);
+      if (content && contentPolicyValid) {
+        const contentRepository = manager.getRepository(NewsArticleContentEntity);
+        let content = await contentRepository.findOne({ where: { sourceItemId: sourceItem.id } });
+        if (!(content?.status === 'AVAILABLE' && candidate.content.status === 'FAILED')) {
+          const previousHash = content?.contentHash ?? null;
+          content ??= contentRepository.create({ sourceItemId: sourceItem.id });
+          content.status = candidate.content.status;
+          content.language = candidate.content.language;
+          content.blocksJson = candidate.content.blocks
+            ? candidate.content.blocks.map((block) =>
+                block.type === 'LIST' ? { ...block, items: [...block.items] } : { ...block },
+              )
+            : null;
+          content.contentHash = candidate.content.contentHash;
+          content.extractorVersion = 1;
+          content.fetchedAt = new Date(candidate.content.fetchedAt);
+          content.attemptedAt = new Date(candidate.content.fetchedAt);
+          content.attempts = Math.min((content.attempts ?? 0) + 1, 1_000_000);
+          content.nextAttemptAt =
+            candidate.content.status === 'FAILED' ? new Date(Date.now() + 15 * 60_000) : null;
+          content.failureCode = candidate.content.failureCode;
+          content.rightsPolicyJson = candidate.content.rightsPolicy;
+          if (previousHash !== candidate.content.contentHash) {
+            content.translationJson =
+              candidate.content.status === 'AVAILABLE' &&
+              candidate.content.language === 'en' &&
+              candidate.content.contentHash &&
+              candidate.content.rightsPolicy.aiAllowed === true
+                ? {
+                    version: 1,
+                    status: 'PENDING',
+                    inputHash: candidate.content.contentHash,
+                    provider: 'LOCAL',
+                    model: this.config.newsTranslationModel,
+                    sourceLanguage: 'en',
+                    targetLanguage: 'ko',
+                    blocks: null,
+                    attemptedAt: candidate.content.fetchedAt,
+                    translatedAt: null,
+                    attempts: 0,
+                    nextAttemptAt: candidate.content.fetchedAt,
+                  }
+                : null;
+          }
+          await contentRepository.save(content);
+        }
+      }
       if (candidate.connector === 'SEC')
         await projectSecFilingEvents(manager, sourceItem, companies);
 

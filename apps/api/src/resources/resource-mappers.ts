@@ -1,5 +1,10 @@
 import type { Company, Event, IrSource, Review, SourceItem } from '@orsem/contracts';
-import { NEWS_RSS_FEEDS, sourceKindForSource, type NewsRssFeedId } from '@orsem/contracts';
+import {
+  irSourceSchema,
+  NEWS_RSS_FEEDS,
+  sourceKindForSource,
+  type NewsRssFeedId,
+} from '@orsem/contracts';
 import {
   dateToIso,
   type CompanyEntity,
@@ -9,6 +14,7 @@ import {
   type SourceItemEntity,
 } from '@orsem/database';
 import { publicNewsDescription, publicNewsTranslation } from '../common/news-translation';
+import { contentSummary, type NewsContentRecord } from './news-content';
 
 export function mapCompany(row: CompanyEntity): Company {
   return {
@@ -32,6 +38,10 @@ export function mapFixtureSourceItem(item: SourceItem): SourceItem {
     sourceKind: item.sourceKind ?? sourceKindForSource(item.source),
     publisherId: item.publisherId ?? item.sourceName ?? item.source,
     sourceCount: item.sourceCount ?? 1,
+    contentState: item.contentState ?? 'UNAVAILABLE',
+    contentSourceId: item.contentSourceId ?? null,
+    contentLanguage: item.contentLanguage ?? null,
+    translated: item.translated ?? false,
     description: publicNewsDescription(item.rightsMode, item.description),
     translation: null,
   };
@@ -41,12 +51,21 @@ export function mapFixtureEvent(event: Event): Event {
   return {
     ...event,
     sourceItems: event.sourceItems
-      .filter((item) => item.source !== 'NAVER')
+      .filter((item) => !item.source.startsWith('NAVER'))
+      .filter((item) =>
+        ['OFFICIAL_DISCLOSURE', 'OFFICIAL_RELEASE', 'COMPANY_IR'].includes(
+          item.sourceKind ?? sourceKindForSource(item.source),
+        ),
+      )
       .map((item) => mapFixtureSourceItem(item)),
   };
 }
 
-export function mapSourceItem(row: SourceItemEntity, news?: NewsItemEntity | null): SourceItem {
+export function mapSourceItem(
+  row: SourceItemEntity,
+  news?: NewsItemEntity | null,
+  content?: NewsContentRecord | null,
+): SourceItem {
   const metadata = row.rawMetadataJson ?? {};
   const feed =
     typeof metadata.feedId === 'string'
@@ -58,6 +77,7 @@ export function mapSourceItem(row: SourceItemEntity, news?: NewsItemEntity | nul
     articleId: row.newsArticleId ?? null,
     sourceKind: row.sourceKind ?? feed?.sourceKind ?? sourceKindForSource(row.source),
     sourceCount: 1,
+    ...contentSummary(content, row.rightsMode),
     publisherId:
       feed?.publisherId ??
       (typeof metadata.publisherId === 'string'
@@ -73,7 +93,7 @@ export function mapSourceItem(row: SourceItemEntity, news?: NewsItemEntity | nul
             : 'unknown',
     source: row.source,
     externalId: row.externalId,
-    url: row.url,
+    url: row.url as IrSource['url'],
     title: news?.title ?? row.title,
     description: publicNewsDescription(
       row.rightsMode,
@@ -115,15 +135,15 @@ export function mapReview(row: ReviewEntity): Review {
 }
 
 export function mapIrSource(row: IrSourceEntity): IrSource {
-  return {
+  return irSourceSchema.parse({
     id: row.id,
     companyId: row.companyId,
     url: row.url,
-    sourceType: row.sourceType as IrSource['sourceType'],
-    rightsMode: row.rightsMode as IrSource['rightsMode'],
+    sourceType: row.sourceType,
+    rightsMode: row.rightsMode,
     isActive: row.isActive,
     lastCheckedAt: dateToIso(row.lastCheckedAt),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
-  };
+  });
 }

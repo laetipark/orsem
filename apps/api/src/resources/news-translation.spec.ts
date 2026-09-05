@@ -6,6 +6,7 @@ import {
   ENTITIES,
   EventClusterEntity,
   EventClusterItemEntity,
+  NewsArticleContentEntity,
   NewsItemEntity,
   SourceItemEntity,
 } from '@orsem/database';
@@ -21,7 +22,19 @@ async function context() {
   const row: SourceItemEntity = Object.assign(new SourceItemEntity(), {
     id: 'source-id',
     source: 'IR',
-    sourcePolicyJson: { aiAllowed: true, displayAllowed: true },
+    newsArticleId: null,
+    sourceKind: 'COMPANY_IR',
+    sourcePolicyJson: {
+      rightsMode: RightsMode.OFFICIAL_PUBLIC_DATA,
+      aiAllowed: true,
+      fullTextStorageAllowed: true,
+      publicRedistributionAllowed: true,
+      displayAllowed: true,
+      metadataStorageAllowed: true,
+      notifyAllowed: false,
+      policyUrl: 'https://example.com/policy',
+      checkedAt: '2026-09-05',
+    },
     externalId: 'external-id',
     companyId: null,
     title: 'Original news title',
@@ -34,7 +47,11 @@ async function context() {
     rightsMode: RightsMode.OFFICIAL_PUBLIC_DATA,
     provenanceUrl: 'https://example.com/news',
     rawHash: 'a'.repeat(64),
-    rawMetadataJson: { description: 'Original feed summary', private: true },
+    rawMetadataJson: {
+      description: 'Original feed summary',
+      publisherId: 'samsung-global-newsroom',
+      private: true,
+    },
     translationJson: {
       version: 1,
       status: 'COMPLETED',
@@ -52,6 +69,36 @@ async function context() {
       internalError: '숨길 내부 값',
     },
   });
+  const content = Object.assign(new NewsArticleContentEntity(), {
+    id: 'content-id',
+    sourceItemId: row.id,
+    status: 'AVAILABLE',
+    language: 'en',
+    blocksJson: [{ type: 'PARAGRAPH', text: 'Original article body' }],
+    contentHash: 'c'.repeat(64),
+    extractorVersion: 1,
+    fetchedAt: now,
+    attemptedAt: now,
+    attempts: 1,
+    nextAttemptAt: null,
+    failureCode: null,
+    rightsPolicyJson: row.sourcePolicyJson,
+    translationJson: {
+      version: 1,
+      status: 'COMPLETED',
+      inputHash: 'c'.repeat(64),
+      provider: 'LOCAL',
+      model: 'test-local-model',
+      sourceLanguage: 'en',
+      targetLanguage: 'ko',
+      blocks: [{ type: 'PARAGRAPH', text: '번역한 기사 본문' }],
+      attemptedAt: now.toISOString(),
+      translatedAt: now.toISOString(),
+      attempts: 1,
+      nextAttemptAt: null,
+    },
+  });
+  (row as SourceItemEntity & { newsContent: NewsArticleContentEntity }).newsContent = content;
   const event = Object.assign(new EventClusterEntity(), {
     id: 'event-id',
     canonicalEventType: 'NEWS',
@@ -112,7 +159,7 @@ async function context() {
     { dataSource } as DatabaseRuntimeService,
     new FixtureStoreService(),
   );
-  return { service, row, event, queries };
+  return { service, row, event, content, queries };
 }
 
 test('뉴스 목록·상세와 이벤트·근거에서 원문을 보존하고 검증된 번역만 전달한다', async () => {
@@ -124,6 +171,10 @@ test('뉴스 목록·상세와 이벤트·근거에서 원문을 보존하고 �
   assert.equal(list.items[0]?.description, 'Original feed summary');
   assert.equal(detail.description, 'Original news summary');
   assert.equal(detail.translation?.description, '번역한 요약');
+  assert.equal(detail.content?.sourceItemId, row.id);
+  assert.deepEqual(detail.content?.translation?.blocks, [
+    { type: 'PARAGRAPH', text: '번역한 기사 본문' },
+  ]);
   const eventList = await service.listEventViews({ limit: 5 });
   const view = await service.getEventView(event.id);
   assert.equal(eventList.items[0]?.title, row.title);
@@ -138,14 +189,13 @@ test('뉴스 목록·상세와 이벤트·근거에서 원문을 보존하고 �
     assert.ok(!JSON.stringify(value).includes('rawMetadataJson'));
   }
   row.rawHash = 'b'.repeat(64);
-  assert.equal((await service.getNews(row.id)).translation, null);
+  await assert.rejects(() => service.getNews(row.id));
   assert.equal((await service.listEventViews({ limit: 5 })).items[0]?.translation, null);
   row.rawHash = 'a'.repeat(64);
   row.rightsMode = RightsMode.STORE_METADATA_ONLY;
-  assert.equal((await service.getNews(row.id)).description, null);
-  assert.equal((await service.getNews(row.id)).translation?.description, null);
+  await assert.rejects(() => service.getNews(row.id));
   row.source = 'SEC';
-  assert.equal((await service.getNews(row.id)).translation, null);
+  await assert.rejects(() => service.getNews(row.id));
 });
 
 test('뉴스와 이벤트의 번역 제목 검색도 실제 MySQL SQL에 입력을 바인딩한다', async () => {
@@ -160,7 +210,7 @@ test('뉴스와 이벤트의 번역 제목 검색도 실제 MySQL SQL에 입력�
     assert.match(query.sql, /translation_json/u);
     assert.match(query.sql, /\$\.inputHash/u);
     assert.match(query.sql, /BINARY 'COMPLETED'/u);
-    assert.match(query.sql, /'GDELT', 'IR'/u);
+    assert.match(query.sql, /'NEWS_RSS', 'IR'/u);
     assert.match(query.sql, /LIKE \? ESCAPE '!'/u);
   }
 });
@@ -182,10 +232,17 @@ test('원문 해시가 없는 예시 SourceItem에는 번역을 추가하지 않
     {} as DatabaseRuntimeService,
     fixtures,
   );
-  assert.equal((await service.getNews(source.id)).translation, null);
+  await assert.rejects(
+    () => service.getNews(source.id),
+    (error: unknown) =>
+      typeof error === 'object' &&
+      error !== null &&
+      'getStatus' in error &&
+      (error as { getStatus(): number }).getStatus() === 404,
+  );
   assert.equal(
     (await service.listNews({ limit: 100 })).items.find((item) => item.id === source.id)
       ?.translation,
-    null,
+    undefined,
   );
 });

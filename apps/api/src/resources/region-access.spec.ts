@@ -10,6 +10,7 @@ import {
   FilingEntity,
   SourceItemEntity,
   NewsArticleEntity,
+  NewsArticleContentEntity,
   WatchlistItemEntity,
 } from '@orsem/database';
 import { DataSource, type EntityTarget, type ObjectLiteral } from 'typeorm';
@@ -33,9 +34,14 @@ function fixtureData() {
   return { fixtures, data };
 }
 
-test('regional fixture pages filter before limiting, preserving cursors and unknown news only in all', async () => {
+test('regional fixture pages filter before limiting and keep disclosures out of the content news list', async () => {
   const { fixtures, data } = fixtureData();
   fixtures.sourceItems[0]!.source = 'IR';
+  fixtures.sourceItems[0]!.contentState = 'AVAILABLE';
+  fixtures.sourceItems[0]!.contentSourceId = fixtures.sourceItems[0]!.id;
+  fixtures.sourceItems[0]!.contentLanguage = 'ko';
+  fixtures.sourceItems[0]!.publisherId = 'samsung-global-newsroom';
+  fixtures.sourceItems[0]!.rightsMode = 'PRIVATE_DISPLAY_ONLY';
   const us = fixtures.companies.find((company) => company.market === Market.NASDAQ)!;
   fixtures.watchlist.push({ ...fixtures.watchlist[0]!, id: 'watch-us', company: us });
   fixtures.sourceItems.push(
@@ -88,9 +94,12 @@ test('regional fixture pages filter before limiting, preserving cursors and unkn
   );
   assert.deepEqual(
     (await data.listNews({ limit: 100, region: 'us' })).items.map((item) => item.id),
-    ['sec'],
+    [],
   );
-  assert.equal((await data.listNews({ limit: 100, region: 'all' })).items.length, 3);
+  assert.deepEqual(
+    (await data.listNews({ limit: 100, region: 'all' })).items.map((item) => item.id),
+    [fixtures.sourceItems[0]!.id, 'unknown-news'],
+  );
 });
 
 test('resource SQL binds regional markets before limit and filters SEC/OpenDART by explicit origin', async () => {
@@ -100,6 +109,7 @@ test('resource SQL binds regional markets before limit and filters SEC/OpenDART 
     FilingEntity,
     SourceItemEntity,
     NewsArticleEntity,
+    NewsArticleContentEntity,
     WatchlistItemEntity,
   ];
   const metadata = new DataSource({
@@ -162,7 +172,21 @@ test('RSS news source filtering precedes limit and cursor in every fixture regio
       { id: 'rss-newer', source: 'NEWS_RSS', publishedAt: '2026-09-04T03:00:00.000Z' },
       { id: 'ir-between', source: 'IR', publishedAt: '2026-09-04T02:00:00.000Z' },
       { id: 'rss-older', source: 'NEWS_RSS', publishedAt: '2026-09-04T01:00:00.000Z' },
-    ].map((item) => ({ ...original, ...item, tickers: [] })),
+    ].map((item) => ({
+      ...original,
+      ...item,
+      sourceKind:
+        item.source === 'NEWS_RSS' ? ('OFFICIAL_RELEASE' as const) : ('COMPANY_IR' as const),
+      publisherId: item.source === 'NEWS_RSS' ? 'federal-reserve' : 'samsung-global-newsroom',
+      contentState: 'AVAILABLE' as const,
+      contentSourceId: item.id,
+      contentLanguage: 'ko',
+      rightsMode:
+        item.source === 'NEWS_RSS'
+          ? ('OFFICIAL_PUBLIC_DATA' as const)
+          : ('PRIVATE_DISPLAY_ONLY' as const),
+      tickers: [],
+    })),
   );
   const controller = new NewsController(data);
   for (const region of ['all', 'kr', 'us']) {
@@ -200,7 +224,7 @@ test('RSS news SQL combines source, global feed region and cursor predicates bef
   const metadata = new DataSource({
     type: 'mysql',
     database: 'test',
-    entities: [CompanyEntity, SourceItemEntity, NewsArticleEntity],
+    entities: [CompanyEntity, SourceItemEntity, NewsArticleEntity, NewsArticleContentEntity],
     synchronize: false,
   });
   await (metadata as unknown as { buildMetadatas(): Promise<void> }).buildMetadatas();
@@ -229,7 +253,7 @@ test('RSS news SQL combines source, global feed region and cursor predicates bef
   for (const region of ['kr', 'us'] as const) {
     await data.listNews({ source: 'NEWS_RSS', region, limit: 6, cursor });
     const query = captured.at(-1)!;
-    assert.match(query.sql, /`source`\.`source` <> 'NAVER'/u);
+    assert.match(query.sql, /`source`\.`source` NOT LIKE 'NAVER%'/u);
     assert.match(query.sql, /NOT EXISTS \(SELECT 1 FROM source_items duplicate/u);
     assert.ok(query.values.includes('NEWS_RSS'));
     assert.match(query.sql, /JSON_EXTRACT\(`source`\.`raw_metadata_json`, '\$\.marketRegion'\)/u);

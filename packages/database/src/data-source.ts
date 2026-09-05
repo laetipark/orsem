@@ -17,6 +17,8 @@ import { RepairLegacyParserClock1788400000000 } from './migrations/1788400000000
 import { utcMysqlDriver } from './utc-mysql-driver';
 import { AddNewsArticles1788401000000 } from './migrations/1788401000000-AddNewsArticles';
 import { AddDisclosureDomains1788402000000 } from './migrations/1788402000000-AddDisclosureDomains';
+import { AddNewsArticleContents1788403000000 } from './migrations/1788403000000-AddNewsArticleContents';
+import { MergeSamsungNewsSources1788404000000 } from './migrations/1788404000000-MergeSamsungNewsSources';
 
 // npm workspace 스크립트의 작업 디렉터리는 packages/database입니다.
 // 현재 source/dist 디렉터리를 기준으로 경로를 구해 마이그레이션과 앱에서
@@ -52,6 +54,8 @@ export function createTypeOrmOptions(databaseUrl: string): DataSourceOptions {
       RepairLegacyParserClock1788400000000,
       AddNewsArticles1788401000000,
       AddDisclosureDomains1788402000000,
+      AddNewsArticleContents1788403000000,
+      MergeSamsungNewsSources1788404000000,
     ],
     migrationsTableName: 'typeorm_migrations',
   };

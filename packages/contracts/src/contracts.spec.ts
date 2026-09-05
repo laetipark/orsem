@@ -4,6 +4,8 @@ import {
   companyTimelineQuerySchema,
   ClassificationReviewResult,
   createIrSourceSchema,
+  irSourceSchema,
+  updateIrSourceSchema,
   backfillRequestSchema,
   Direction,
   EffectiveFilingState,
@@ -201,15 +203,26 @@ test('domestic stock codes and SEC CIK values keep their fixed-width identities'
   );
 });
 
-test('IR sources accept only public HTTPS RSS/Atom feeds with official-data rights', () => {
+test('IR source writes accept only the exact reviewed private-display RSS profile', () => {
   const base = {
     companyId: '00000000-0000-4000-8000-000000000001',
     sourceType: 'RSS' as const,
-    rightsMode: RightsMode.OFFICIAL_PUBLIC_DATA,
+    rightsMode: RightsMode.PRIVATE_DISPLAY_ONLY,
     isActive: true,
   };
   assert.equal(
     createIrSourceSchema.safeParse({ ...base, url: 'https://example.com/feed.xml' }).success,
+    false,
+  );
+  const samsung = createIrSourceSchema.parse({
+    companyId: base.companyId,
+    sourceType: 'RSS',
+    url: 'https://news.samsung.com/global/feed',
+  });
+  assert.equal(samsung.rightsMode, RightsMode.PRIVATE_DISPLAY_ONLY);
+  assert.equal(
+    createIrSourceSchema.safeParse({ ...base, url: 'https://news.samsung.com/global/feed' })
+      .success,
     true,
   );
   assert.equal(
@@ -220,10 +233,36 @@ test('IR sources accept only public HTTPS RSS/Atom feeds with official-data righ
   assert.equal(
     createIrSourceSchema.safeParse({
       ...base,
-      rightsMode: RightsMode.LINK_ONLY,
-      url: 'https://example.com/feed.xml',
+      rightsMode: RightsMode.OFFICIAL_PUBLIC_DATA,
+      url: 'https://news.samsung.com/global/feed',
     }).success,
     false,
+  );
+  assert.equal(
+    createIrSourceSchema.safeParse({
+      ...base,
+      rightsMode: RightsMode.STORE_METADATA_ONLY,
+      url: 'https://news.samsung.com/global/feed',
+    }).success,
+    false,
+  );
+  assert.equal(
+    updateIrSourceSchema.safeParse({ rightsMode: RightsMode.STORE_METADATA_ONLY }).success,
+    false,
+  );
+  assert.equal(
+    irSourceSchema.safeParse({
+      id: base.companyId,
+      companyId: base.companyId,
+      url: 'https://news.samsung.com/global/feed',
+      sourceType: 'RSS',
+      rightsMode: RightsMode.PRIVATE_DISPLAY_ONLY,
+      isActive: true,
+      lastCheckedAt: null,
+      createdAt: '2026-09-05T00:00:00.000Z',
+      updatedAt: '2026-09-05T00:00:00.000Z',
+    }).success,
+    true,
   );
   assert.equal(
     createIrSourceSchema.safeParse({ ...base, url: 'http://example.com/feed.xml' }).success,

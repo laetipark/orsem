@@ -8,6 +8,7 @@ import {
   NewsSourceKind,
   canonicalNewsUrl,
   APPROVED_GDELT_SOURCE_POLICIES,
+  NEWS_IR_SOURCE_PROFILES,
   NEWS_RSS_FEEDS,
   NEWS_RSS_FEED_IDS,
   type NewsRssFeedId,
@@ -20,6 +21,11 @@ import { z } from 'zod';
 import { readBoundedResponseBytes } from '../common/bounded-response';
 import type { WorkerConfig } from '../config/worker-config';
 import type { FetchImplementation } from '../opendart/opendart.client';
+import {
+  htmlToNewsContentBlocks,
+  newsContentPlainText,
+  type NewsContentBlock,
+} from './news-content-blocks';
 import {
   naverFailureMessage,
   readNaverErrorCode,
@@ -41,6 +47,17 @@ export interface DiscoveryCandidate {
   readonly sourceKind?: NewsSourceKind;
   readonly sourcePolicy?: NewsSourcePolicy;
   readonly metadata: Readonly<Record<string, unknown>>;
+  readonly content?: DiscoveryArticleContent;
+}
+
+export interface DiscoveryArticleContent {
+  readonly status: 'AVAILABLE' | 'FAILED';
+  readonly blocks: readonly NewsContentBlock[] | null;
+  readonly contentHash: string | null;
+  readonly language: string | null;
+  readonly fetchedAt: string;
+  readonly failureCode: string | null;
+  readonly rightsPolicy: NewsSourcePolicy;
 }
 
 export interface DiscoveryScopeCompany {
@@ -332,12 +349,13 @@ export interface FeedResponse {
 }
 
 export type FeedTransport = typeof fetchPinnedHttpsBytes;
+export type ArticleTransport = typeof fetchPinnedHttpsBytes;
 
 function feedValidator(value: string | string[] | undefined): string | null {
   return typeof value === 'string' && value.length <= 1024 && !/[\r\n]/.test(value) ? value : null;
 }
 
-async function fetchPinnedHttpsBytes(
+export async function fetchPinnedHttpsBytes(
   connector: ConnectorName,
   operation: string,
   url: URL,
@@ -1243,6 +1261,17 @@ export function assertRegisteredFeedUrl(value: string): URL {
 }
 
 export const MAX_REGISTERED_IR_FEEDS = 100;
+export const SAMSUNG_GLOBAL_FEED_URL = new URL(
+  NEWS_IR_SOURCE_PROFILES['samsung-global'].url,
+).toString();
+
+export function isApprovedContentIrFeed(value: string): boolean {
+  try {
+    return assertRegisteredFeedUrl(value).toString() === SAMSUNG_GLOBAL_FEED_URL;
+  } catch {
+    return false;
+  }
+}
 
 function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : value === undefined || value === null ? [] : [value];
@@ -1314,7 +1343,7 @@ class ConditionalFeedReader {
 
 export class RegisteredIrFeedConnector extends ConnectorBase {
   public override readonly name = 'IR' as const;
-  public override readonly rightsMode = RightsMode.OFFICIAL_PUBLIC_DATA;
+  public override readonly rightsMode = NEWS_IR_SOURCE_PROFILES['samsung-global'].policy.rightsMode;
   protected override readonly configured: boolean;
   protected override readonly disabledMessage = 'IR_FEED_URLS has no registered feeds';
   private latestDiscoveryFailureCount = 0;
@@ -1322,19 +1351,28 @@ export class RegisteredIrFeedConnector extends ConnectorBase {
   private readonly reader: ConditionalFeedReader;
 
   public constructor(
-    private readonly feedUrls: readonly string[],
+    feedUrls: readonly string[],
     private readonly timeoutMs: number,
     checkpointStore?: FeedCheckpointStore,
     transport?: FeedTransport,
   ) {
     super();
+    const normalizedFeeds = [
+      ...new Set(feedUrls.map((value) => assertRegisteredFeedUrl(value).toString())),
+    ];
+    if (normalizedFeeds.some((value) => !isApprovedContentIrFeed(value))) {
+      throw new Error('IR feed is not in the reviewed content-source registry.');
+    }
+    this.feedUrls = Object.freeze(normalizedFeeds);
     this.reader = new ConditionalFeedReader(this.name, timeoutMs, checkpointStore, transport);
     if (feedUrls.length > MAX_REGISTERED_IR_FEEDS) {
       throw new Error(`Registered IR feeds exceed the safety limit of ${MAX_REGISTERED_IR_FEEDS}.`);
     }
-    this.configured = feedUrls.length > 0;
-    for (const feedUrl of feedUrls) assertRegisteredFeedUrl(feedUrl);
+    this.configured = this.feedUrls.length > 0;
+    for (const feedUrl of this.feedUrls) assertRegisteredFeedUrl(feedUrl);
   }
+
+  private readonly feedUrls: readonly string[];
 
   public get discoveryFailureCount(): number {
     return this.latestDiscoveryFailureCount;
@@ -1385,12 +1423,15 @@ export class RegisteredIrFeedConnector extends ConnectorBase {
       url.toString(),
       new TextDecoder('utf-8', { fatal: true }).decode(bytes),
     );
-    this.latestDiscoveryFailureCount += parsed.skippedItems;
+    const contentFailures = parsed.candidates.filter(
+      (candidate) => candidate.content?.status === 'FAILED',
+    ).length;
+    this.latestDiscoveryFailureCount += parsed.skippedItems + contentFailures;
     this.truncated ||= parsed.truncated;
-    if (parsed.skippedItems > 0 || parsed.truncated)
+    if (parsed.skippedItems > 0 || parsed.truncated || contentFailures > 0)
       await this.reader.fail(
         url.toString(),
-        `${parsed.skippedItems} malformed IR item(s); truncated=${parsed.truncated}`,
+        `${parsed.skippedItems} malformed IR item(s); ${contentFailures} content failure(s); truncated=${parsed.truncated}`,
       );
     return parsed.candidates;
   }
@@ -1443,11 +1484,23 @@ export class RegisteredIrFeedConnector extends ConnectorBase {
 }
 
 const MAX_NEWS_RSS_CANDIDATES = 500;
+const MAX_XML_STYLESHEET_PI_BYTES = 4_096;
+const XML_PROCESSING_INSTRUCTION = /<\?[\s\S]*?\?>/gu;
+const EXACT_XML_STYLESHEET_PI = /^<\?xml-stylesheet(?:\s+[^<]*)?\?>$/u;
 
 interface ParsedNewsRssFeed {
   readonly candidates: readonly DiscoveryCandidate[];
   readonly skippedItems: number;
   readonly truncated: boolean;
+}
+
+function withoutAllowedXmlStylesheetInstructions(xml: string): string {
+  return xml.replace(XML_PROCESSING_INSTRUCTION, (instruction) =>
+    Buffer.byteLength(instruction, 'utf8') <= MAX_XML_STYLESHEET_PI_BYTES &&
+    EXACT_XML_STYLESHEET_PI.test(instruction)
+      ? ''
+      : instruction,
+  );
 }
 
 function decodedFeedText(value: string): string {
@@ -1473,26 +1526,15 @@ export function parseNewsRssFeed(feedId: NewsRssFeedId, xml: string): ParsedNews
 
 export function parseIrRssFeed(feedUrl: string, xml: string): ParsedNewsRssFeed {
   const url = assertRegisteredFeedUrl(feedUrl);
+  if (url.toString() !== SAMSUNG_GLOBAL_FEED_URL) {
+    throw new Error('IR feed is not approved for market-news content collection.');
+  }
+  const profile = NEWS_IR_SOURCE_PROFILES['samsung-global'];
   return parseRegisteredFeed(
     url.toString(),
     {
-      url: url.toString(),
-      publisher: url.hostname,
-      marketRegion: 'global',
-      sourceKind: NewsSourceKind.COMPANY_IR,
-      rightsContext: 'REGISTERED_OFFICIAL_IR',
-      rightsPolicyUrl: url.toString(),
-      policy: {
-        rightsMode: RightsMode.OFFICIAL_PUBLIC_DATA,
-        aiAllowed: 'UNKNOWN',
-        fullTextStorageAllowed: false,
-        publicRedistributionAllowed: 'UNKNOWN',
-        displayAllowed: true,
-        metadataStorageAllowed: true,
-        notifyAllowed: false,
-        policyUrl: url.toString(),
-        checkedAt: '2026-09-05',
-      },
+      ...profile,
+      categories: ['COMPANY', 'TECHNOLOGY'],
     },
     xml,
     'IR',
@@ -1511,6 +1553,8 @@ function parseRegisteredFeed(
     policy: NewsSourcePolicy;
     categories?: readonly string[];
     publisherId?: string;
+    publishedAtMode?: 'SOURCE_LOCAL_TIME';
+    publishedTimeZone?: 'Asia/Seoul';
   },
   xml: string,
   connector: 'IR' | 'NEWS_RSS',
@@ -1518,9 +1562,11 @@ function parseRegisteredFeed(
   if (Buffer.byteLength(xml, 'utf8') > MAX_METADATA_BYTES) {
     throw new Error('NEWS_RSS response exceeded its size limit.');
   }
-  assertSafeXml(xml, feed.url);
-  assertLexicalXmlComplexity(xml, { nodes: 0 }, { maxDepth: 64, maxNodes: 100_000 });
-  if (XMLValidator.validate(xml) !== true) throw new Error('NEWS_RSS returned malformed XML.');
+  const parseableXml = withoutAllowedXmlStylesheetInstructions(xml);
+  assertSafeXml(parseableXml, feed.url);
+  assertLexicalXmlComplexity(parseableXml, { nodes: 0 }, { maxDepth: 64, maxNodes: 100_000 });
+  if (XMLValidator.validate(parseableXml) !== true)
+    throw new Error('NEWS_RSS returned malformed XML.');
   const parsed = objectValue(
     new XMLParser({
       ignoreAttributes: false,
@@ -1528,7 +1574,7 @@ function parseRegisteredFeed(
       processEntities: false,
       trimValues: false,
       parseTagValue: false,
-    }).parse(xml),
+    }).parse(parseableXml),
   );
   const rss = objectValue(parsed.rss);
   const atom = objectValue(parsed.feed);
@@ -1582,12 +1628,18 @@ function parseRegisteredFeed(
       if (seenIds.has(externalId)) continue;
       seenIds.add(externalId);
       const publication = originalPublishedAt ? decodedFeedText(originalPublishedAt).trim() : '';
-      // A source date without a timezone is not a collection instant or an assumed KST instant.
-      const publishedAt =
-        /(?:Z|[+-]\d{2}:?\d{2}|GMT|UTC|UT|EST|EDT|CST|CDT|MST|MDT|PST|PDT)$/i.test(publication) &&
-        !Number.isNaN(Date.parse(publication))
-          ? new Date(publication).toISOString()
-          : null;
+      const publishedAt = parseFeedPublicationInstant(publication, feed);
+      const descriptionHtml = textValue(entry.description) || textValue(entry.summary);
+      const description = safeFeedExcerpt(descriptionHtml);
+      const embeddedHtml =
+        connector === 'IR' && feed.url === SAMSUNG_GLOBAL_FEED_URL
+          ? textValue(entry['content:encoded'])
+          : '';
+      const embeddedContent = embeddedHtml
+        ? embeddedArticleContent(embeddedHtml, feed.policy)
+        : connector === 'IR'
+          ? failedArticleContent('EMBEDDED_CONTENT_MISSING', feed.policy)
+          : undefined;
       candidates.push(
         Object.freeze({
           connector,
@@ -1603,6 +1655,7 @@ function parseRegisteredFeed(
           rightsMode: feed.policy.rightsMode,
           sourceKind: feed.sourceKind,
           sourcePolicy: feed.policy,
+          ...(embeddedContent ? { content: embeddedContent } : {}),
           metadata: Object.freeze({
             feedId,
             feedUrl: feed.url,
@@ -1624,6 +1677,7 @@ function parseRegisteredFeed(
             originalLink,
             originalGuid,
             originalPublishedAt,
+            description,
           }),
         }),
       );
@@ -1634,15 +1688,218 @@ function parseRegisteredFeed(
   return Object.freeze({ candidates: Object.freeze(candidates), skippedItems, truncated });
 }
 
+function parseFeedPublicationInstant(
+  publication: string,
+  feed: Readonly<{ publishedAtMode?: 'SOURCE_LOCAL_TIME'; publishedTimeZone?: 'Asia/Seoul' }>,
+): string | null {
+  if (!publication) return null;
+  if (feed.publishedAtMode === 'SOURCE_LOCAL_TIME' && feed.publishedTimeZone === 'Asia/Seoul') {
+    // Samsung Global labels its newsroom wall clock +0000. Preserve that clock as Korea time.
+    const match =
+      /^(?:[A-Za-z]{3},\s*)?(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s+(\d{2}):(\d{2}):(\d{2})(?:\s+[+-]\d{4})?$/u.exec(
+        publication,
+      );
+    const month = match
+      ? [
+          'jan',
+          'feb',
+          'mar',
+          'apr',
+          'may',
+          'jun',
+          'jul',
+          'aug',
+          'sep',
+          'oct',
+          'nov',
+          'dec',
+        ].indexOf(match[2]!.toLowerCase())
+      : -1;
+    if (match && month >= 0) {
+      const year = Number(match[3]);
+      const day = Number(match[1]);
+      const hour = Number(match[4]);
+      const minute = Number(match[5]);
+      const second = Number(match[6]);
+      if (hour > 23 || minute > 59 || second > 59) return null;
+      const instant = new Date(Date.UTC(year, month, day, hour - 9, minute, second));
+      const wallClock = new Date(instant.getTime() + 9 * 60 * 60_000);
+      if (
+        !Number.isNaN(instant.getTime()) &&
+        wallClock.getUTCFullYear() === year &&
+        wallClock.getUTCMonth() === month &&
+        wallClock.getUTCDate() === day &&
+        wallClock.getUTCHours() === hour &&
+        wallClock.getUTCMinutes() === minute &&
+        wallClock.getUTCSeconds() === second
+      )
+        return instant.toISOString();
+    }
+    return null;
+  }
+  // A source date without a timezone is not a collection instant or an assumed KST instant.
+  return /(?:Z|[+-]\d{2}:?\d{2}|GMT|UTC|UT|EST|EDT|CST|CDT|MST|MDT|PST|PDT)$/i.test(publication) &&
+    !Number.isNaN(Date.parse(publication))
+    ? new Date(publication).toISOString()
+    : null;
+}
+
+function safeFeedExcerpt(html: string): string | null {
+  if (!html.trim()) return null;
+  try {
+    const text = newsContentPlainText(htmlToNewsContentBlocks(html)).trim();
+    return text ? text.slice(0, 3_000) : null;
+  } catch {
+    return null;
+  }
+}
+
+function failedArticleContent(
+  failureCode: string,
+  policy: NewsSourcePolicy,
+): DiscoveryArticleContent {
+  return Object.freeze({
+    status: 'FAILED',
+    blocks: null,
+    contentHash: null,
+    language: null,
+    fetchedAt: new Date().toISOString(),
+    failureCode,
+    rightsPolicy: policy,
+  });
+}
+
+function embeddedArticleContent(html: string, policy: NewsSourcePolicy): DiscoveryArticleContent {
+  try {
+    const blocks = htmlToNewsContentBlocks(html);
+    if (blocks.length === 0) return failedArticleContent('EMBEDDED_CONTENT_EMPTY', policy);
+    return Object.freeze({
+      status: 'AVAILABLE',
+      blocks,
+      contentHash: createHash('sha256').update(JSON.stringify(blocks)).digest('hex'),
+      language: 'en',
+      fetchedAt: new Date().toISOString(),
+      failureCode: null,
+      rightsPolicy: policy,
+    });
+  } catch {
+    return failedArticleContent('EMBEDDED_CONTENT_INVALID', policy);
+  }
+}
+
+const OFFICIAL_ARTICLE_PROFILES = Object.freeze({
+  'fed-press': {
+    hostname: 'www.federalreserve.gov',
+    path: /^\/newsevents\/(?:pressreleases|speech|testimony)\//u,
+    roots: Object.freeze([
+      Object.freeze({ id: 'article' }),
+      Object.freeze({ id: 'content' }),
+      Object.freeze({ tag: 'main' }),
+    ]),
+  },
+  'fed-speeches': {
+    hostname: 'www.federalreserve.gov',
+    path: /^\/newsevents\/(?:pressreleases|speech|testimony)\//u,
+    roots: Object.freeze([
+      Object.freeze({ id: 'article' }),
+      Object.freeze({ id: 'content' }),
+      Object.freeze({ tag: 'main' }),
+    ]),
+  },
+  'bls-latest': {
+    hostname: 'www.bls.gov',
+    path: /^(?:\/bls\/$|\/(?:news\.release|opub)\/)/u,
+    roots: Object.freeze([Object.freeze({ id: 'homepage' })]),
+  },
+} satisfies Record<NewsRssFeedId, unknown>);
+
+const BLS_LATEST_FEED_ARTICLE_URL = 'https://www.bls.gov/bls/';
+const BLS_LATEST_CONTENT_URL = 'https://www.bls.gov/';
+
+async function fetchOfficialArticleContent(
+  candidate: DiscoveryCandidate,
+  feedId: NewsRssFeedId,
+  timeoutMs: number,
+  transport: ArticleTransport,
+): Promise<DiscoveryArticleContent> {
+  const policy = NEWS_RSS_FEEDS[feedId].policy;
+  const profile = OFFICIAL_ARTICLE_PROFILES[feedId] as {
+    hostname: string;
+    path: RegExp;
+    roots: readonly { tag?: string; id?: string; className?: string }[];
+  };
+  try {
+    if (
+      policy.fullTextStorageAllowed !== true ||
+      policy.displayAllowed !== true ||
+      policy.aiAllowed !== true
+    ) {
+      return failedArticleContent('CONTENT_POLICY_BLOCKED', policy);
+    }
+    const url = assertRegisteredFeedUrl(candidate.url);
+    if (
+      url.hostname.toLowerCase() !== profile.hostname ||
+      !profile.path.test(url.pathname) ||
+      (url.port && url.port !== '443')
+    ) {
+      return failedArticleContent('ARTICLE_URL_NOT_APPROVED', policy);
+    }
+    let requestUrl = url;
+    if (feedId === 'bls-latest' && url.pathname === '/bls/') {
+      const originalLink = candidate.metadata.originalLink;
+      // BLS publishes this one exact alias and redirects it to the site root. Resolve only that
+      // reviewed pair before transport; the HTTP client still rejects every redirect response.
+      if (
+        candidate.url !== BLS_LATEST_FEED_ARTICLE_URL ||
+        typeof originalLink !== 'string' ||
+        decodedFeedText(originalLink).trim() !== BLS_LATEST_FEED_ARTICLE_URL
+      ) {
+        return failedArticleContent('ARTICLE_URL_NOT_APPROVED', policy);
+      }
+      requestUrl = new URL(BLS_LATEST_CONTENT_URL);
+    }
+    const response = await transport(
+      'NEWS_RSS',
+      `${feedId}-article`,
+      requestUrl,
+      {
+        Accept: 'text/html, application/xhtml+xml',
+        'User-Agent': 'Orsem/0.1 (+https://orsem.laetipark.me; noncommercial RSS reader)',
+      },
+      timeoutMs,
+    );
+    const html = new TextDecoder('utf-8', { fatal: true }).decode(response.bytes);
+    const blocks = htmlToNewsContentBlocks(html, { roots: profile.roots });
+    if (blocks.length === 0) return failedArticleContent('ARTICLE_CONTENT_EMPTY', policy);
+    return Object.freeze({
+      status: 'AVAILABLE',
+      blocks,
+      contentHash: createHash('sha256').update(JSON.stringify(blocks)).digest('hex'),
+      language: 'en',
+      fetchedAt: new Date().toISOString(),
+      failureCode: null,
+      rightsPolicy: policy,
+    });
+  } catch (error) {
+    return failedArticleContent(
+      error instanceof ConnectorRequestError && error.httpStatus > 0
+        ? `ARTICLE_HTTP_${error.httpStatus}`
+        : 'ARTICLE_FETCH_OR_PARSE_FAILED',
+      policy,
+    );
+  }
+}
+
 export class PublisherNewsRssConnector extends ConnectorBase {
   public override readonly name = 'NEWS_RSS' as const;
-  public override readonly rightsMode = RightsMode.STORE_METADATA_ONLY;
+  public override readonly rightsMode = RightsMode.OFFICIAL_PUBLIC_DATA;
   protected override readonly configured: boolean;
   protected override readonly disabledMessage = 'NEWS_RSS_FEEDS has no enabled publisher feeds';
   private readonly feedIds: readonly NewsRssFeedId[];
   private failedFeeds = 0;
   private skippedItems = 0;
   private truncated = false;
+  private contentFailures = 0;
   private readonly reader: ConditionalFeedReader;
 
   public constructor(
@@ -1650,15 +1907,18 @@ export class PublisherNewsRssConnector extends ConnectorBase {
     private readonly timeoutMs: number,
     checkpointStore?: FeedCheckpointStore,
     transport?: FeedTransport,
+    articleTransport?: ArticleTransport,
   ) {
     super();
     this.reader = new ConditionalFeedReader(this.name, timeoutMs, checkpointStore, transport);
+    this.articleTransport = articleTransport ?? transport ?? fetchPinnedHttpsBytes;
     if (feedIds.some((id) => !NEWS_RSS_FEED_IDS.includes(id))) {
       throw new Error('NEWS_RSS feed is not allowlisted.');
     }
     this.feedIds = Object.freeze([...new Set(feedIds)]);
     this.configured = this.feedIds.length > 0;
   }
+  private readonly articleTransport: ArticleTransport;
 
   public override health(now = new Date()): ConnectorHealthCheck {
     return Object.freeze({
@@ -1667,7 +1927,7 @@ export class PublisherNewsRssConnector extends ConnectorBase {
         healthSource: 'NEWS_RSS_INGESTION',
         configured: this.configured,
         feeds: this.feedIds,
-        rightsContext: 'NONCOMMERCIAL_RSS_READER',
+        rightsContext: 'OFFICIAL_CONTENT_FEEDS',
       },
     });
   }
@@ -1688,7 +1948,7 @@ export class PublisherNewsRssConnector extends ConnectorBase {
   }
 
   public get discoveryFailureCount(): number {
-    return this.failedFeeds + this.skippedItems;
+    return this.failedFeeds + this.skippedItems + this.contentFailures;
   }
   public get discoveryWasTruncated(): boolean {
     return this.truncated;
@@ -1698,6 +1958,7 @@ export class PublisherNewsRssConnector extends ConnectorBase {
       failedFeedCount: this.failedFeeds,
       notModifiedCount: this.reader.notModifiedCount,
       skippedItemCount: this.skippedItems,
+      contentFailureCount: this.contentFailures,
       truncated: this.truncated,
     };
   }
@@ -1720,13 +1981,31 @@ export class PublisherNewsRssConnector extends ConnectorBase {
         url.toString(),
         `${parsed.skippedItems} malformed RSS item(s); truncated=${parsed.truncated}`,
       );
-    return parsed;
+    const candidates: DiscoveryCandidate[] = [];
+    for (const candidate of parsed.candidates) {
+      const content = await fetchOfficialArticleContent(
+        candidate,
+        feedId,
+        this.timeoutMs,
+        this.articleTransport,
+      );
+      if (content.status === 'FAILED') this.contentFailures += 1;
+      candidates.push(Object.freeze({ ...candidate, content }));
+    }
+    if (candidates.some((candidate) => candidate.content?.status === 'FAILED')) {
+      await this.reader.fail(
+        url.toString(),
+        `${candidates.filter((candidate) => candidate.content?.status === 'FAILED').length} official article content failure(s)`,
+      );
+    }
+    return Object.freeze({ ...parsed, candidates: Object.freeze(candidates) });
   }
 
   public override async discoverLinks(): Promise<readonly DiscoveryCandidate[]> {
     this.reader.reset();
     this.failedFeeds = 0;
     this.skippedItems = 0;
+    this.contentFailures = 0;
     this.truncated = false;
     const candidates: DiscoveryCandidate[] = [];
     for (const feedId of this.feedIds) {

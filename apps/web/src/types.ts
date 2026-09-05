@@ -83,6 +83,34 @@ export interface SourceItem {
   provenanceUrl: string | null;
   tickers: string[];
   tags: string[];
+  contentState: 'UNAVAILABLE' | 'PENDING' | 'AVAILABLE' | 'FAILED';
+  contentSourceId: string | null;
+  contentLanguage: string | null;
+  translated: boolean;
+}
+
+export type NewsContentBlock =
+  | { type: 'PARAGRAPH'; text: string }
+  | { type: 'HEADING'; level: 2 | 3 | 4 | 5 | 6; text: string }
+  | { type: 'LIST'; ordered: boolean; items: string[] }
+  | { type: 'QUOTE'; text: string };
+
+export interface NewsDetail extends SourceItem {
+  content: {
+    sourceItemId: string;
+    original: {
+      language: string;
+      blocks: NewsContentBlock[];
+      fetchedAt: string;
+    };
+    translation: {
+      language: 'ko';
+      blocks: NewsContentBlock[];
+      translatedAt: string;
+      provider: 'LOCAL';
+      model: string;
+    } | null;
+  } | null;
 }
 
 export interface SearchItem {

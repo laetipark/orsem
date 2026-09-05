@@ -27,6 +27,7 @@ const RETIRED_DISCOVERY_SCHEDULES = [
   { id: 'naver-news-p2-hourly', pattern: '0 * * * *', timezone: 'Asia/Seoul' },
   { id: 'registered-ir-thirty-minutes', pattern: '*/30 * * * *', timezone: 'Asia/Seoul' },
   { id: 'publisher-news-rss-thirty-minutes', pattern: '*/30 * * * *', timezone: 'Asia/Seoul' },
+  { id: 'approved-gdelt-thirty-minutes', pattern: '*/30 * * * *', timezone: 'Asia/Seoul' },
 ];
 
 @Injectable()

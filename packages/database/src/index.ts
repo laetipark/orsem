@@ -22,3 +22,4 @@ export * from './filing-alert-gate';
 export * from './migrations/1788400000000-RepairLegacyParserClock';
 export * from './news-articles';
 export * from './migrations/1788401000000-AddNewsArticles';
+export * from './migrations/1788403000000-AddNewsArticleContents';

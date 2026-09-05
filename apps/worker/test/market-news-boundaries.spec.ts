@@ -1,4 +1,5 @@
 import { ProcessingStatus, RightsMode } from '@orsem/contracts';
+import { NEWS_IR_SOURCE_PROFILES } from '@orsem/contracts';
 import type { DataSource } from 'typeorm';
 import type { Queue } from 'bullmq';
 import { loadWorkerConfig } from '../src/config/worker-config';
@@ -20,8 +21,14 @@ import type { PushDeliveryService } from '../src/push/push-delivery.service';
 import type { AlertOutboxDispatcherService } from '../src/queues/alert-outbox-dispatcher.service';
 
 const xml =
-  '<rss><channel><item><title>Company results</title><link>https://example.com/news/1</link><pubDate>Fri, 04 Sep 2026 09:00:00 +0900</pubDate></item></channel></rss>';
+  '<rss><channel><item><title>Company results</title><link>https://www.federalreserve.gov/newsevents/pressreleases/test.htm</link><pubDate>Fri, 04 Sep 2026 09:00:00 +0900</pubDate></item></channel></rss>';
 const bytes = (value: string) => new TextEncoder().encode(value);
+const articleTransport: FeedTransport = async () => ({
+  status: 200,
+  bytes: bytes('<html><main id="article"><p>Official full article.</p></main></html>'),
+  etag: null,
+  lastModified: null,
+});
 
 function cache() {
   const saved = new Map<string, FeedCheckpoint>();
@@ -52,12 +59,24 @@ describe('market news collection boundaries', () => {
         etag: null,
         lastModified: null,
       });
-    const first = new PublisherNewsRssConnector(['etoday-market'], 1000, store, transport);
+    const first = new PublisherNewsRssConnector(
+      ['fed-press'],
+      1000,
+      store,
+      transport,
+      articleTransport,
+    );
     expect(await first.discoverLinks()).toHaveLength(1);
     expect(store.save).not.toHaveBeenCalled();
     await first.commitFeedCheckpoints();
     expect(store.save).toHaveBeenCalledTimes(1);
-    const restarted = new PublisherNewsRssConnector(['etoday-market'], 1000, store, transport);
+    const restarted = new PublisherNewsRssConnector(
+      ['fed-press'],
+      1000,
+      store,
+      transport,
+      articleTransport,
+    );
     expect(await restarted.discoverLinks()).toEqual([]);
     expect(transport.mock.calls[1]?.[3]).toMatchObject({
       'If-None-Match': '"v1"',
@@ -90,10 +109,11 @@ describe('market news collection boundaries', () => {
         lastModified: null,
       });
     const adapter = new PublisherNewsRssConnector(
-      ['etoday-market', 'etoday-finance'],
+      ['fed-press', 'fed-speeches'],
       1000,
       store,
       transport,
+      articleTransport,
     );
     expect(await adapter.discoverLinks()).toHaveLength(2);
     expect(adapter.discoveryFailureCount).toBe(1);
@@ -101,12 +121,12 @@ describe('market news collection boundaries', () => {
     expect(store.save).toHaveBeenCalledTimes(1);
     expect(store.save).toHaveBeenCalledWith(
       'NEWS_RSS',
-      expect.stringContaining('market_news'),
+      expect.stringContaining('press_all'),
       expect.objectContaining({ etag: '"healthy"' }),
     );
     expect(store.recordFailure).toHaveBeenCalledWith(
       'NEWS_RSS',
-      expect.stringContaining('finance_news'),
+      expect.stringContaining('speeches_and_testimony'),
       expect.stringContaining('1 malformed'),
       expect.any(Date),
     );
@@ -124,7 +144,13 @@ describe('market news collection boundaries', () => {
       etag: '"truncated"',
       lastModified: null,
     });
-    const capped = new PublisherNewsRssConnector(['etoday-market'], 1000, store, transport);
+    const capped = new PublisherNewsRssConnector(
+      ['fed-press'],
+      1000,
+      store,
+      transport,
+      articleTransport,
+    );
     expect(await capped.discoverLinks()).toHaveLength(500);
     await capped.commitFeedCheckpoints();
     expect(store.save).toHaveBeenCalledTimes(1);
@@ -133,8 +159,16 @@ describe('market news collection boundaries', () => {
 
   it('parses IR entries independently and preserves date-only fields without a fabricated publication instant', async () => {
     const parsed = parseIrRssFeed(
-      'https://example.com/feed',
+      NEWS_IR_SOURCE_PROFILES['samsung-global'].url,
       xml
+        .replace(
+          'https://www.federalreserve.gov/newsevents/pressreleases/test.htm',
+          'https://news.samsung.com/global/test',
+        )
+        .replace(
+          '</item>',
+          '<content:encoded><![CDATA[<p>Full newsroom article.</p>]]></content:encoded></item>',
+        )
         .replace('Fri, 04 Sep 2026 09:00:00 +0900', '2026-09-04')
         .replace('</channel>', '<item><title>Bad item</title></item></channel>'),
     );
@@ -142,9 +176,9 @@ describe('market news collection boundaries', () => {
     expect(parsed.skippedItems).toBe(1);
     expect(parsed.candidates[0]).toMatchObject({
       publishedAt: null,
-      rightsMode: RightsMode.OFFICIAL_PUBLIC_DATA,
+      rightsMode: RightsMode.PRIVATE_DISPLAY_ONLY,
       sourceKind: 'COMPANY_IR',
-      sourcePolicy: { aiAllowed: 'UNKNOWN', notifyAllowed: false },
+      sourcePolicy: { aiAllowed: true, notifyAllowed: false },
       metadata: { originalPublishedAt: '2026-09-04' },
     });
     const transport = jest
@@ -152,7 +186,7 @@ describe('market news collection boundaries', () => {
       .mockRejectedValue(new Error('failed'));
     const store = cache();
     const adapter = new RegisteredIrFeedConnector(
-      ['https://example.com/feed'],
+      [NEWS_IR_SOURCE_PROFILES['samsung-global'].url],
       1000,
       store,
       transport,

@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { RightsMode } from '@orsem/contracts';
-import { NewsItemEntity, SourceItemEntity } from '@orsem/database';
+import { NewsArticleContentEntity, NewsItemEntity, SourceItemEntity } from '@orsem/database';
 import { DataSource } from 'typeorm';
 import {
   LocalNewsTranslationClient,
@@ -29,7 +29,17 @@ const source = (): SourceItemEntity =>
     title: 'NVIDIA (NVDA) reports revenue growth',
     rawHash: 'a'.repeat(64),
     rightsMode: RightsMode.OFFICIAL_PUBLIC_DATA,
-    sourcePolicyJson: { aiAllowed: true },
+    sourcePolicyJson: {
+      rightsMode: RightsMode.OFFICIAL_PUBLIC_DATA,
+      aiAllowed: true,
+      fullTextStorageAllowed: true,
+      publicRedistributionAllowed: true,
+      displayAllowed: true,
+      metadataStorageAllowed: true,
+      notifyAllowed: false,
+      policyUrl: 'https://example.com/policy',
+      checkedAt: '2026-09-05',
+    },
     url: 'https://example.com/news',
     provenanceUrl: 'https://example.com/news',
     firstObservedAt: now,
@@ -132,7 +142,7 @@ describe('local news translation boundaries', () => {
       translationInput(
         Object.assign(source(), { rightsMode: RightsMode.STORE_METADATA_ONLY }),
         news(),
-      )?.description,
+      ),
     ).toBeNull();
   });
   it('uses the local native schema API with redirects and thinking disabled and isolated source text', async () => {
@@ -246,6 +256,31 @@ describe('news translation retry and persistence', () => {
       query[name] = jest.fn().mockReturnValue(query);
     query.getRawMany = jest.fn().mockResolvedValue([{ id: row.id }]);
     query.execute = jest.fn().mockResolvedValue({ affected });
+    const contentQuery: Record<string, jest.Mock> = {};
+    for (const name of [
+      'select',
+      'innerJoin',
+      'where',
+      'andWhere',
+      'orderBy',
+      'addOrderBy',
+      'limit',
+    ])
+      contentQuery[name] = jest.fn().mockReturnValue(contentQuery);
+    contentQuery.getRawMany = jest.fn().mockResolvedValue([]);
+    const content = Object.assign(new NewsArticleContentEntity(), {
+      sourceItemId: row.id,
+      status: 'AVAILABLE',
+      language: 'en',
+      contentHash: 'c'.repeat(64),
+      blocksJson: [{ type: 'PARAGRAPH', text: 'Revenue increased 12%.' }],
+      rightsPolicyJson: row.sourcePolicyJson,
+      translationJson: null,
+    });
+    const contentRepository = {
+      findOne: jest.fn().mockResolvedValue(content),
+      createQueryBuilder: () => contentQuery,
+    };
     const repository = {
       createQueryBuilder: () => query,
       findOne: jest.fn().mockResolvedValue(row),
@@ -253,10 +288,15 @@ describe('news translation retry and persistence', () => {
     };
     const manager = {
       getRepository: (entity: unknown) =>
-        entity === SourceItemEntity ? repository : { findOne: jest.fn().mockResolvedValue(news()) },
+        entity === SourceItemEntity
+          ? repository
+          : entity === NewsArticleContentEntity
+            ? contentRepository
+            : { findOne: jest.fn().mockResolvedValue(news()) },
     };
     const dataSource = {
-      getRepository: () => repository,
+      getRepository: (entity: unknown) =>
+        entity === SourceItemEntity ? repository : contentRepository,
       transaction: async (callback: (value: typeof manager) => unknown) => callback(manager),
     } as unknown as DataSource;
     const client = {
@@ -305,6 +345,32 @@ describe('news translation retry and persistence', () => {
     const test = harness(source(), 0);
     expect(await test.service.translateBatch()).toMatchObject({ completed: 0, stale: 1 });
   });
+  it('retries title-only once when translating the description fails', async () => {
+    const test = harness();
+    test.client.translate
+      .mockRejectedValueOnce(new Error('description translation failed'))
+      .mockResolvedValueOnce({
+        title: 'NVIDIA(NVDA) 매출 성장 발표',
+        description: null,
+      });
+    expect(await test.service.translateBatch()).toMatchObject({ completed: 1, failed: 0 });
+    expect(test.client.translate).toHaveBeenCalledTimes(2);
+    expect(test.client.translate).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        title: 'NVIDIA (NVDA) reports revenue growth',
+        description: null,
+        tickers: ['NVDA'],
+      }),
+    );
+    expect(test.query.set).toHaveBeenCalledWith({
+      translationJson: expect.objectContaining({
+        status: 'COMPLETED',
+        title: 'NVIDIA(NVDA) 매출 성장 발표',
+        description: null,
+      }),
+    });
+  });
   it('backs off for 24 hours after the third failed attempt without exposing response errors', async () => {
     const row = Object.assign(source(), {
       translationJson: {
@@ -323,15 +389,14 @@ describe('news translation retry and persistence', () => {
     expect(Date.parse(saved.nextAttemptAt as string) - Date.now()).toBeGreaterThan(
       23 * 60 * 60_000,
     );
+    expect(test.client.translate).toHaveBeenCalledTimes(2);
     expect(JSON.stringify(saved)).not.toContain('secret raw response');
   });
-  it('marks restricted/non-English items skipped without invoking the model', async () => {
+  it('fails closed before claiming restricted items or invoking the model', async () => {
     const test = harness(Object.assign(source(), { rightsMode: RightsMode.LINK_ONLY }));
-    expect(await test.service.translateBatch()).toMatchObject({ skipped: 1 });
+    expect(await test.service.translateBatch()).toMatchObject({ skipped: 0 });
     expect(test.client.translate).not.toHaveBeenCalled();
-    expect(test.update).toHaveBeenCalledWith(expect.anything(), {
-      translationJson: expect.objectContaining({ status: 'SKIPPED' }),
-    });
+    expect(test.update).not.toHaveBeenCalled();
   });
   it('registers one minute schedule and removes it when translation is disabled', async () => {
     const queue = () =>

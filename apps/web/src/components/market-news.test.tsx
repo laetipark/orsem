@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 import type { NewsTranslation, SourceFreshness, SourceItem } from '../types';
 import { MarketNewsList, safeNewsUrl, summarizeNewsFreshness } from './market-news';
@@ -17,6 +18,10 @@ function newsItem(patch: Partial<SourceItem> = {}): SourceItem {
     id: 'news-1',
     articleId: 'article-1',
     sourceCount: 2,
+    contentState: 'AVAILABLE',
+    contentSourceId: 'source-1',
+    contentLanguage: 'en',
+    translated: true,
     sourceKind: 'INDEPENDENT_MEDIA',
     publisherId: 'publisher-one',
     marketRegion: 'unknown',
@@ -55,7 +60,11 @@ function newsItem(patch: Partial<SourceItem> = {}): SourceItem {
 
 describe('market news presentation', () => {
   it('shows a verified translation, unknown region, and each safe grouped source', () => {
-    const { container } = render(<MarketNewsList items={[newsItem()]} />);
+    const { container } = render(
+      <MemoryRouter>
+        <MarketNewsList items={[newsItem()]} />
+      </MemoryRouter>,
+    );
 
     expect(screen.getByText(translation.title)).toHaveAttribute('lang', 'ko');
     expect(screen.getByText(translation.description!)).toHaveAttribute('lang', 'ko');
@@ -75,36 +84,44 @@ describe('market news presentation', () => {
       'href',
       'https://publisher-two.example/story',
     );
+    expect(screen.getByRole('link', { name: /뉴스 상세 보기/ })).toHaveAttribute(
+      'href',
+      '/news/article-1',
+    );
     expect(container.querySelector('a a')).toBeNull();
   });
 
   it('does not turn credentialed or non-http source values into links', () => {
     const { container } = render(
-      <MarketNewsList
-        items={[
-          newsItem({
-            url: 'javascript:alert(1)',
-            sources: [
-              {
-                id: 'unsafe-1',
-                source: 'NEWS_RSS',
-                sourceName: '위험한 링크',
-                url: 'https://user:password@example.test/story',
-              },
-              {
-                id: 'safe-1',
-                source: 'NEWS_RSS',
-                sourceName: '검증된 링크',
-                url: 'https://safe.example/story',
-              },
-            ],
-          }),
-        ]}
-      />,
+      <MemoryRouter>
+        <MarketNewsList
+          items={[
+            newsItem({
+              url: 'javascript:alert(1)',
+              sources: [
+                {
+                  id: 'unsafe-1',
+                  source: 'NEWS_RSS',
+                  sourceName: '위험한 링크',
+                  url: 'https://user:password@example.test/story',
+                },
+                {
+                  id: 'safe-1',
+                  source: 'NEWS_RSS',
+                  sourceName: '검증된 링크',
+                  url: 'https://safe.example/story',
+                },
+              ],
+            }),
+          ]}
+        />
+      </MemoryRouter>,
     );
 
-    expect(screen.queryByRole('link', { name: /원문 새 창에서 보기/ })).not.toBeInTheDocument();
-    expect(screen.getByText('안전한 원문 링크가 없습니다.')).toHaveClass('sr-only');
+    expect(screen.getByRole('link', { name: /뉴스 상세 보기/ })).toHaveAttribute(
+      'href',
+      '/news/article-1',
+    );
     expect(container.querySelector('a[href^="javascript:"], a[href*="password"]')).toBeNull();
     fireEvent.click(screen.getByText('연결된 원문 출처 1개'));
     expect(screen.getByRole('link', { name: /검증된 링크/ })).toHaveAttribute(
@@ -135,20 +152,21 @@ describe('news freshness summary', () => {
   it('includes official collection sources without hiding a healthy feed behind optional sources', () => {
     const result = summarizeNewsFreshness([
       source('opendart', 'OFFICIAL', 'UNCONFIGURED', null),
-      source('news-rss', 'NEWS', 'HEALTHY', '2026-09-05T00:00:00.000Z'),
+      source('news_rss', 'NEWS', 'HEALTHY', '2026-09-05T00:00:00.000Z'),
       source('naver', 'NEWS', 'FAILED', null),
+      source('ai', 'OFFICIAL', 'FAILED', null),
       source('gold', 'MARKET', 'FAILED', null),
     ]);
 
-    expect(result.sources.map((item) => item.id)).toEqual(['opendart', 'news-rss']);
+    expect(result.sources.map((item) => item.id)).toEqual(['news_rss']);
     expect(result.status).toBe('HEALTHY');
     expect(result.latest).toBe('2026-09-05T00:00:00.000Z');
   });
 
   it('reports unconfigured and disabled states when no collection source is healthy', () => {
-    expect(
-      summarizeNewsFreshness([source('opendart', 'OFFICIAL', 'UNCONFIGURED', null)]).status,
-    ).toBe('UNCONFIGURED');
+    expect(summarizeNewsFreshness([source('ir', 'OFFICIAL', 'UNCONFIGURED', null)]).status).toBe(
+      'UNCONFIGURED',
+    );
     expect(summarizeNewsFreshness([source('ir', 'OFFICIAL', 'DISABLED', null)]).status).toBe(
       'DISABLED',
     );

@@ -40,14 +40,15 @@
 
 - `POST /auth/login`, `POST /auth/logout`, `GET /auth/session`
 - `GET /dashboard`
-- `GET /search?q=...&limit=5` — 저장된 종목·뉴스·국내외 공시 메타데이터 통합 검색
+- `GET /search?q=...&limit=5` — 저장된 종목, 사이트 본문 준비가 끝난 뉴스, 국내외 공시 메타데이터 통합 검색
 - `GET /events`, `GET /events/:id`
 - `GET /filings`, `GET /filings/:id` — 메타데이터
 - `GET /companies`, `GET /companies/:id`, `GET /companies/:id/timeline`
 - `GET /companies/:id/live-price` — 캐시에 있는 최신 토스 시세와 신선도 상태 반환
-- `GET /news`, `GET /news/:id`
+- `GET /news` — 본문 이용이 승인되고 영문 번역까지 완료된 뉴스 목록
+- `GET /news/:id` — 정화된 원문 블록과 선택적 한국어 전문 번역을 포함한 사이트 내부 상세 응답
 - `GET|POST /watchlist`, `PATCH|DELETE /watchlist/:id`
-- `GET|POST /ir-sources`, `PATCH|DELETE /ir-sources/:id`
+- `GET|POST /ir-sources`, `PATCH|DELETE /ir-sources/:id` — 쓰기는 코드에 등록된 정확한 콘텐츠 프로필만 허용
 - `GET /reviews`, `POST /reviews/:id/resolve`
 - `GET /operations/sources`, `GET /operations/runs`, `GET /operations/queues`
 - `POST /operations/backfills`
@@ -82,13 +83,13 @@
 각 항목은 `id`, `type=COMPANY|NEWS|FILING`, `title`, `subtitle`, `url`, `external`, `companyId`, `source`, `rightsMode`, `publishedAt`, `rceptDate`, `firstObservedAt`을 포함합니다. 부가 정보인 `companyId`, `source`, `rightsMode`, 세 가지 날짜·시각 필드는 값이 없으면 null을 사용합니다.
 
 - 종목은 기업 식별자, 한글·영문명, 별칭으로 검색하고 `/companies/:id`로 연결합니다.
-- 뉴스는 제목과 연결된 기업으로 검색하고 저장된 원문 URL로 연결합니다. SEC 공시는 뉴스 그룹에서 제외합니다.
+- 뉴스는 제목과 연결된 기업으로 검색하고 `/news/:id`의 사이트 내부 상세 화면으로 연결합니다. 본문 준비가 끝나지 않은 항목과 SEC 공시는 뉴스 그룹에서 제외합니다.
 - 뉴스는 현재 원문·출처·권리 조건에 맞는 완료된 한국어 번역 제목으로도 검색합니다. 조회가 번역 작업을 실행하지는 않습니다.
 - 공시는 제목, 접수번호, 기업으로 검색합니다. 국내 공시는 DART, 미국 공시는 SEC의 공식 원문 URL로 연결합니다.
 
-검색 응답에는 메타데이터만 포함하며 기사·공시 본문을 반환하지 않습니다. `NO_REDISTRIBUTION` 항목, 자격 증명이 포함된 URL, HTTP(S)가 아닌 URL은 제외합니다. 웹의 종목·뉴스·공시 탭은 받은 결과를 분류해 보여주며 API에 `type` 필터를 전달하지 않습니다.
+검색 응답에는 메타데이터만 포함하며 기사·공시 본문을 반환하지 않습니다. 뉴스는 콘텐츠 정책, 본문 추출, 영문 제목·본문 번역 게이트를 모두 통과한 항목만 포함합니다. `NO_REDISTRIBUTION` 항목, 자격 증명이 포함된 URL, HTTP(S)가 아닌 URL은 제외합니다. 웹의 종목·뉴스·공시 탭은 받은 결과를 분류해 보여주며 API에 `type` 필터를 전달하지 않습니다.
 
-뉴스의 `SourceItem`, `EventSummary`, `SourceEvidence`, `SearchItem`에는 `translation?: { language: 'ko', title, description, translatedAt, provider: 'LOCAL', model } | null`이 추가됩니다. 원래 `title`·`summary`·`description`은 덮어쓰지 않습니다. `description`은 이용 권리상 허용된 요약이 있을 때만 제공하며 `SourceEvidence.excerpt`의 권리 안내와 별개입니다. DART·SEC 및 권리 조건을 만족하지 못하는 항목은 번역을 반환하지 않습니다. [번역 응답 계약](NEWS_TRANSLATION.md#api와-검색)을 참고하세요.
+뉴스의 `SourceItem`에는 `contentState`, `contentSourceId`, `contentLanguage`, `translated`와 `translation?: { language: 'ko', title, description, translatedAt, provider: 'LOCAL', model } | null`이 포함됩니다. `GET /news/:id`는 여기에 `content: { sourceItemId, original: { language, blocks, fetchedAt }, translation }`을 추가합니다. 본문 `blocks`는 `PARAGRAPH`, `HEADING`, `LIST`, `QUOTE`의 일반 텍스트 구조이며 실행 가능한 HTML이나 내부 실패 정보는 반환하지 않습니다. 원래 제목·본문·출처는 덮어쓰지 않습니다. [번역 응답 계약](NEWS_TRANSLATION.md#api와-검색)을 참고하세요.
 
 ## Discord 서비스
 

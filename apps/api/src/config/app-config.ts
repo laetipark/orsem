@@ -108,9 +108,8 @@ const schema = z
     secUserAgent: optionalSecUserAgent,
     alpacaApiKey: optionalString,
     alpacaApiSecret: optionalString,
-    // 자격증명 없이 검색하는 worker의 기본값과 맞춥니다.
-    // GDELT를 사용하지 않는 배포 환경은 GDELT_ENABLED=false를 명시해야 합니다.
-    gdeltEnabled: booleanFromEnv.default(true),
+    // 승인된 게시자 정책이 없으므로 환경 누락만으로 GDELT를 활성화하지 않습니다.
+    gdeltEnabled: booleanFromEnv.default(false),
     gdeltNewsDomains: z.preprocess(
       (value) =>
         typeof value === 'string'

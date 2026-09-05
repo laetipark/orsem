@@ -43,19 +43,19 @@ OpenDART 재검증과 UTC 이관, 현재 검토 수치 및 CSV 내보내기는 [
 
 1. OpenDART 키를 추가하고 기업 코드 동기화를 초기화합니다.
 2. 최초 관심 목록은 비워 둡니다. 화면에서 P1/P2 보유·관찰 기업을 추가합니다.
-3. 일봉·분봉 차트와 현재가는 [토스 설정 절차](docs/OPERATIONS.md#toss-securities-chart-setup)를 따릅니다. 가격 공급자는 토스만 사용합니다. SEC 공시, Alpaca 기업 식별 정보, 선택적인 뉴스 소스는 필요에 따라 각각 설정합니다.
-4. 기업 IR의 RSS/Atom 또는 공식 URL을 명시적으로 등록합니다. 광범위한 IR 크롤러는 제공하지 않습니다.
+3. 일봉·분봉 차트와 현재가는 [토스 설정 절차](docs/OPERATIONS.md#toss-securities-chart-setup)를 따릅니다. 가격 공급자는 토스만 사용합니다. SEC 공시, Alpaca 기업 식별 정보, 검토된 뉴스 소스는 필요에 따라 각각 설정합니다.
+4. 뉴스 본문은 코드에 이용 조건과 정확한 호스트가 등록된 Samsung Global, Federal Reserve, BLS에서만 수집합니다. 임의의 기업 IR URL은 활성화하지 않습니다.
 5. 파서 테스트 데이터를 검증하고 알림 없는 과거 수집을 실행한 뒤 실시간 알림 전송을 활성화합니다.
 
 기업 페이지가 보이는 동안 선택한 차트와 현재가를 2초마다 조회합니다. 분봉 화면은 이벤트 수익률에 필요한 일봉 데이터도 갱신합니다. worker가 토스 공식 봉과 실시간 시세를 수집하며, 시각과 신선도 상태를 통해 수신 시점을 확인할 수 있습니다.
 
-[아키텍처](docs/ARCHITECTURE.md), [API](docs/API.md), [뉴스 수집과 NAVER 분리](docs/NEWS_COLLECTION.md), [소스 어댑터](docs/SOURCES.md), [데이터 이용 권리](docs/RIGHTS.md), [보안](docs/SECURITY.md), [카카오 로그인 설정](docs/KAKAO_LOGIN.md), [서비스별 자격 증명 관리](docs/CREDENTIALS.md), [테스트](docs/TESTING.md), [운영](docs/OPERATIONS.md), [배포](docs/DEPLOYMENT.md) 문서를 참고하세요.
+[아키텍처](docs/ARCHITECTURE.md), [API](docs/API.md), [사이트 콘텐츠용 뉴스 수집](docs/NEWS_COLLECTION.md), [소스 어댑터](docs/SOURCES.md), [데이터 이용 권리](docs/RIGHTS.md), [보안](docs/SECURITY.md), [카카오 로그인 설정](docs/KAKAO_LOGIN.md), [서비스별 자격 증명 관리](docs/CREDENTIALS.md), [테스트](docs/TESTING.md), [운영](docs/OPERATIONS.md), [배포](docs/DEPLOYMENT.md) 문서를 참고하세요.
 
 ## 화면과 통합 검색
 
-상단 헤더에서 오늘·이벤트·관심기업 화면으로 이동하고, 통합 검색으로 수집된 종목·뉴스·국내외 공시 메타데이터를 찾습니다. 종목은 기업 관측 화면으로, 뉴스와 공시는 원문으로 연결합니다. 관리자용 검토함과 운영 메뉴는 하단에 표시합니다. 조회 회원에게는 관리자 메뉴를 표시하지 않습니다. [웹 화면 안내](apps/web/README.md)와 [검색 API 계약](docs/API.md#통합-검색)을 참고하세요.
+상단 헤더에서 오늘·이벤트·관심기업 화면으로 이동하고, 통합 검색으로 수집된 종목·뉴스·국내외 공시 메타데이터를 찾습니다. 종목은 기업 관측 화면으로, 콘텐츠 이용이 승인된 뉴스는 사이트 내부 상세 화면으로, 공시는 공식 원문으로 연결합니다. 관리자용 검토함과 운영 메뉴는 하단에 표시합니다. 조회 회원에게는 관리자 메뉴를 표시하지 않습니다. [웹 화면 안내](apps/web/README.md)와 [검색 API 계약](docs/API.md#통합-검색)을 참고하세요.
 
-선택적인 [뉴스 자동 한국어 번역](docs/NEWS_TRANSLATION.md)은 로컬 Ollama로 수집된 영문 제목·허용 요약을 번역합니다. 외부 번역 API 이용료 없이 서버 자원을 사용하며, 원문과 출처를 보존하고 자동 번역 표시를 붙입니다. 기사 전체를 크롤링하지 않고 DART·SEC 공시는 번역 대상에서 제외합니다.
+선택적인 [뉴스 자동 한국어 번역](docs/NEWS_TRANSLATION.md)은 로컬 Ollama로 이용이 승인된 영문 제목과 본문 전체를 번역합니다. 원문과 출처를 보존하고 자동 번역 표시를 붙입니다. 제목과 본문 번역이 모두 현재 원문 해시와 일치해야 사이트 뉴스에 나타나며 DART·SEC 공시는 번역 대상에서 제외합니다.
 
 ## 검증
 

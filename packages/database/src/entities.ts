@@ -32,6 +32,7 @@ import type {
   WatchPriority,
   NewsSourceKind,
   NewsSourcePolicy,
+  NewsContentBlock,
 } from '@orsem/contracts';
 import { numericStringTransformer } from './transformers';
 import { DISCLOSURE_ENTITIES } from './disclosure-entities';
@@ -249,6 +250,55 @@ export class NewsArticleEntity extends EntityBase {
   @Column({ name: 'url_hash', type: 'char', length: 64 }) urlHash!: string;
   @Column({ name: 'sort_at', ...instantColumn }) sortAt!: Date;
   @Column({ name: 'first_observed_at', ...instantColumn }) firstObservedAt!: Date;
+}
+
+export interface StoredNewsContentTranslation {
+  version: 1;
+  status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'SKIPPED';
+  inputHash: string;
+  provider: 'LOCAL';
+  model: string;
+  sourceLanguage: string;
+  targetLanguage: 'ko';
+  blocks: NewsContentBlock[] | null;
+  attemptedAt: string;
+  translatedAt: string | null;
+  attempts: number;
+  nextAttemptAt: string | null;
+  failureCode?:
+    | 'TIMEOUT'
+    | 'OUTPUT_TRUNCATED'
+    | 'INVALID_JSON'
+    | 'VALIDATION'
+    | 'LOCAL_HTTP'
+    | 'UNKNOWN'
+    | null;
+}
+
+@Entity({ name: 'news_article_contents' })
+@Unique('ux_news_article_content_source', ['sourceItemId'])
+@Index('ix_news_article_contents_status_retry', ['status', 'nextAttemptAt'])
+export class NewsArticleContentEntity extends EntityBase {
+  @Column({ name: 'source_item_id', type: 'char', length: 36 }) sourceItemId!: string;
+  @Column({ type: 'varchar', length: 16 }) status!: 'PENDING' | 'AVAILABLE' | 'FAILED';
+  @Column({ type: 'varchar', length: 35, nullable: true }) language!: string | null;
+  @Column({ name: 'blocks_json', type: 'json', nullable: true }) blocksJson!:
+    NewsContentBlock[] | null;
+  @Column({ name: 'content_hash', type: 'char', length: 64, nullable: true }) contentHash!:
+    string | null;
+  @Column({ name: 'extractor_version', type: 'int', unsigned: true, default: 1 })
+  extractorVersion!: number;
+  @Column({ name: 'fetched_at', ...instantColumn, nullable: true }) fetchedAt!: Date | null;
+  @Column({ name: 'attempted_at', ...instantColumn, nullable: true }) attemptedAt!: Date | null;
+  @Column({ type: 'int', unsigned: true, default: 0 }) attempts!: number;
+  @Column({ name: 'next_attempt_at', ...instantColumn, nullable: true })
+  nextAttemptAt!: Date | null;
+  @Column({ name: 'failure_code', type: 'varchar', length: 64, nullable: true }) failureCode!:
+    string | null;
+  @Column({ name: 'rights_policy_json', type: 'json' })
+  rightsPolicyJson!: NewsSourcePolicy;
+  @Column({ name: 'translation_json', type: 'json', nullable: true })
+  translationJson!: StoredNewsContentTranslation | null;
 }
 
 @Entity({ name: 'news_items' })
@@ -897,6 +947,7 @@ export const ENTITIES = [
   WatchlistItemEntity,
   SourceItemEntity,
   NewsArticleEntity,
+  NewsArticleContentEntity,
   NewsItemEntity,
   PriceBarEntity,
   IrSourceEntity,

@@ -1,9 +1,19 @@
-import { ConnectorStatus, ProcessingStatus, RightsMode } from '@orsem/contracts';
+import { createHash } from 'node:crypto';
+import {
+  canonicalNewsUrl,
+  ConnectorStatus,
+  NEWS_IR_SOURCE_PROFILES,
+  NEWS_RSS_FEEDS,
+  ProcessingStatus,
+  RightsMode,
+} from '@orsem/contracts';
 import {
   ConnectorHealthEntity,
   IngestionRunEntity,
+  IrSourceEntity,
   NewsItemEntity,
   NewsArticleEntity,
+  NewsArticleContentEntity,
   SourceCheckpointEntity,
   SourceItemEntity,
 } from '@orsem/database';
@@ -13,8 +23,12 @@ import type { CompatibleClassifierClient } from '../src/ai/compatible-classifier
 import { loadWorkerConfig } from '../src/config/worker-config';
 import {
   type FeedTransport,
+  type FeedCheckpointStore,
+  type NewsRssFeedId,
+  parseIrRssFeed,
   parseNewsRssFeed,
   PublisherNewsRssConnector,
+  RegisteredIrFeedConnector,
 } from '../src/connectors/connector-adapters';
 import { ConnectorHealthService } from '../src/connectors/connector-health.service';
 import { NewsDiscoveryService } from '../src/connectors/news-discovery.service';
@@ -22,13 +36,31 @@ import type { PushFanoutService } from '../src/push/push-fanout.service';
 import { discoverLinksJobSchema } from '../src/queues/job-data';
 import { WorkerSchedulerService } from '../src/scheduling/worker-scheduler.service';
 
-const config = loadWorkerConfig({ NEWS_RSS_FEEDS: 'etoday-market', GDELT_ENABLED: 'false' });
+const config = loadWorkerConfig({ NEWS_RSS_FEEDS: 'fed-press', GDELT_ENABLED: 'false' });
 const job = discoverLinksJobSchema.parse({ connectors: ['NEWS_RSS'], reason: 'SCHEDULED' });
 const rss = (items: string) => `<rss version="2.0"><channel>${items}</channel></rss>`;
 const article = (title = '시장 &amp; 기업') => `<item><title>${title}</title>
-  <link>https://www.etoday.co.kr/news/view/123?x=1&amp;y=2</link><guid>source-guid</guid>
+  <link>https://www.federalreserve.gov/newsevents/pressreleases/123?x=1&amp;y=2</link><guid>source-guid</guid>
   <pubDate>Fri, 04 Sep 2026 09:15:00 +0900</pubDate>
   <description>Do not store this summary.</description><content>Do not store this body.</content></item>`;
+
+function withOfficialContent(feedId: NewsRssFeedId, parsed: ReturnType<typeof parseNewsRssFeed>) {
+  return {
+    ...parsed,
+    candidates: parsed.candidates.map((candidate) => ({
+      ...candidate,
+      content: {
+        status: 'AVAILABLE' as const,
+        blocks: [{ type: 'PARAGRAPH' as const, text: 'Official full article.' }],
+        contentHash: 'c'.repeat(64),
+        language: 'en',
+        fetchedAt: '2026-09-05T00:00:00.000Z',
+        failureCode: null,
+        rightsPolicy: NEWS_RSS_FEEDS[feedId].policy,
+      },
+    })),
+  };
+}
 
 function memoryDatabase() {
   const collections = new Map<unknown, Record<string, unknown>[]>();
@@ -110,9 +142,9 @@ afterEach(() => jest.restoreAllMocks());
 describe('allowlisted publisher RSS', () => {
   it('is opt-in, deduplicates feed IDs and rejects arbitrary IDs or URLs', async () => {
     expect(loadWorkerConfig({}).newsRssFeeds).toEqual([]);
-    expect(
-      loadWorkerConfig({ NEWS_RSS_FEEDS: ' etoday-market,etoday-market ' }).newsRssFeeds,
-    ).toEqual(['etoday-market']);
+    expect(loadWorkerConfig({ NEWS_RSS_FEEDS: ' fed-press,fed-press ' }).newsRssFeeds).toEqual([
+      'fed-press',
+    ]);
     expect(() => loadWorkerConfig({ NEWS_RSS_FEEDS: 'https://127.0.0.1/rss' })).toThrow();
     expect(() => loadWorkerConfig({ NEWS_RSS_FEEDS: 'unreviewed-publisher' })).toThrow();
     const adapter = new PublisherNewsRssConnector([], 1000);
@@ -122,25 +154,26 @@ describe('allowlisted publisher RSS', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it('keeps source metadata, UTC publication and rights without summaries or bodies', () => {
-    const { candidates } = parseNewsRssFeed('etoday-market', rss(article()));
+  it('keeps source metadata, UTC publication, rights and a safe feed excerpt', () => {
+    const { candidates } = parseNewsRssFeed('fed-press', rss(article()));
     expect(candidates[0]).toMatchObject({
       connector: 'NEWS_RSS',
       title: '시장 & 기업',
       publishedAt: '2026-09-04T00:15:00.000Z',
-      url: 'https://www.etoday.co.kr/news/view/123?x=1&y=2',
-      sourceName: '이투데이',
-      rightsMode: RightsMode.STORE_METADATA_ONLY,
+      url: 'https://www.federalreserve.gov/newsevents/pressreleases/123?x=1&y=2',
+      sourceName: 'Federal Reserve',
+      rightsMode: RightsMode.OFFICIAL_PUBLIC_DATA,
       metadata: {
         originalTitle: '시장 &amp; 기업',
         originalGuid: 'source-guid',
         originalPublishedAt: 'Fri, 04 Sep 2026 09:15:00 +0900',
-        marketRegion: 'kr',
-        rightsContext: 'NONCOMMERCIAL_RSS_READER',
-        rightsPolicyUrl: 'https://www.etoday.co.kr/rss/',
+        marketRegion: 'us',
+        rightsContext: 'OFFICIAL_RSS_READER',
+        rightsPolicyUrl: 'https://www.federalreserve.gov/disclaimer.htm',
+        description: 'Do not store this summary.',
       },
     });
-    expect(JSON.stringify(candidates)).not.toMatch(/Do not store|description|content/u);
+    expect(JSON.stringify(candidates)).not.toContain('Do not store this body.');
     expect(candidates[0]?.externalId).toMatch(/^[a-f0-9]{64}$/u);
   });
 
@@ -154,15 +187,15 @@ describe('allowlisted publisher RSS', () => {
         lastModified: null,
       };
     };
-    const adapter = new PublisherNewsRssConnector(['etoday-market'], 1000, undefined, transport);
+    const adapter = new PublisherNewsRssConnector(['fed-press'], 1000, undefined, transport);
 
-    await expect(adapter.fetchFeed('etoday-market')).resolves.toMatchObject({ skippedItems: 0 });
+    await expect(adapter.fetchFeed('fed-press')).resolves.toMatchObject({ skippedItems: 0 });
   });
 
   it('uses URL identity across title/GUID changes and duplicate feed entries', () => {
-    const first = parseNewsRssFeed('etoday-market', rss(article())).candidates[0]!;
+    const first = parseNewsRssFeed('fed-press', rss(article())).candidates[0]!;
     const revised = article('수정한 제목').replace('source-guid', 'different-guid');
-    const parsed = parseNewsRssFeed('etoday-market', rss(revised + article()));
+    const parsed = parseNewsRssFeed('fed-press', rss(revised + article()));
     expect(parsed.candidates).toHaveLength(1);
     expect(parsed.candidates[0]?.externalId).toBe(first.externalId);
     expect(parsed.candidates[0]?.title).toBe('수정한 제목');
@@ -170,7 +203,7 @@ describe('allowlisted publisher RSS', () => {
 
   it('supports Atom links while preserving dates without inventing an instant', () => {
     const parsed = parseNewsRssFeed(
-      'etoday-market',
+      'fed-press',
       `<feed xmlns="http://www.w3.org/2005/Atom"><entry>
       <title>Atom article</title><link href="/news/view/456" rel="alternate"/>
       <id>atom-guid</id><published>2026-09-04</published><summary>not retained</summary></entry></feed>`,
@@ -183,7 +216,7 @@ describe('allowlisted publisher RSS', () => {
 
   it('isolates malformed/private-link items and rejects unsafe XML documents', () => {
     const parsed = parseNewsRssFeed(
-      'etoday-market',
+      'fed-press',
       rss(
         article() +
           '<item><title>No link</title></item>' +
@@ -194,21 +227,19 @@ describe('allowlisted publisher RSS', () => {
     expect(parsed.skippedItems).toBe(2);
     expect(() =>
       parseNewsRssFeed(
-        'etoday-market',
+        'fed-press',
         '<!DOCTYPE rss [<!ENTITY x SYSTEM "file:///etc/passwd">]><rss/>',
       ),
     ).toThrow();
-    expect(() => parseNewsRssFeed('etoday-market', '<html>unavailable</html>')).toThrow();
-    expect(() => parseNewsRssFeed('etoday-market', '<rss><channel></rss>')).toThrow(
-      /malformed XML/u,
-    );
-    expect(() => parseNewsRssFeed('etoday-market', ' '.repeat(5 * 1024 * 1024 + 1))).toThrow(
+    expect(() => parseNewsRssFeed('fed-press', '<html>unavailable</html>')).toThrow();
+    expect(() => parseNewsRssFeed('fed-press', '<rss><channel></rss>')).toThrow(/malformed XML/u);
+    expect(() => parseNewsRssFeed('fed-press', ' '.repeat(5 * 1024 * 1024 + 1))).toThrow(
       /size limit/u,
     );
   });
 
   it('fetches once per feed, never probes on health checks and reports complete failures', async () => {
-    const adapter = new PublisherNewsRssConnector(['etoday-market', 'etoday-market'], 1000);
+    const adapter = new PublisherNewsRssConnector(['fed-press', 'fed-press'], 1000);
     const fetch = jest.spyOn(adapter, 'fetchFeed').mockRejectedValue(new Error('unavailable'));
     await adapter.check();
     expect(fetch).not.toHaveBeenCalled();
@@ -218,23 +249,96 @@ describe('allowlisted publisher RSS', () => {
   });
 
   it('does not report a feed containing only malformed items as successful empty data', async () => {
-    const adapter = new PublisherNewsRssConnector(['etoday-market'], 1000);
+    const adapter = new PublisherNewsRssConnector(['fed-press'], 1000);
     jest
       .spyOn(adapter, 'fetchFeed')
       .mockResolvedValue(
-        parseNewsRssFeed('etoday-market', rss('<item><title>missing link</title></item>')),
+        parseNewsRssFeed('fed-press', rss('<item><title>missing link</title></item>')),
       );
     await expect(adapter.discoverLinks()).rejects.toThrow('1 malformed item(s) skipped');
   });
 });
 
 describe('publisher RSS ingestion', () => {
+  it('clears stale HTTP validators after a content failure so the next poll retries the full feed', async () => {
+    const db = memoryDatabase();
+    const service = new NewsDiscoveryService(db.dataSource, config, jest.fn(), {
+      enqueueNews: jest.fn(),
+    } as unknown as PushFanoutService);
+    const store = (
+      service as unknown as { feedCheckpointStore(): FeedCheckpointStore }
+    ).feedCheckpointStore();
+    const url = NEWS_RSS_FEEDS['fed-press'].url;
+    await store.save('NEWS_RSS', url, {
+      etag: '"current"',
+      lastModified: 'Fri, 04 Sep 2026 00:00:00 GMT',
+      checkedAt: '2026-09-05T00:00:00.000Z',
+      httpStatus: 200,
+    });
+    const previousSuccess = db.rows(SourceCheckpointEntity)[0]!.lastSuccessAt;
+    await store.recordFailure?.(
+      'NEWS_RSS',
+      url,
+      'official article content failure',
+      new Date('2026-09-05T00:15:00.000Z'),
+    );
+    expect(db.rows(SourceCheckpointEntity)[0]).toMatchObject({ lastSuccessAt: previousSuccess });
+    expect(db.rows(SourceCheckpointEntity)[0]!.metadataJson).toMatchObject({
+      etag: null,
+      lastModified: null,
+      status: ConnectorStatus.DEGRADED,
+      lastFailureAt: '2026-09-05T00:15:00.000Z',
+    });
+    await expect(store.load('NEWS_RSS', url)).resolves.toMatchObject({
+      etag: null,
+      lastModified: null,
+    });
+  });
+
+  it('stores only normalized content and creates an explicit pending local translation', async () => {
+    const db = memoryDatabase();
+    const service = new NewsDiscoveryService(db.dataSource, config, jest.fn(), {
+      enqueueNews: jest.fn(),
+    } as unknown as PushFanoutService);
+    const parsed = parseNewsRssFeed('fed-press', rss(article()));
+    const blocks = [{ type: 'PARAGRAPH' as const, text: 'Official body 12%.' }];
+    jest.spyOn(PublisherNewsRssConnector.prototype, 'fetchFeed').mockResolvedValue({
+      ...parsed,
+      candidates: parsed.candidates.map((candidate) => ({
+        ...candidate,
+        content: {
+          status: 'AVAILABLE' as const,
+          blocks,
+          contentHash: 'c'.repeat(64),
+          language: 'en',
+          fetchedAt: '2026-09-05T00:00:00.000Z',
+          failureCode: null,
+          rightsPolicy: NEWS_RSS_FEEDS['fed-press'].policy,
+        },
+      })),
+    });
+    await service.discover(job);
+    expect(db.rows(NewsArticleContentEntity)).toHaveLength(1);
+    expect(db.rows(NewsArticleContentEntity)[0]).toMatchObject({
+      status: 'AVAILABLE',
+      language: 'en',
+      blocksJson: blocks,
+      contentHash: 'c'.repeat(64),
+      translationJson: expect.objectContaining({
+        status: 'PENDING',
+        inputHash: 'c'.repeat(64),
+        blocks: null,
+      }),
+    });
+    expect(JSON.stringify(db.rows(NewsArticleContentEntity))).not.toContain('<p>');
+  });
+
   it('groups one article across feeds while retaining both provenance records and all aggregate feed items', async () => {
     const db = memoryDatabase();
     const push = { enqueueNews: jest.fn() };
     const service = new NewsDiscoveryService(
       db.dataSource,
-      loadWorkerConfig({ NEWS_RSS_FEEDS: 'etoday-market,etoday-finance' }),
+      loadWorkerConfig({ NEWS_RSS_FEEDS: 'fed-press,fed-speeches' }),
       jest.fn(),
       push as unknown as PushFanoutService,
     );
@@ -247,7 +351,10 @@ describe('publisher RSS ingestion', () => {
     jest
       .spyOn(PublisherNewsRssConnector.prototype, 'fetchFeed')
       .mockImplementation(async (id) =>
-        parseNewsRssFeed(id, id === 'etoday-market' ? feed(0, 301) : feed(300, 601)),
+        withOfficialContent(
+          id,
+          parseNewsRssFeed(id, id === 'fed-press' ? feed(0, 301) : feed(300, 601)),
+        ),
       );
     expect(await service.discover(job)).toMatchObject([
       { created: 602, status: ConnectorStatus.HEALTHY },
@@ -274,8 +381,12 @@ describe('publisher RSS ingestion', () => {
     );
     const fetch = jest
       .spyOn(PublisherNewsRssConnector.prototype, 'fetchFeed')
-      .mockResolvedValueOnce(parseNewsRssFeed('etoday-market', rss(article())))
-      .mockResolvedValueOnce(parseNewsRssFeed('etoday-market', rss(article('제목 수정'))));
+      .mockResolvedValueOnce(
+        withOfficialContent('fed-press', parseNewsRssFeed('fed-press', rss(article()))),
+      )
+      .mockResolvedValueOnce(
+        withOfficialContent('fed-press', parseNewsRssFeed('fed-press', rss(article('제목 수정')))),
+      );
     expect(await service.discover(job)).toMatchObject([
       { status: ConnectorStatus.HEALTHY, created: 1 },
     ]);
@@ -289,13 +400,102 @@ describe('publisher RSS ingestion', () => {
     expect(db.rows(SourceItemEntity)[0]).toMatchObject({
       title: '제목 수정',
       firstObservedAt,
-      rightsMode: RightsMode.STORE_METADATA_ONLY,
+      rightsMode: RightsMode.OFFICIAL_PUBLIC_DATA,
       rawObjectUri: null,
-      provenanceUrl: 'https://www.etoday.co.kr/news/view/123?x=1&y=2',
+      provenanceUrl: 'https://www.federalreserve.gov/newsevents/pressreleases/123?x=1&y=2',
     });
-    expect(db.rows(NewsItemEntity)[0]?.description).toBeNull();
+    expect(db.rows(NewsItemEntity)[0]?.description).toBe('Do not store this summary.');
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(push.enqueueNews).not.toHaveBeenCalled();
+  });
+
+  it('reuses the exact Samsung source by canonical URL when its SHA identity changes', async () => {
+    const db = memoryDatabase();
+    const feedUrl = NEWS_IR_SOURCE_PROFILES['samsung-global'].url;
+    const articleUrl = 'https://news.samsung.com/global/example?utm_source=current';
+    const canonicalUrl = canonicalNewsUrl(articleUrl);
+    const articleId = 'samsung-article';
+    const firstObservedAt = new Date('2026-09-01T00:00:00.000Z');
+    const parsed = parseIrRssFeed(
+      feedUrl,
+      rss(`<item><title>Current Samsung title</title>
+        <link>${articleUrl}</link>
+        <pubDate>Fri, 04 Sep 2026 09:15:00 +0000</pubDate>
+        <content:encoded><![CDATA[<p>Current Samsung article.</p>]]></content:encoded>
+      </item>`),
+    );
+    const candidate = parsed.candidates[0]!;
+    const currentCanonicalSha = createHash('sha256')
+      .update(`${feedUrl}:${canonicalUrl}`)
+      .digest('hex');
+    expect(candidate.externalId).toBe(currentCanonicalSha);
+    db.rows(NewsArticleEntity).push({
+      id: articleId,
+      canonicalUrl,
+      urlHash: createHash('sha256').update(canonicalUrl).digest('hex'),
+      sortAt: firstObservedAt,
+      firstObservedAt,
+    });
+    db.rows(SourceItemEntity).push(
+      {
+        id: 'retired-ir-source',
+        newsArticleId: articleId,
+        source: 'IR',
+        externalId: 'retired-feed-identity',
+        rawHash: 'a'.repeat(64),
+        url: 'https://news.samsung.com/global/example?utm_source=retired',
+        title: 'Retired feed row',
+        firstObservedAt: new Date('2026-08-31T00:00:00.000Z'),
+        rawMetadataJson: { feedUrl: 'https://microsoft.example.test/feed.xml' },
+      },
+      {
+        id: 'legacy-samsung-source',
+        newsArticleId: articleId,
+        source: 'IR',
+        externalId: 'legacy-guid-identity',
+        rawHash: 'b'.repeat(64),
+        url: 'https://news.samsung.com/global/example?utm_source=legacy#fragment',
+        title: 'Legacy Samsung title',
+        firstObservedAt,
+        rawMetadataJson: { feedUrl },
+      },
+    );
+    jest
+      .spyOn(RegisteredIrFeedConnector.prototype, 'fetchFeed')
+      .mockResolvedValue(parsed.candidates);
+    const service = new NewsDiscoveryService(
+      db.dataSource,
+      loadWorkerConfig({ IR_FEED_URLS: feedUrl, GDELT_ENABLED: 'false' }),
+      jest.fn(),
+      { enqueueNews: jest.fn() } as unknown as PushFanoutService,
+    );
+
+    await expect(
+      service.discover(discoverLinksJobSchema.parse({ connectors: ['IR'], reason: 'SCHEDULED' })),
+    ).resolves.toMatchObject([{ connector: 'IR', created: 0 }]);
+
+    expect(db.rows(SourceItemEntity)).toHaveLength(2);
+    expect(db.rows(SourceItemEntity).find((row) => row.id === 'retired-ir-source')).toMatchObject({
+      externalId: 'retired-feed-identity',
+      rawHash: 'a'.repeat(64),
+    });
+    const updatedSamsungSource = db
+      .rows(SourceItemEntity)
+      .find((row) => row.id === 'legacy-samsung-source');
+    expect(updatedSamsungSource).toMatchObject({
+      externalId: currentCanonicalSha,
+      firstObservedAt,
+      rawHash: expect.stringMatching(/^[a-f0-9]{64}$/u),
+      title: 'Current Samsung title',
+      url: articleUrl,
+    });
+    expect(updatedSamsungSource?.firstObservedAt).toBe(firstObservedAt);
+    expect(updatedSamsungSource?.rawHash).not.toBe('b'.repeat(64));
+    expect(db.rows(NewsItemEntity)).toHaveLength(1);
+    expect(db.rows(NewsItemEntity)[0]).toMatchObject({
+      sourceItemId: 'legacy-samsung-source',
+      title: 'Current Samsung title',
+    });
   });
 
   it('records malformed-item partial success and all-feed failure without a false success checkpoint', async () => {
@@ -306,7 +506,10 @@ describe('publisher RSS ingestion', () => {
     jest
       .spyOn(PublisherNewsRssConnector.prototype, 'fetchFeed')
       .mockResolvedValueOnce(
-        parseNewsRssFeed('etoday-market', rss(article() + '<item><title>invalid</title></item>')),
+        withOfficialContent(
+          'fed-press',
+          parseNewsRssFeed('fed-press', rss(article() + '<item><title>invalid</title></item>')),
+        ),
       )
       .mockRejectedValueOnce(new Error('unavailable'));
     expect(await service.discover(job)).toMatchObject([
@@ -359,6 +562,84 @@ describe('publisher RSS ingestion', () => {
     expect(db.repository(ConnectorHealthEntity).save).not.toHaveBeenCalledWith(
       expect.objectContaining({ connector: 'news_rss' }),
     );
+  });
+
+  it('degrades IR health and excludes registered rows outside the exact RSS/private contract', async () => {
+    const db = memoryDatabase();
+    const samsungUrl = NEWS_IR_SOURCE_PROFILES['samsung-global'].url;
+    db.rows(IrSourceEntity).push(
+      {
+        id: 'wrong-rights',
+        companyId: 'company-1',
+        sourceType: 'RSS',
+        url: samsungUrl,
+        rightsMode: RightsMode.OFFICIAL_PUBLIC_DATA,
+        isActive: true,
+      },
+      {
+        id: 'wrong-type',
+        companyId: 'company-1',
+        sourceType: 'ATOM',
+        url: samsungUrl,
+        rightsMode: RightsMode.PRIVATE_DISPLAY_ONLY,
+        isActive: true,
+      },
+    );
+    const now = new Date('2026-09-04T00:00:00Z');
+    const classifier = {
+      probeHealth: jest
+        .fn()
+        .mockResolvedValue({ status: ConnectorStatus.UNCONFIGURED, checkedAt: now }),
+    };
+    const service = new ConnectorHealthService(
+      db.dataSource,
+      loadWorkerConfig({ GDELT_ENABLED: 'false' }),
+      jest.fn(),
+      classifier as unknown as CompatibleClassifierClient,
+    );
+
+    const checks = await service.checkAll();
+
+    expect(checks.find((check) => check.connector === 'IR')).toMatchObject({
+      status: ConnectorStatus.DEGRADED,
+      rightsMode: RightsMode.PRIVATE_DISPLAY_ONLY,
+      message:
+        '2 active IR source(s) violate the exact Samsung RSS and PRIVATE_DISPLAY_ONLY contract.',
+      metadata: { invalidRegisteredSources: 2 },
+    });
+  });
+
+  it('keeps incompatible registered IR rows inert during discovery', async () => {
+    const db = memoryDatabase();
+    const row = {
+      id: 'wrong-rights',
+      companyId: 'company-1',
+      sourceType: 'RSS',
+      url: NEWS_IR_SOURCE_PROFILES['samsung-global'].url,
+      rightsMode: RightsMode.OFFICIAL_PUBLIC_DATA,
+      isActive: true,
+      lastCheckedAt: null,
+    };
+    db.rows(IrSourceEntity).push(row);
+    db.repository(IrSourceEntity).update.mockImplementation(
+      async (_criteria: unknown, values: Record<string, unknown>) => {
+        Object.assign(row, values);
+        return { affected: 1 };
+      },
+    );
+    const fetch = jest.fn();
+    const service = new NewsDiscoveryService(
+      db.dataSource,
+      loadWorkerConfig({ GDELT_ENABLED: 'false' }),
+      fetch,
+      { enqueueNews: jest.fn() } as unknown as PushFanoutService,
+    );
+
+    await expect(
+      service.discover(discoverLinksJobSchema.parse({ connectors: ['IR'], reason: 'SCHEDULED' })),
+    ).resolves.toMatchObject([{ connector: 'IR', status: ConnectorStatus.UNCONFIGURED }]);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(row.lastCheckedAt).toBeInstanceOf(Date);
   });
 
   it.each(['legacy', 'hash'] as const)(

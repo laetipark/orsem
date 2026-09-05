@@ -1,6 +1,6 @@
 # Orsem worker
 
-Nest 애플리케이션 컨텍스트에서 실행되는 worker입니다. OpenDART 주기 조회, 변경 불가능한 원문 저장, 결정적 파싱, 조회용 데이터 생성, 커넥터 상태 점검, 이용 권리를 지키는 뉴스 링크 메타데이터 발견, 토스 시장 데이터 수집을 담당합니다. HTTP 포트를 열지 않으며 자동 거래 주문을 생성하지 않습니다.
+Nest 애플리케이션 컨텍스트에서 실행되는 worker입니다. OpenDART 주기 조회, 변경 불가능한 원문 저장, 결정적 파싱, 조회용 데이터 생성, 커넥터 상태 점검, 이용 권리가 확인된 뉴스 본문 수집·번역, 토스 시장 데이터 수집을 담당합니다. HTTP 포트를 열지 않으며 자동 거래 주문을 생성하지 않습니다.
 
 ## 실행 시 동작 계약
 
@@ -17,20 +17,21 @@ Nest 애플리케이션 컨텍스트에서 실행되는 worker입니다. OpenDAR
 
 ## 커넥터 이용 권리
 
-| 커넥터                     | 이용 권리 모드         | 설정                                                                     |
-| -------------------------- | ---------------------- | ------------------------------------------------------------------------ |
-| OpenDART / SEC / 등록된 IR | `OFFICIAL_PUBLIC_DATA` | API 키, 식별 가능한 User-Agent 또는 등록된 피드                          |
-| Alpaca 자산 마스터         | `PRIVATE_DISPLAY_ONLY` | Alpaca 자격 증명, 기업 식별 정보만 제공                                  |
-| Toss Securities            | `PRIVATE_DISPLAY_ONLY` | `TOSS_CREDENTIALS_FILE` 또는 주입한 클라이언트 자격 증명, 허용된 서버 IP |
-| 일반 뉴스 RSS / GDELT      | `STORE_METADATA_ONLY`  | 검증된 RSS 피드, 승인된 언론 도메인의 GDELT 검색                         |
+| 커넥터                | 이용 권리 모드         | 설정                                                                     |
+| --------------------- | ---------------------- | ------------------------------------------------------------------------ |
+| OpenDART / SEC        | `OFFICIAL_PUBLIC_DATA` | API 키 또는 식별 가능한 User-Agent                                       |
+| Samsung Global IR     | `PRIVATE_DISPLAY_ONLY` | 검토된 정확한 Global RSS와 로그인 개인 화면                              |
+| Federal Reserve / BLS | `OFFICIAL_PUBLIC_DATA` | 검토된 공식 RSS와 공식 기사 호스트, 텍스트 본문만                        |
+| Alpaca 자산 마스터    | `PRIVATE_DISPLAY_ONLY` | Alpaca 자격 증명, 기업 식별 정보만 제공                                  |
+| Toss Securities       | `PRIVATE_DISPLAY_ONLY` | `TOSS_CREDENTIALS_FILE` 또는 주입한 클라이언트 자격 증명, 허용된 서버 IP |
 
-설정한 IR 경로는 HTTPS를 사용해야 하며, 리다이렉트와 사설 주소로의 해석을 거절합니다. 발견한 링크도 자격 증명이 없는 HTTP(S) URL로 제한합니다.
+IR과 뉴스 경로는 검토된 콘텐츠 프로필과 정확히 일치해야 하며 HTTPS를 사용해야 합니다. 리디렉트와 사설 주소로의 해석을 거절하고 발견한 링크도 프로필의 공식 호스트로 제한합니다.
 
-정기 발견 작업은 소스 계약을 따릅니다. SEC P1/P2는 기존 커넥터 큐에서 10분마다 조회합니다. 일반 시장 뉴스 RSS와 등록된 IR 피드는 독립 `orsem-market-news` 큐에서 15분마다 조회하며, 관심종목이 없어도 피드 항목을 저장합니다. GDELT는 `GDELT_ENABLED=true`와 검증된 `GDELT_NEWS_DOMAINS`가 모두 있을 때만 30분 일정을 등록합니다. 승인 도메인 목록은 기본적으로 비어 있습니다.
+정기 발견 작업은 소스 계약을 따릅니다. SEC P1/P2는 기존 커넥터 큐에서 10분마다 조회합니다. Samsung Global, Federal Reserve, BLS만 독립 `orsem-market-news` 큐에서 15분마다 조회합니다. 이투데이·Microsoft IR·GDELT와 임의 IR URL은 수집하지 않습니다.
 
 NAVER는 API의 사용자 검색 화면만 사용합니다. 워커는 NAVER 반복 일정과 OpenDART P3 트리거를 만들지 않으며 남아 있는 이전 큐·outbox 작업은 요청 없이 완료합니다. 상태 점검에서도 NAVER 요청을 보내지 않습니다.
 
-RSS는 피드별 HTTP 체크포인트(`RSS_HTTP:<feed URL SHA-256>`)에 ETag·Last-Modified를 보존합니다. 기사 저장이 완료된 뒤에만 검증자를 갱신하고 304는 정상 수집 확인으로 처리합니다. 손상된 항목·잘린 피드는 검증자를 갱신하지 않으며 건강한 다른 피드는 계속 처리합니다. 같은 원문 URL은 `news_articles`로 연결하고 피드별 원제목·GUID·날짜·최초 관측시각은 `source_items`에 보존합니다. 원문 발행일이 없으면 수집 시각을 발행일로 대신 쓰지 않습니다. 기사 본문과 이미지는 수집하지 않으며 새 시장 뉴스·IR로 외부 알림을 생성하지 않습니다.
+RSS는 피드별 HTTP 체크포인트(`RSS_HTTP:<feed URL SHA-256>`)에 ETag·Last-Modified를 보존합니다. 기사와 허용된 본문 저장이 완료된 뒤에만 검증자를 갱신하고 304는 정상 수집 확인으로 처리합니다. 손상된 항목·잘린 피드는 검증자를 갱신하지 않으며 건강한 다른 피드는 계속 처리합니다. 같은 원문 URL은 `news_articles`로 연결하고 피드별 원제목·GUID·날짜·최초 관측시각은 `source_items`에 보존합니다. 정화된 텍스트 본문은 출처별 `news_article_contents`에 저장하며 이미지·영상·실행 가능한 HTML은 저장하지 않습니다. 새 시장 뉴스·IR로 외부 알림을 생성하지 않습니다.
 
 시장 데이터 수집은 토스증권의 `1d`·`1m` 봉만 사용합니다. 소스별 고유 키, 원본 응답·출처, 거래일, 관측 시각을 보존합니다. REST와 WebSocket은 순차적으로 발급·갱신하는 OAuth 토큰을 공유합니다. 실시간 시세는 인증된 웹 API용으로 캐시하며, 유실 가능한 스트림으로 봉 거래량을 만들지 않습니다. 기업 페이지 최초 조회는 한도가 있는 이력을 불러오고, 이후 조회는 최신 페이지를 갱신하며 같은 기업·봉 간격의 작업을 합칩니다. 수집 한도, 2초 브라우저 조회 동작, 설정은 [운영 문서](../../docs/OPERATIONS.md)를 참고하세요.
 
@@ -42,9 +43,9 @@ KRX/Alpaca EOD 작업은 종료되었으며 이전 작업이 큐에 남아 있�
 
 ## 뉴스 한국어 번역
 
-`NEWS_TRANSLATION_ENABLED=true`이면 수집된 영문 뉴스 메타데이터를 로컬 Ollama로 번역합니다. 공시 AI 분류와 독립적인 기능이며 번역도 별도 큐에서 순차 처리합니다. 기본 주기는 1분, 처리 상한은 3건, 요청 제한 시간은 120초입니다. 원문 제목·요약·시각·해시를 덮어쓰지 않고 완료된 한국어 번역을 별도로 저장합니다.
+`NEWS_TRANSLATION_ENABLED=true`이면 허용된 영문 뉴스 제목과 전문을 로컬 Ollama로 번역합니다. 공시 AI 분류와 독립적인 기능이며 번역도 별도 큐에서 순차 처리합니다. 기본 주기는 1분, 처리 상한은 3건, 요청 제한 시간은 120초입니다. 원문 제목·본문·시각·해시를 덮어쓰지 않고 완료된 한국어 번역을 별도로 저장합니다.
 
-`sourcePolicyJson.aiAllowed === true`인 출처만 처리합니다. NAVER는 정책값과 무관하게 제외합니다. 새 RSS·IR은 AI 비허용 또는 미확인으로 시작합니다. DART·SEC 공시와 `LINK_ONLY`·`NO_REDISTRIBUTION`은 제외하며 `STORE_METADATA_ONLY`는 제목만 번역합니다. 번역을 위한 기사 전체 크롤링이나 외부 유료 API 대체 호출은 없습니다. 설정과 실패 시 동작은 [뉴스 번역 안내](../../docs/NEWS_TRANSLATION.md)를 참고하세요.
+`sourcePolicyJson`의 본문 저장·표시·AI 권한이 모두 `true`인 출처만 처리합니다. NAVER·GDELT·이투데이·Microsoft IR, DART·SEC 공시와 `STORE_METADATA_ONLY`·`LINK_ONLY`·`NO_REDISTRIBUTION`은 제외합니다. 외부 유료 API 대체 호출은 없습니다. 영문 제목과 전문 번역이 모두 현재 해시와 일치하기 전에는 `/news`에 공개하지 않습니다. 설정과 실패 시 동작은 [뉴스 번역 안내](../../docs/NEWS_TRANSLATION.md)를 참고하세요.
 
 ## 환경 설정
 

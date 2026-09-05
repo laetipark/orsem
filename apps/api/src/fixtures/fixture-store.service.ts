@@ -72,6 +72,10 @@ export class FixtureStoreService {
   readonly sourceItems: SourceItem[] = [
     {
       id: '10000000-0000-4000-8000-000000000001',
+      contentState: 'UNAVAILABLE',
+      contentSourceId: null,
+      contentLanguage: null,
+      translated: false,
       source: 'NAVER_NEWS',
       externalId: 'fixture-news-1',
       url: 'https://example.com/news/fixture-1',
@@ -249,9 +253,9 @@ export class FixtureStoreService {
     {
       id: '70000000-0000-4000-8000-000000000001',
       companyId: this.companies[0]!.id,
-      url: 'https://www.samsung.com/global/ir/rss/',
+      url: 'https://news.samsung.com/global/feed',
       sourceType: 'RSS',
-      rightsMode: RightsMode.OFFICIAL_PUBLIC_DATA,
+      rightsMode: RightsMode.PRIVATE_DISPLAY_ONLY,
       isActive: false,
       lastCheckedAt: null,
       createdAt: observedAt,

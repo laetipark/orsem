@@ -25,6 +25,7 @@ import type {
   NotificationSettings,
   NotificationPreferences,
   NaverNewsSearchResult,
+  NewsDetail,
   SourceItem,
 } from '../types';
 
@@ -267,39 +268,44 @@ const fixtureNewsSeeds: FixtureNewsSeed[] = [
   {
     companyId: 'company-samsung',
     item: {
-      id: 'fixture-news-etoday-market-01',
-      articleId: 'fixture-article-semiconductor-01',
-      sourceCount: 2,
-      sourceKind: 'INDEPENDENT_MEDIA',
-      publisherId: 'etoday',
-      marketRegion: 'kr',
+      id: 'fixture-news-samsung-global-01',
+      articleId: 'fixture-article-samsung-global-01',
+      sourceCount: 1,
+      contentState: 'AVAILABLE',
+      contentSourceId: 'fixture-news-samsung-global-01',
+      contentLanguage: 'en',
+      translated: true,
+      sourceKind: 'COMPANY_IR',
+      publisherId: 'samsung-global-newsroom',
+      marketRegion: 'global',
       sources: [
         {
-          id: 'fixture-news-etoday-market-01',
-          source: 'NEWS_RSS',
-          sourceName: '이투데이 · 개발 표본',
-          url: 'https://example.test/orsem/news/semiconductor-01',
-        },
-        {
-          id: 'fixture-news-aggregator-market-01',
-          source: 'GDELT',
-          sourceName: 'GDELT · 개발 표본',
-          url: 'https://example.test/orsem/news/semiconductor-01?source=gdelt',
+          id: 'fixture-news-samsung-global-01',
+          source: 'IR',
+          sourceName: 'Samsung Global Newsroom · 개발 표본',
+          url: 'https://example.test/orsem/news/samsung-global-01',
         },
       ],
-      source: 'NEWS_RSS',
-      externalId: 'fixture-etoday-market-01',
-      url: 'https://example.test/orsem/news/semiconductor-01',
-      title: '[개발 표본] 국내 반도체 업종 시장 동향',
-      description: null,
-      translation: null,
-      sourceName: '이투데이 · 개발 표본',
+      source: 'IR',
+      externalId: 'fixture-samsung-global-01',
+      url: 'https://example.test/orsem/news/samsung-global-01',
+      title: '[Development fixture] Samsung announces a semiconductor update',
+      description: 'This is deterministic fixture content for the news detail screen.',
+      translation: {
+        language: 'ko',
+        title: '[개발 표본] 삼성전자, 반도체 사업 현황 발표',
+        description: '뉴스 상세 화면을 검증하기 위한 고정 표본입니다.',
+        translatedAt: '2026-09-03T08:37:00.000Z',
+        provider: 'LOCAL',
+        model: 'fixture',
+      },
+      sourceName: 'Samsung Global Newsroom · 개발 표본',
       author: null,
       publishedAt: '2026-09-03T08:35:00.000Z',
       firstObservedAt: '2026-09-03T08:36:00.000Z',
       processedAt: '2026-09-03T08:37:00.000Z',
-      rightsMode: 'STORE_METADATA_ONLY',
-      provenanceUrl: 'https://example.test/orsem/news/semiconductor-01',
+      rightsMode: 'PRIVATE_DISPLAY_ONLY',
+      provenanceUrl: 'https://example.test/orsem/news/samsung-global-01',
       tickers: ['005930'],
       tags: ['개발 fixture', '반도체'],
     },
@@ -310,6 +316,10 @@ const fixtureNewsSeeds: FixtureNewsSeed[] = [
       id: 'fixture-news-fed-release-01',
       articleId: 'fixture-article-fed-release-01',
       sourceCount: 1,
+      contentState: 'AVAILABLE',
+      contentSourceId: 'fixture-news-fed-release-01',
+      contentLanguage: 'en',
+      translated: true,
       sourceKind: 'OFFICIAL_RELEASE',
       publisherId: 'federal-reserve',
       marketRegion: 'us',
@@ -326,7 +336,14 @@ const fixtureNewsSeeds: FixtureNewsSeed[] = [
       url: 'https://example.test/orsem/news/fed-release-01',
       title: '[개발 표본] Federal Reserve policy release',
       description: '개발 화면 검증을 위한 가상의 공식 기관 발표 메타데이터입니다.',
-      translation: null,
+      translation: {
+        language: 'ko',
+        title: '[개발 표본] 연방준비제도 정책 발표',
+        description: '개발 화면 검증을 위한 공식 기관 발표 표본입니다.',
+        translatedAt: '2026-09-03T08:27:00.000Z',
+        provider: 'LOCAL',
+        model: 'fixture',
+      },
       sourceName: 'Federal Reserve · 개발 표본',
       author: null,
       publishedAt: '2026-09-03T08:25:00.000Z',
@@ -344,6 +361,10 @@ const fixtureNewsSeeds: FixtureNewsSeed[] = [
       id: 'fixture-news-msft-ir-01',
       articleId: 'fixture-article-msft-ir-01',
       sourceCount: 1,
+      contentState: 'UNAVAILABLE',
+      contentSourceId: null,
+      contentLanguage: null,
+      translated: false,
       sourceKind: 'COMPANY_IR',
       publisherId: 'microsoft-ir-fixture',
       marketRegion: 'us',
@@ -385,6 +406,10 @@ const fixtureNewsSeeds: FixtureNewsSeed[] = [
       id: 'fixture-news-opendart-01',
       articleId: null,
       sourceCount: 1,
+      contentState: 'UNAVAILABLE',
+      contentSourceId: null,
+      contentLanguage: null,
+      translated: false,
       sourceKind: 'OFFICIAL_DISCLOSURE',
       publisherId: 'opendart-fixture',
       marketRegion: 'kr',
@@ -419,6 +444,10 @@ const fixtureNewsSeeds: FixtureNewsSeed[] = [
       id: 'fixture-news-bls-release-01',
       articleId: 'fixture-article-bls-release-01',
       sourceCount: 1,
+      contentState: 'AVAILABLE',
+      contentSourceId: 'fixture-news-bls-release-01',
+      contentLanguage: 'en',
+      translated: true,
       sourceKind: 'OFFICIAL_RELEASE',
       publisherId: 'bls',
       marketRegion: 'us',
@@ -435,7 +464,14 @@ const fixtureNewsSeeds: FixtureNewsSeed[] = [
       url: 'https://example.test/orsem/news/bls-release-01',
       title: '[개발 표본] U.S. labor statistics release',
       description: '개발 화면 검증을 위한 가상의 통계 발표 메타데이터입니다.',
-      translation: null,
+      translation: {
+        language: 'ko',
+        title: '[개발 표본] 미국 노동통계 발표',
+        description: '개발 화면 검증을 위한 노동통계 발표 표본입니다.',
+        translatedAt: '2026-09-03T07:57:00.000Z',
+        provider: 'LOCAL',
+        model: 'fixture',
+      },
       sourceName: 'Bureau of Labor Statistics · 개발 표본',
       author: null,
       publishedAt: '2026-09-03T07:55:00.000Z',
@@ -453,6 +489,10 @@ const fixtureNewsSeeds: FixtureNewsSeed[] = [
       id: 'fixture-news-global-release-01',
       articleId: 'fixture-article-global-release-01',
       sourceCount: 1,
+      contentState: 'UNAVAILABLE',
+      contentSourceId: null,
+      contentLanguage: null,
+      translated: false,
       sourceKind: 'PRESS_RELEASE',
       publisherId: 'fixture-global',
       marketRegion: 'global',
@@ -487,6 +527,10 @@ const fixtureNewsSeeds: FixtureNewsSeed[] = [
       id: 'fixture-news-etoday-finance-01',
       articleId: 'fixture-article-memory-01',
       sourceCount: 1,
+      contentState: 'UNAVAILABLE',
+      contentSourceId: null,
+      contentLanguage: null,
+      translated: false,
       sourceKind: 'INDEPENDENT_MEDIA',
       publisherId: 'etoday',
       marketRegion: 'kr',
@@ -1123,6 +1167,11 @@ function pageNews(url: URL): CursorPage<SourceItem> {
     Math.max(1, Number.parseInt(url.searchParams.get('limit') ?? '20', 10) || 20),
   );
   const filtered = fixtureNewsSeeds
+    .filter(({ item }) => item.contentState === 'AVAILABLE')
+    .filter(
+      ({ item }) => item.sourceKind === 'OFFICIAL_RELEASE' || item.sourceKind === 'COMPANY_IR',
+    )
+    .filter(({ item }) => item.contentLanguage !== 'en' || item.translated)
     .filter(({ item }) => fixtureNewsRegionMatches(item, url.searchParams.get('region')))
     .filter(({ item }) => !sourceKind || item.sourceKind === sourceKind)
     .filter(({ item }) => !publisher || (item.publisherId ?? item.sourceName) === publisher)
@@ -1143,6 +1192,38 @@ function pageNews(url: URL): CursorPage<SourceItem> {
   return {
     items,
     nextCursor: cursor + limit < filtered.length ? String(cursor + limit) : null,
+  };
+}
+
+function fixtureNewsDetail(id: string): NewsDetail {
+  const item = fixtureNewsSeeds.find(
+    (seed) => seed.item.id === id || seed.item.articleId === id,
+  )?.item;
+  if (!item || item.contentState !== 'AVAILABLE' || !item.contentSourceId) {
+    throw new Error('해당 뉴스 본문을 찾을 수 없습니다.');
+  }
+  const originalText = item.description || item.title;
+  const translatedText = item.translation?.description || item.translation?.title;
+  return {
+    ...item,
+    content: {
+      sourceItemId: item.contentSourceId,
+      original: {
+        language: item.contentLanguage || 'en',
+        blocks: [{ type: 'PARAGRAPH', text: originalText }],
+        fetchedAt: item.processedAt || item.firstObservedAt,
+      },
+      translation:
+        item.translated && item.translation && translatedText
+          ? {
+              language: 'ko',
+              blocks: [{ type: 'PARAGRAPH', text: translatedText }],
+              translatedAt: item.translation.translatedAt,
+              provider: 'LOCAL',
+              model: item.translation.model,
+            }
+          : null,
+    },
   };
 }
 
@@ -1315,7 +1396,8 @@ export async function fixtureRequest<T>(path: string, init?: RequestInit): Promi
         rceptDate: null,
         firstObservedAt: null,
       }));
-    const documents: SearchItem[] = eventSeeds
+    const filings: SearchItem[] = eventSeeds
+      .filter((item) => item.detailType !== 'NEWS')
       .filter((item) => fixtureRegionMatches(item.market, url.searchParams.get('region')))
       .filter((event) => {
         const company = companies.find((item) => item.id === event.companyId);
@@ -1330,29 +1412,60 @@ export async function fixtureRequest<T>(path: string, init?: RequestInit): Promi
       })
       .map((event) => ({
         id: event.id,
-        type: event.detailType === 'NEWS' ? 'NEWS' : 'FILING',
+        type: 'FILING',
         title: event.title,
-        translation: event.detailType === 'NEWS' ? (event.translation ?? null) : null,
+        translation: null,
         subtitle: `${event.companyName} · ${event.detailType}`,
         url: details.get(event.id)?.officialUrl ?? '',
         external: true,
         companyId: event.companyId,
-        source:
-          event.id === 'evt-msft-news-translation-01'
-            ? 'IR'
-            : event.detailType === 'NEWS'
-              ? 'NAVER'
-              : event.detailType === 'SEC'
-                ? 'SEC'
-                : 'OPENDART',
+        source: event.detailType === 'SEC' ? 'SEC' : 'OPENDART',
         rightsMode: event.rightsMode,
         publishedAt: event.publishedAt,
         rceptDate: event.rceptDate,
         firstObservedAt: event.firstObservedAt,
       }))
       .filter((item) => item.url.startsWith('https://')) as SearchItem[];
-    const news = documents.filter((item) => item.type === 'NEWS');
-    const filings = documents.filter((item) => item.type === 'FILING');
+    const news: SearchItem[] = fixtureNewsSeeds
+      .filter(
+        ({ item }) =>
+          item.contentState === 'AVAILABLE' &&
+          (item.sourceKind === 'OFFICIAL_RELEASE' || item.sourceKind === 'COMPANY_IR') &&
+          (item.contentLanguage !== 'en' || (item.translated && Boolean(item.translation))),
+      )
+      .filter(({ item }) => fixtureNewsRegionMatches(item, url.searchParams.get('region')))
+      .filter(({ companyId, item }) => {
+        const company = companies.find((value) => value.id === companyId);
+        return [
+          item.title,
+          item.translation?.title,
+          item.sourceName,
+          company?.nameKo,
+          company?.nameEn,
+          company?.stockCode,
+          company?.ticker,
+        ].some((value) => value?.toLowerCase().includes(needle));
+      })
+      .map(({ companyId, item }) => ({
+        id: item.id,
+        type: 'NEWS',
+        title: item.title,
+        translation: item.translation ?? null,
+        subtitle: [
+          companies.find((company) => company.id === companyId)?.nameKo,
+          item.sourceName ?? item.source,
+        ]
+          .filter(Boolean)
+          .join(' · '),
+        url: `/news/${encodeURIComponent(item.articleId ?? item.id)}`,
+        external: false,
+        companyId,
+        source: item.source,
+        rightsMode: item.rightsMode,
+        publishedAt: item.publishedAt,
+        rceptDate: null,
+        firstObservedAt: item.firstObservedAt,
+      }));
     return {
       query,
       companies: companyResults.slice(0, limit),
@@ -1396,6 +1509,8 @@ export async function fixtureRequest<T>(path: string, init?: RequestInit): Promi
   }
   if (pathname === '/dashboard') return dashboard() as T;
   if (pathname === '/news' && method === 'GET') return pageNews(url) as T;
+  const newsMatch = pathname.match(/^\/news\/([^/]+)$/u);
+  if (newsMatch && method === 'GET') return fixtureNewsDetail(newsMatch[1] ?? '') as T;
   if (pathname === '/news-search/naver' && method === 'GET')
     return fixtureNaverNewsSearch(init) as T;
   if (pathname === '/events') return pageEvents(url) as T;

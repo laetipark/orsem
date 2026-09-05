@@ -25,12 +25,18 @@ const source = {
   rightsMode: RightsMode.OFFICIAL_PUBLIC_DATA,
   rawHash: stored.inputHash,
   translationJson: stored,
-  sourcePolicyJson: { aiAllowed: true },
+  sourcePolicyJson: {
+    rightsMode: RightsMode.OFFICIAL_PUBLIC_DATA,
+    metadataStorageAllowed: true,
+    displayAllowed: true,
+    fullTextStorageAllowed: true,
+    aiAllowed: true,
+  },
 };
 
 test('완료된 최신 원문 번역의 공개 필드만 반환하고 원본은 변경하지 않는다', () => {
   const before = structuredClone(source);
-  for (const provider of ['IR', 'GDELT']) {
+  for (const provider of ['IR', 'NEWS_RSS']) {
     const result = publicNewsTranslation({ ...source, source: provider });
     assert.deepEqual(result, {
       language: 'ko',
@@ -52,9 +58,13 @@ test('대기·실패·원문 변경·다른 출처·제한된 권리의 번역�
     );
   for (const rawHash of [null, undefined, '', 'b'.repeat(64)])
     assert.equal(publicNewsTranslation({ ...source, rawHash }), null);
-  for (const provider of ['SEC', 'OPENDART', 'UNKNOWN', 'NAVER'])
+  for (const provider of ['SEC', 'OPENDART', 'GDELT', 'UNKNOWN', 'NAVER'])
     assert.equal(publicNewsTranslation({ ...source, source: provider }), null);
-  for (const rightsMode of [RightsMode.LINK_ONLY, RightsMode.NO_REDISTRIBUTION])
+  for (const rightsMode of [
+    RightsMode.STORE_METADATA_ONLY,
+    RightsMode.LINK_ONLY,
+    RightsMode.NO_REDISTRIBUTION,
+  ])
     assert.equal(publicNewsTranslation({ ...source, rightsMode }), null);
 });
 
@@ -67,12 +77,16 @@ test('NAVER와 AI 허용이 명시되지 않은 과거 번역은 반환하지 �
     { aiAllowed: 'UNKNOWN' },
     { aiAllowed: 'true' },
     '{',
+    { ...(source.sourcePolicyJson as object), rightsMode: RightsMode.PRIVATE_DISPLAY_ONLY },
+    { ...(source.sourcePolicyJson as object), metadataStorageAllowed: false },
+    { ...(source.sourcePolicyJson as object), displayAllowed: false },
+    { ...(source.sourcePolicyJson as object), fullTextStorageAllowed: false },
   ]) {
     assert.equal(publicNewsTranslation({ ...source, sourcePolicyJson }), null);
   }
   assert.equal(publicNewsTranslation({ ...source, source: 'NAVER' }), null);
   assert.deepEqual(
-    publicNewsTranslation({ ...source, sourcePolicyJson: JSON.stringify({ aiAllowed: true }) }),
+    publicNewsTranslation({ ...source, sourcePolicyJson: JSON.stringify(source.sourcePolicyJson) }),
     publicNewsTranslation(source),
   );
 });
@@ -105,10 +119,9 @@ test('번역 JSON 형식을 검증하고 MariaDB 문자열 응답도 같은 기�
     );
 });
 
-test('메타데이터 전용 뉴스는 제목만 번역하고 원문·번역 설명의 권리를 함께 지킨다', () => {
+test('메타데이터 전용 뉴스 번역은 차단하고 원문 설명 권리를 함께 지킨다', () => {
   const metadata = { ...source, rightsMode: RightsMode.STORE_METADATA_ONLY };
-  assert.equal(publicNewsTranslation(metadata)?.title, stored.title);
-  assert.equal(publicNewsTranslation(metadata)?.description, null);
+  assert.equal(publicNewsTranslation(metadata), null);
   for (const rightsMode of Object.values(RightsMode)) {
     const allowed =
       rightsMode === RightsMode.OFFICIAL_PUBLIC_DATA ||

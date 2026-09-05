@@ -140,11 +140,6 @@ describe('worker schedules', () => {
         timezone: 'Asia/Seoul',
         payload: expect.objectContaining({ connectors: ['NEWS_RSS'], priorities: [] }),
       }),
-      expect.objectContaining({
-        id: 'approved-gdelt-thirty-minutes',
-        pattern: '*/30 * * * *',
-        payload: expect.objectContaining({ connectors: ['GDELT'], priorities: [] }),
-      }),
     ]);
     for (const schedule of NEWS_DISCOVERY_SCHEDULES) {
       expect(discoverLinksJobSchema.safeParse(schedule.payload).success).toBe(true);

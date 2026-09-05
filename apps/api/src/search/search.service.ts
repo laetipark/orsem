@@ -8,7 +8,12 @@ import {
   type NewsTranslation,
   type SourceItem,
 } from '@orsem/contracts';
-import { CompanyEntity, FilingEntity, SourceItemEntity } from '@orsem/database';
+import {
+  CompanyEntity,
+  FilingEntity,
+  NewsArticleContentEntity,
+  SourceItemEntity,
+} from '@orsem/database';
 import type { DataSource } from 'typeorm';
 import { APP_CONFIG, type AppConfig } from '../config/app-config';
 import { FixtureStoreService } from '../fixtures/fixture-store.service';
@@ -18,6 +23,12 @@ import {
   newsTranslationSearchCondition,
   publicNewsTranslation,
 } from '../common/news-translation';
+import {
+  availableNewsContentSql,
+  newsFiltersSql,
+  PUBLIC_NEWS_PUBLISHERS,
+  representativeNewsSql,
+} from '../resources/news-query';
 
 export { searchPattern };
 
@@ -55,6 +66,7 @@ interface CompanyRow {
 }
 interface SourceRow {
   id: string;
+  articleId?: string | null;
   title: string;
   url: string;
   companyId: string | null;
@@ -68,6 +80,10 @@ interface SourceRow {
   rawHash?: string | null;
   translationJson?: unknown;
   sourcePolicyJson?: unknown;
+  sourceKind?: string | null;
+  publisherId?: string | null;
+  contentState?: string | null;
+  contentLanguage?: string | null;
 }
 interface FilingRow {
   id: string;
@@ -140,15 +156,28 @@ function companyItem(row: CompanyRow): SearchItem {
 
 function sourceItem(row: SourceRow): SearchItem | null {
   const url = publicSourceUrl(row.url);
-  if (row.source === 'NAVER' || !url || !metadataRights.includes(row.rightsMode)) return null;
+  if (row.source.startsWith('NAVER') || !url || !metadataRights.includes(row.rightsMode))
+    return null;
+  const filing = row.source === 'SEC';
+  const translation = publicNewsTranslation(row);
+  if (
+    !filing &&
+    (row.contentState !== 'AVAILABLE' ||
+      !['OFFICIAL_RELEASE', 'COMPANY_IR'].includes(row.sourceKind ?? '') ||
+      !PUBLIC_NEWS_PUBLISHERS.includes(
+        (row.publisherId ?? '') as (typeof PUBLIC_NEWS_PUBLISHERS)[number],
+      ) ||
+      (row.contentLanguage === 'en' && !translation))
+  )
+    return null;
   return {
     id: row.id,
-    type: row.source === 'SEC' ? 'FILING' : 'NEWS',
+    type: filing ? 'FILING' : 'NEWS',
     title: row.title,
-    translation: publicNewsTranslation(row),
+    translation,
     subtitle: [row.companyName, row.sourceName ?? row.source].filter(Boolean).join(' · '),
-    url,
-    external: true,
+    url: filing ? url : `/news/${encodeURIComponent(row.articleId ?? row.id)}`,
+    external: filing,
     companyId: row.companyId,
     source: row.source,
     rightsMode: row.rightsMode,
@@ -291,6 +320,7 @@ export class SearchService {
       .leftJoin(CompanyEntity, 'company', 'company.id = item.companyId')
       .select([
         'item.id AS id',
+        'item.newsArticleId AS articleId',
         'item.title AS title',
         'item.url AS url',
         'item.companyId AS companyId',
@@ -303,7 +333,12 @@ export class SearchService {
         'item.rawHash AS rawHash',
         'item.translationJson AS translationJson',
         'item.sourcePolicyJson AS sourcePolicyJson',
+        'item.sourceKind AS sourceKind',
       ])
+      .addSelect(
+        "COALESCE(JSON_UNQUOTE(JSON_EXTRACT(item.rawMetadataJson, '$.publisherId')), item.sourceName, item.source)",
+        'publisherId',
+      )
       // SEC의 날짜 필드만 추출하고 원본 메타데이터 객체는 조회 결과에 포함하지 않습니다.
       .addSelect(
         secOnly ? "JSON_UNQUOTE(JSON_EXTRACT(item.rawMetadataJson, '$.filingDate'))" : 'NULL',
@@ -323,6 +358,15 @@ export class SearchService {
       )
       .addOrderBy('item.id', 'DESC')
       .limit(limit + 1);
+    if (!secOnly) {
+      query
+        .innerJoin(NewsArticleContentEntity, 'content', 'content.source_item_id = item.id')
+        .addSelect('content.status', 'contentState')
+        .addSelect('content.language', 'contentLanguage')
+        .andWhere(newsFiltersSql('item', {}))
+        .andWhere(availableNewsContentSql('content', 'item'))
+        .andWhere(representativeNewsSql({}, 'item'));
+    }
     if (region !== 'all') {
       if (secOnly) {
         if (region === 'kr') query.andWhere('1 = 0');
@@ -373,6 +417,16 @@ export class SearchService {
         ),
       );
     const sourceItems = this.fixtures.sourceItems
+      .filter(
+        (item) =>
+          item.source === 'SEC' ||
+          (item.contentState === 'AVAILABLE' &&
+            ['OFFICIAL_RELEASE', 'COMPANY_IR'].includes(item.sourceKind ?? '') &&
+            PUBLIC_NEWS_PUBLISHERS.includes(
+              (item.publisherId ?? '') as (typeof PUBLIC_NEWS_PUBLISHERS)[number],
+            ) &&
+            (item.contentLanguage !== 'en' || Boolean(item.translation))),
+      )
       .filter((item) => {
         const company = linkedCompany(item);
         if (

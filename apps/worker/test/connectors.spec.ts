@@ -35,7 +35,7 @@ describe('connector adapter gates', () => {
     expect(health.SEC?.rightsMode).toBe(RightsMode.OFFICIAL_PUBLIC_DATA);
     expect(health.ALPACA).toBeUndefined();
     expect(health.GDELT?.rightsMode).toBe(RightsMode.STORE_METADATA_ONLY);
-    expect(health.IR?.rightsMode).toBe(RightsMode.OFFICIAL_PUBLIC_DATA);
+    expect(health.IR?.rightsMode).toBe(RightsMode.PRIVATE_DISPLAY_ONLY);
   });
 
   it('requires a declared SEC application identity in addition to the contact email', () => {
@@ -235,34 +235,10 @@ describe('connector adapter gates', () => {
     expect(calls).toBe(0);
   });
 
-  it('isolates a failed registered IR feed while retaining healthy candidates', async () => {
-    const adapter = new RegisteredIrFeedConnector(
-      ['https://one.example.test/feed', 'https://two.example.test/feed'],
-      5_000,
+  it('rejects unreviewed registered IR feeds before any network request', () => {
+    expect(() => new RegisteredIrFeedConnector(['https://one.example.test/feed'], 5_000)).toThrow(
+      /reviewed content-source registry/u,
     );
-    jest.spyOn(adapter, 'fetchFeed').mockImplementation(async (url) => {
-      if (url.includes('one.')) throw new Error('feed unavailable');
-      return [
-        {
-          connector: 'IR',
-          externalId: 'release-1',
-          title: '공식 IR 공지',
-          url: 'https://two.example.test/release-1',
-          publishedAt: null,
-          sourceName: 'two.example.test',
-          tickers: [],
-          tags: ['IR'],
-          rightsMode: RightsMode.OFFICIAL_PUBLIC_DATA,
-          metadata: { feedUrl: url },
-        },
-      ];
-    });
-    await expect(adapter.discoverLinks()).resolves.toHaveLength(1);
-    expect(adapter.discoveryFailureCount).toBe(1);
-    await expect(adapter.check()).resolves.toMatchObject({
-      status: ConnectorStatus.DEGRADED,
-    });
-    expect(adapter.fetchFeed).toHaveBeenCalledTimes(2);
   });
 
   it('rejects invalid explicitly configured IR feeds during config loading', () => {

@@ -16,12 +16,8 @@ import './news-page.css';
 
 const sourceKinds: Array<[NewsSourceKind | '', string]> = [
   ['', '모든 출처 유형'],
-  ['OFFICIAL_DISCLOSURE', '공식 공시'],
   ['OFFICIAL_RELEASE', '공식 기관 발표'],
   ['COMPANY_IR', '기업 IR'],
-  ['PRESS_RELEASE', '보도자료'],
-  ['INDEPENDENT_MEDIA', '독립 언론'],
-  ['UNKNOWN', '출처 유형 미확인'],
 ];
 const newsSourceKindValues = new Set<NewsSourceKind>(
   sourceKinds.flatMap(([value]) => (value ? [value] : [])),
@@ -34,7 +30,7 @@ export function parseNewsSourceKind(value: string | null): NewsSourceKind | unde
 }
 const publishers = [
   ['', '모든 제공자'],
-  ['etoday', '이투데이'],
+  ['samsung-global-newsroom', 'Samsung Global Newsroom'],
   ['federal-reserve', 'Federal Reserve'],
   ['bls', 'Bureau of Labor Statistics'],
 ];
@@ -80,7 +76,7 @@ export function NewsPage() {
   return (
     <div className="page-stack news-page">
       <div className="page-lead">
-        <p>공시·기관 발표·기업 IR·언론을 구분해 수집한 뉴스입니다.</p>
+        <p>검토된 공식 기관 발표와 기업 IR 중 본문·번역 준비가 끝난 뉴스입니다.</p>
         <div className="news-page__actions">
           <Link className="button button--secondary button--sm" to="/news/naver">
             네이버 직접 검색

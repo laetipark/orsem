@@ -10,7 +10,7 @@ test('fixture configuration has safe local defaults', () => {
   const config = loadAppConfig({ NODE_ENV: 'test', FIXTURE_MODE: 'true' });
   assert.equal(config.fixtureMode, true);
   assert.equal(config.port, 3210);
-  assert.equal(config.gdeltEnabled, true);
+  assert.equal(config.gdeltEnabled, false);
   assert.equal(config.marketDataProvider, 'toss');
 });
 
@@ -34,9 +34,8 @@ test('news RSS is off by default and accepts only the approved feed identifiers'
     assert.deepEqual(loadAppConfig(environment).newsRssFeeds, []);
   }
   assert.deepEqual(
-    loadAppConfig({ NODE_ENV: 'test', NEWS_RSS_FEEDS: ' etoday-market,etoday-market ' })
-      .newsRssFeeds,
-    ['etoday-market'],
+    loadAppConfig({ NODE_ENV: 'test', NEWS_RSS_FEEDS: ' fed-press,fed-press ' }).newsRssFeeds,
+    ['fed-press'],
   );
   assert.deepEqual(
     loadAppConfig({ NODE_ENV: 'test', NEWS_RSS_FEEDS: NEWS_RSS_FEED_IDS.join(',') }).newsRssFeeds,
@@ -46,7 +45,8 @@ test('news RSS is off by default and accepts only the approved feed identifiers'
     'unknown',
     'newsis-bank',
     'mk-stock',
-    'etoday-market,unknown',
+    'etoday-market',
+    'fed-press,unknown',
     'https://rss.etoday.co.kr/eto/market_news.xml',
   ]) {
     assert.throws(() => loadAppConfig({ NODE_ENV: 'test', NEWS_RSS_FEEDS: feed }));

@@ -28,6 +28,7 @@ import type {
   NotificationPreferences,
   BrowserSubscriptionInput,
   NaverNewsSearchResult,
+  NewsDetail,
   NewsSourceKind,
 } from '../types';
 
@@ -179,6 +180,7 @@ export const api = {
   dashboard: () => request<DashboardData>('/dashboard'),
   news: ({ limit = 20, ...filters }: NewsFilters = {}) =>
     request<CursorPage<SourceItem>>(`/news${queryString({ ...filters, limit })}`),
+  newsDetail: (id: string) => request<NewsDetail>(`/news/${encodeURIComponent(id)}`),
   naverNewsSearch: (q: string, start = 1, sort: 'date' | 'sim' = 'date', signal?: AbortSignal) =>
     request<NaverNewsSearchResult>('/news-search/naver', {
       cache: 'no-store',

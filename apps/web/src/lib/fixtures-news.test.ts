@@ -1,34 +1,34 @@
 import { expect, it } from 'vitest';
-import type { CursorPage, NaverNewsSearchResult, SourceItem } from '../types';
+import type { CursorPage, NaverNewsSearchResult, SearchResults, SourceItem } from '../types';
 import { fixtureRequest } from './fixtures';
 
 it('수집 뉴스 fixture는 정렬된 커서 페이지를 중복 없이 반환한다', async () => {
-  const first = await fixtureRequest<CursorPage<SourceItem>>('/api/v1/news?limit=3');
+  const first = await fixtureRequest<CursorPage<SourceItem>>('/api/v1/news?limit=2');
   const second = await fixtureRequest<CursorPage<SourceItem>>(
-    `/api/v1/news?limit=3&cursor=${first.nextCursor}`,
+    `/api/v1/news?limit=2&cursor=${first.nextCursor}`,
   );
 
   expect(first.items.map((item) => item.id)).toEqual([
-    'fixture-news-etoday-market-01',
+    'fixture-news-samsung-global-01',
     'fixture-news-fed-release-01',
-    'fixture-news-msft-ir-01',
   ]);
-  expect(first.nextCursor).toBe('3');
-  expect(second.items).toHaveLength(3);
+  expect(first.nextCursor).toBe('2');
+  expect(second.items.map((item) => item.id)).toEqual(['fixture-news-bls-release-01']);
   expect(second.items.map((item) => item.id)).not.toEqual(
     expect.arrayContaining(first.items.map((item) => item.id)),
   );
-  expect(second.nextCursor).toBe('6');
+  expect(second.nextCursor).toBeNull();
 });
 
 it('수집 뉴스 fixture는 지역·출처·제공자·기업·번역 검색 필터를 적용한다', async () => {
-  const [kr, us, publisher, company, translated] = await Promise.all([
+  const [kr, us, publisher, company, translated, unapproved] = await Promise.all([
     fixtureRequest<CursorPage<SourceItem>>('/api/v1/news?region=kr&limit=100'),
     fixtureRequest<CursorPage<SourceItem>>('/api/v1/news?region=us&limit=100'),
     fixtureRequest<CursorPage<SourceItem>>(
       '/api/v1/news?sourceKind=OFFICIAL_RELEASE&publisher=federal-reserve&q=policy',
     ),
     fixtureRequest<CursorPage<SourceItem>>('/api/v1/news?companyId=company-samsung'),
+    fixtureRequest<CursorPage<SourceItem>>(`/api/v1/news?q=${encodeURIComponent('반도체')}`),
     fixtureRequest<CursorPage<SourceItem>>(`/api/v1/news?q=${encodeURIComponent('클라우드')}`),
   ]);
 
@@ -41,8 +41,23 @@ it('수집 뉴스 fixture는 지역·출처·제공자·기업·번역 검색 �
   expect(kr.items.some((item) => item.marketRegion === 'global')).toBe(true);
   expect(us.items.some((item) => item.marketRegion === 'global')).toBe(true);
   expect(publisher.items.map((item) => item.id)).toEqual(['fixture-news-fed-release-01']);
-  expect(company.items.map((item) => item.id)).toEqual(['fixture-news-etoday-market-01']);
-  expect(translated.items.map((item) => item.id)).toEqual(['fixture-news-msft-ir-01']);
+  expect(company.items.map((item) => item.id)).toEqual(['fixture-news-samsung-global-01']);
+  expect(translated.items.map((item) => item.id)).toEqual(['fixture-news-samsung-global-01']);
+  expect(unapproved.items).toEqual([]);
+});
+
+it('통합 검색 fixture도 본문과 영어 번역이 준비된 승인 뉴스만 내부 상세로 연결한다', async () => {
+  const [approved, unapproved] = await Promise.all([
+    fixtureRequest<SearchResults>('/api/v1/search?q=Samsung'),
+    fixtureRequest<SearchResults>('/api/v1/search?q=Microsoft'),
+  ]);
+  expect(approved.news).toHaveLength(1);
+  expect(approved.news[0]).toMatchObject({
+    id: 'fixture-news-samsung-global-01',
+    external: false,
+    url: '/news/fixture-article-samsung-global-01',
+  });
+  expect(unapproved.news).toEqual([]);
 });
 
 it('NAVER 검색 fixture는 헤더 입력을 안전하게 표시하고 20개 단위 페이지를 재현한다', async () => {

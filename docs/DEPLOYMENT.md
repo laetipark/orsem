@@ -44,7 +44,7 @@ node -e "process.stdout.write(require('node:crypto').randomBytes(32).toString('b
 
 첫 번째 출력은 `SESSION_SECRET`, 두 번째 출력은 `TOTP_ENCRYPTION_KEY`에 사용합니다. `REDIS_PREFIX`는 선택 값이며 기본값은 `orsem:`입니다. 다른 서비스와 Redis를 공유하면 별도의 접두사를 사용합니다. `PORT`, `LOG_LEVEL`, `TZ` 기본값은 각각 `3210`, `log`, 호스트 시간대입니다. 제공하는 배포 설정은 `TZ=Asia/Seoul`을 명시합니다.
 
-소스 자격 증명은 선택 항목이며, 없으면 해당 커넥터만 비활성화합니다. `OPENDART_API_KEY`, 뉴스 검색용 `NAVER_CLIENT_ID`/`NAVER_CLIENT_SECRET` 쌍, `SEC_USER_AGENT`, 자산 마스터용 `ALPACA_API_KEY`/`ALPACA_API_SECRET` 쌍은 서로 독립적입니다. Alpaca는 기업 식별 정보만 제공합니다. `SEC_USER_AGENT`에는 애플리케이션 식별 정보와 확인 가능한 연락처 이메일을 넣습니다. `IR_FEED_URLS`는 자격 증명이 없는 공개 HTTPS RSS/Atom 경로를 쉼표로 구분한 목록이며 최대 100개입니다. 대시보드에서 등록한 피드는 별도로 MySQL에 저장합니다. `GDELT_ENABLED`와 `AI_ENABLED`는 명시적인 불리언 값입니다.
+소스 자격 증명은 선택 항목이며, 없으면 해당 커넥터만 비활성화합니다. `OPENDART_API_KEY`, 뉴스 검색용 `NAVER_CLIENT_ID`/`NAVER_CLIENT_SECRET` 쌍, `SEC_USER_AGENT`, 자산 마스터용 `ALPACA_API_KEY`/`ALPACA_API_SECRET` 쌍은 서로 독립적입니다. Alpaca는 기업 식별 정보만 제공합니다. `SEC_USER_AGENT`에는 애플리케이션 식별 정보와 확인 가능한 연락처 이메일을 넣습니다. 뉴스 본문은 코드에 정책과 정확한 URL이 등록된 Samsung Global, Federal Reserve, BLS만 사용합니다. `IR_FEED_URLS`의 임의 URL은 거절하고 `GDELT_ENABLED=false`를 유지합니다. `AI_ENABLED`와 `NEWS_TRANSLATION_ENABLED`는 서로 독립적인 명시적 불리언 값입니다.
 
 차트에는 `MARKET_DATA_PROVIDER=toss`가 필요합니다. 토스 클라이언트 ID와 시크릿은 `TOSS_CREDENTIALS_FILE`이 가리키는 외부 JSON 파일에 보관하거나 `TOSS_CLIENT_ID`/`TOSS_CLIENT_SECRET`을 프로세스 환경에 직접 주입합니다. 토스 자격 증명이 없어도 나머지 애플리케이션은 실행되며 연결 설정 필요 상태를 표시합니다. 테스트 전에 토스 WTS에 서버 IP를 등록합니다. [토스 설정 절차](OPERATIONS.md#toss-securities-chart-setup)를 참고하세요. KRX/Alpaca EOD 일정은 종료되었고 이전 큐 작업으로 새 가격을 수집할 수 없습니다. 갱신된 API·worker를 시작하기 전에 소스 메타데이터 마이그레이션을 적용합니다. 스키마 마이그레이션은 기존 데이터를 보존하며, 종료된 가격 데이터와 수집 상태는 [운영 문서](OPERATIONS.md)에 따라 별도로 정리합니다. 마이그레이션·빌드 성공은 자격 증명이나 연결 성공을 검증하지 않습니다.
 
@@ -70,7 +70,7 @@ OLLAMA_HOST=127.0.0.1:11434 /home/laeti/orsem-data/ollama/runtime/bin/ollama pul
 
 AI 작업은 동시 실행 수가 1인 전용 `orsem-ai-review` 큐에서 실행하므로, 느린 CPU 추론이 공시 후처리나 지연된 조회용 데이터 생성 worker를 점유하지 않습니다.
 
-뉴스 한국어 번역은 `NEWS_TRANSLATION_ENABLED`로 별도 활성화합니다. 같은 Ollama를 사용하되 `OLLAMA_URL=http://127.0.0.1:11434`와 `NEWS_TRANSLATION_MODEL`로 연결하며 외부 번역 API나 클라우드 모델로 자동 전환하지 않습니다. 번역 저장 컬럼 마이그레이션을 적용하고 로컬 모델을 준비한 뒤 실행합니다. 기본 1분·3건 처리, 제한 시간, 원문 보존과 표시 확인 절차는 [뉴스 번역 설정](NEWS_TRANSLATION.md#설정)을 참고하세요.
+뉴스 한국어 번역은 `NEWS_TRANSLATION_ENABLED`로 별도 활성화합니다. 같은 Ollama를 사용하되 `OLLAMA_URL=http://127.0.0.1:11434`와 `NEWS_TRANSLATION_MODEL`로 연결하며 외부 번역 API나 클라우드 모델로 자동 전환하지 않습니다. `news_article_contents` 마이그레이션을 적용하고 로컬 모델을 준비한 뒤 실행합니다. 기본 1분·3건 처리, 제목·전문 완료 게이트, 원문 보존과 표시 확인 절차는 [뉴스 번역 설정](NEWS_TRANSLATION.md#설정)을 참고하세요.
 
 운영 웹 빌드에는 `VITE_FIXTURE_MODE=false`를 설정하고 일반적으로 `VITE_API_BASE_URL=/api/v1`을 유지합니다. `VITE_PORT`와 `VITE_API_PROXY_TARGET`은 Vite 개발 서버에만 영향을 줍니다. Discord에는 `DISCORD_BOT_TOKEN`, `DISCORD_APPLICATION_ID`, `DISCORD_CHANNEL_ID`와 API·봇 양쪽에 동일하게 설정한 독립적인 무작위 `DISCORD_SERVICE_TOKEN`이 필요합니다. 운영 허용 목록은 쉼표로 구분한 `DISCORD_ALLOWED_USER_IDS`를 사용합니다. `DISCORD_GUILD_ID`, 조회 주기, 내부 API URL은 선택 항목입니다.
 

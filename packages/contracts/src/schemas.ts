@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { regionSchema } from './region';
-import { NewsSourceKind } from './news-sources';
+import { NEWS_IR_SOURCE_PROFILES, NewsContentState, NewsSourceKind } from './news-sources';
 import {
   AlertStatus,
   ClassificationReviewResult,
@@ -342,11 +342,60 @@ export const newsTranslationSchema = z.object({
 });
 export type NewsTranslation = z.infer<typeof newsTranslationSchema>;
 
+const newsContentTextSchema = z.string().trim().min(1).max(20_000);
+export const newsContentBlockSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('PARAGRAPH'), text: newsContentTextSchema }),
+  z.object({
+    type: z.literal('HEADING'),
+    level: z.number().int().min(2).max(6),
+    text: newsContentTextSchema,
+  }),
+  z.object({
+    type: z.literal('LIST'),
+    ordered: z.boolean(),
+    items: z.array(newsContentTextSchema).min(1).max(200),
+  }),
+  z.object({ type: z.literal('QUOTE'), text: newsContentTextSchema }),
+]);
+export type NewsContentBlock = z.infer<typeof newsContentBlockSchema>;
+
+const newsContentLanguageSchema = z
+  .string()
+  .trim()
+  .regex(/^[a-z]{2,3}(?:-[A-Z][a-z]{3})?(?:-[A-Z]{2}|-[0-9]{3})?$/u)
+  .max(35);
+export const newsContentOriginalSchema = z.object({
+  language: newsContentLanguageSchema,
+  blocks: z.array(newsContentBlockSchema).min(1).max(2_000),
+  fetchedAt: isoInstantSchema,
+});
+export type NewsContentOriginal = z.infer<typeof newsContentOriginalSchema>;
+
+export const newsContentTranslationSchema = z.object({
+  language: z.literal('ko'),
+  blocks: z.array(newsContentBlockSchema).min(1).max(2_000),
+  translatedAt: isoInstantSchema,
+  provider: z.literal('LOCAL'),
+  model: z.string().trim().min(1),
+});
+export type NewsContentTranslation = z.infer<typeof newsContentTranslationSchema>;
+
+export const newsArticleContentDetailSchema = z.object({
+  sourceItemId: idSchema,
+  original: newsContentOriginalSchema,
+  translation: newsContentTranslationSchema.nullable(),
+});
+export type NewsArticleContentDetail = z.infer<typeof newsArticleContentDetailSchema>;
+
 export const sourceItemSchema = z.object({
   id: idSchema,
   articleId: idSchema.nullable().optional(),
   sourceKind: z.enum(NewsSourceKind).optional(),
   sourceCount: z.number().int().positive().optional(),
+  contentState: z.enum(NewsContentState),
+  contentSourceId: idSchema.nullable(),
+  contentLanguage: newsContentLanguageSchema.nullable(),
+  translated: z.boolean(),
   publisherId: z.string().nullable().optional(),
   marketRegion: z.enum(['kr', 'us', 'global', 'unknown']).optional(),
   sources: z
@@ -377,12 +426,19 @@ export const sourceItemSchema = z.object({
 });
 export type SourceItem = z.infer<typeof sourceItemSchema>;
 
+export const newsDetailSchema = sourceItemSchema.extend({
+  content: newsArticleContentDetailSchema.nullable(),
+});
+export type NewsDetail = z.infer<typeof newsDetailSchema>;
+
+const samsungGlobalFeedUrl = NEWS_IR_SOURCE_PROFILES['samsung-global'].url;
+
 export const irSourceSchema = z.object({
   id: idSchema,
   companyId: idSchema,
-  url: publicHttpsFeedUrlSchema,
-  sourceType: z.enum(['RSS', 'ATOM']),
-  rightsMode: z.literal(RightsMode.OFFICIAL_PUBLIC_DATA),
+  url: z.literal(samsungGlobalFeedUrl),
+  sourceType: z.literal('RSS'),
+  rightsMode: z.literal(RightsMode.PRIVATE_DISPLAY_ONLY),
   isActive: z.boolean(),
   lastCheckedAt: isoInstantSchema.nullable(),
   createdAt: isoInstantSchema,
@@ -392,9 +448,9 @@ export type IrSource = z.infer<typeof irSourceSchema>;
 
 export const createIrSourceSchema = z.object({
   companyId: idSchema,
-  url: publicHttpsFeedUrlSchema,
-  sourceType: z.enum(['RSS', 'ATOM']),
-  rightsMode: z.literal(RightsMode.OFFICIAL_PUBLIC_DATA).default(RightsMode.OFFICIAL_PUBLIC_DATA),
+  url: z.literal(samsungGlobalFeedUrl),
+  sourceType: z.literal('RSS').default('RSS'),
+  rightsMode: z.literal(RightsMode.PRIVATE_DISPLAY_ONLY).default(RightsMode.PRIVATE_DISPLAY_ONLY),
   isActive: z.boolean().default(true),
 });
 export const updateIrSourceSchema = createIrSourceSchema.omit({ companyId: true }).partial();
