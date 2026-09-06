@@ -187,13 +187,14 @@ test('검색 SQL은 RSS의 명시적 global 또는 해당 지역 메타데이터
     )!;
     assert.ok(news);
     assert.match(news.sql, /LEFT JOIN `companies`/u);
-    assert.match(news.sql, /OR \(`item`\.`source` = 'NEWS_RSS' AND JSON_UNQUOTE/u);
+    assert.match(news.sql, /OR \(NOT \(EXISTS \(SELECT 1 FROM news_source_companies/u);
     assert.match(news.sql, /JSON_EXTRACT\(`item`\.`raw_metadata_json`, '\$\.marketRegion'\)/u);
     assert.match(news.sql, /IN \('global', \?\)/u);
     assert.match(news.sql, /LIMIT 2$/u);
     assert.ok(news.parameters.includes(region));
     assert.ok(news.parameters.includes(region === 'kr' ? 'KOSPI' : 'NASDAQ'));
-    const selection = news.sql.split(' FROM ')[0] ?? '';
+    const selection = news.sql.slice(0, news.sql.indexOf(' FROM `source_items` `item`'));
+    assert.match(selection, /manualRevisionVerified/u);
     assert.match(selection, /publisherId/u);
     assert.equal(selection.includes('`item`.`raw_metadata_json` AS `rawMetadataJson`'), false);
   }

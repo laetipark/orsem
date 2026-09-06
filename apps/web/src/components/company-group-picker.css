@@ -1,0 +1,147 @@
+.company-group-trigger {
+  min-width: 44px;
+  min-height: 44px;
+  flex: 0 0 auto;
+  gap: 7px;
+}
+.company-group-trigger--selected {
+  color: var(--teal);
+}
+.company-group-trigger__count {
+  display: none;
+}
+.company-group-spinner {
+  animation: company-group-spin 1s linear infinite;
+}
+@keyframes company-group-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.company-group-section {
+  border: 0;
+  margin: 0 0 18px;
+  padding: 0;
+  min-width: 0;
+}
+.company-group-section legend {
+  margin-bottom: 6px;
+  padding: 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.company-group-option {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.company-group-option:has(input:checked) {
+  background: var(--surface-2);
+}
+.company-group-option:has(input:disabled) {
+  cursor: default;
+}
+.company-group-option input {
+  width: 19px;
+  height: 19px;
+  flex: 0 0 auto;
+  accent-color: var(--teal);
+}
+.company-group-option__name {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.company-group-option small,
+.company-group-option__lock {
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+.company-group-option__lock {
+  display: inline-flex;
+}
+.company-group-notice {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.company-group-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 130px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.company-group-empty {
+  padding: 24px 0;
+  text-align: center;
+  color: var(--muted);
+}
+.company-group-empty a {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  color: var(--teal);
+}
+.company-group-footer {
+  position: sticky;
+  bottom: -14px;
+  padding: 12px 0 0;
+  background: var(--surface);
+}
+.company-group-footer .button {
+  min-height: 44px;
+  min-width: 84px;
+}
+@media (max-width: 640px) {
+  .company-group-trigger {
+    padding: 0 9px;
+    background: transparent;
+    border-color: transparent;
+  }
+  .company-group-trigger__label {
+    display: none;
+  }
+  .company-group-trigger__count {
+    display: inline;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+  .watch-dialog--mobile-sheet {
+    position: fixed;
+    inset: auto 0 0;
+    margin: 0;
+    width: 100%;
+    max-width: 100%;
+    max-height: min(85dvh, 720px);
+    border-radius: 20px 20px 0 0;
+    border-bottom: 0;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .watch-dialog--mobile-sheet > header {
+    min-height: 64px;
+  }
+  .watch-dialog--mobile-sheet > header .watch-icon-button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .company-group-footer .button {
+    flex: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .company-group-spinner {
+    animation: none;
+  }
+}

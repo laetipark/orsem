@@ -123,6 +123,21 @@ async function context() {
   await (metadata as unknown as { buildMetadatas(): Promise<void> }).buildMetadatas();
   const queries: Array<{ sql: string; parameters: unknown[] }> = [];
   const dataSource = {
+    async query(sql: string, parameters: unknown[]) {
+      assert.match(sql, /news_source_companies/u);
+      assert.deepEqual(parameters, [row.id]);
+      return [
+        {
+          sourceItemId: row.id,
+          id: 'related-company',
+          market: 'NASDAQ',
+          stockCode: null,
+          ticker: 'EXAMPLE',
+          nameKo: '관련 기업',
+          nameEn: 'Related company',
+        },
+      ];
+    },
     getRepository(entity: EntityTarget<ObjectLiteral>) {
       const rows =
         entity === SourceItemEntity ? [row] : entity === EventClusterEntity ? [event] : [];
@@ -150,7 +165,7 @@ async function context() {
         findBy: async () =>
           entity === EventClusterItemEntity
             ? [{ eventClusterId: event.id, itemType: 'SOURCE_ITEM', itemId: row.id }]
-            : [],
+            : rows,
       };
     },
   } as unknown as DataSource;
@@ -169,6 +184,8 @@ test('뉴스 목록·상세와 이벤트·근거에서 원문을 보존하고 �
   assert.equal(list.items[0]?.title, row.title);
   assert.equal(list.items[0]?.translation?.title, '번역 뉴스 제목');
   assert.equal(list.items[0]?.description, 'Original feed summary');
+  assert.equal(list.items[0]?.relatedCompanies?.[0]?.id, 'related-company');
+  assert.equal(detail.relatedCompanies?.[0]?.id, 'related-company');
   assert.equal(detail.description, 'Original news summary');
   assert.equal(detail.translation?.description, '번역한 요약');
   assert.equal(detail.content?.sourceItemId, row.id);
@@ -245,4 +262,34 @@ test('원문 해시가 없는 예시 SourceItem에는 번역을 추가하지 않
       ?.translation,
     undefined,
   );
+});
+
+test('news list projection omits ingestion-only fields but retains every content validation input', async () => {
+  const { service, queries } = await context();
+  await service.listNews({ limit: 5 });
+  const sql = queries[0]!.sql;
+  const selection = sql.slice(0, sql.indexOf(' FROM '));
+  for (const field of [
+    'blocks_json',
+    'content_hash',
+    'rights_policy_json',
+    'source_item_id',
+    'fetched_at',
+    'translation_json',
+    'raw_hash',
+    'sort_at',
+  ]) {
+    assert.ok(selection.includes(field), `missing validation or cursor field ${field}`);
+  }
+  for (const field of [
+    'raw_object_uri',
+    'attempted_at',
+    'next_attempt_at',
+    'failure_code',
+    'extractor_version',
+    'canonical_url',
+    'url_hash',
+  ]) {
+    assert.ok(!selection.includes(field), `unexpected ingestion-only field ${field}`);
+  }
 });

@@ -1,3 +1,11 @@
+import { AlpacaNewsConnector } from './alpaca-news.connector';
+import {
+  recoverGdeltWindows,
+  gdeltTimestamp,
+  DEFAULT_GDELT_RECOVERY,
+  type GdeltRecoveryOptions,
+} from './gdelt-window-recovery';
+import { emptyRecoveryStore, type RecoveryStore, type DiscoveryBatch } from './discovery-recovery';
 import { createHash } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
 import { request as httpsRequest } from 'node:https';
@@ -8,6 +16,7 @@ import {
   NewsSourceKind,
   canonicalNewsUrl,
   APPROVED_GDELT_SOURCE_POLICIES,
+  isGdeltDomainFilter,
   NEWS_IR_SOURCE_PROFILES,
   NEWS_RSS_FEEDS,
   NEWS_RSS_FEED_IDS,
@@ -21,6 +30,7 @@ import { z } from 'zod';
 import { readBoundedResponseBytes } from '../common/bounded-response';
 import type { WorkerConfig } from '../config/worker-config';
 import type { FetchImplementation } from '../opendart/opendart.client';
+import { GDELT_REQUEST_TIMEOUT_MS } from './gdelt-http-transport';
 import {
   htmlToNewsContentBlocks,
   newsContentPlainText,
@@ -32,7 +42,8 @@ import {
   type NaverApiProvider,
 } from './connector-diagnostics';
 
-export type ConnectorName = 'OPENDART' | 'NAVER' | 'SEC' | 'GDELT' | 'IR' | 'NEWS_RSS';
+export type ConnectorName =
+  'OPENDART' | 'NAVER' | 'SEC' | 'GDELT' | 'IR' | 'NEWS_RSS' | 'ALPACA_NEWS';
 
 export interface DiscoveryCandidate {
   readonly connector: ConnectorName;
@@ -195,6 +206,7 @@ export class ConnectorRequestError extends Error {
     public readonly retryAt: Date | null = null,
     public readonly providerCode: string | null = null,
     public readonly naverApiProvider: NaverApiProvider | null = null,
+    public readonly requestAttempted = true,
   ) {
     const sanitizedCategory = httpStatus === 0 ? (transportCategory ?? 'network') : null;
     super(
@@ -478,7 +490,7 @@ export async function fetchPinnedHttpsBytes(
   });
 }
 
-async function fetchJson(
+export async function fetchJson(
   connector: ConnectorName,
   operation: string,
   fetchImpl: FetchImplementation,
@@ -496,7 +508,11 @@ async function fetchJson(
     });
   } catch (error) {
     if (connector === 'SEC' && error && typeof error === 'object') {
-      const cooldown = error as { httpStatus?: unknown; retryAt?: unknown };
+      const cooldown = error as {
+        httpStatus?: unknown;
+        retryAt?: unknown;
+        requestAttempted?: unknown;
+      };
       if (
         (cooldown.httpStatus === 403 || cooldown.httpStatus === 429) &&
         cooldown.retryAt instanceof Date &&
@@ -508,6 +524,9 @@ async function fetchJson(
           cooldown.httpStatus,
           null,
           cooldown.retryAt,
+          null,
+          null,
+          cooldown.requestAttempted === true,
         );
       }
     }
@@ -570,6 +589,13 @@ function configuredHealth(
 
 export function connectorFailureMessage(error: unknown): string {
   if (error instanceof ConnectorRequestError) {
+    if (error.connector === 'SEC' && [403, 429].includes(error.httpStatus)) {
+      const reason = error.httpStatus === 403 ? '접근 거부(403)' : '요청 빈도 제한(429)';
+      const retry = error.retryAt
+        ? ` 재시도 가능 시각: ${error.retryAt.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })} KST.`
+        : '';
+      return `SEC ${reason}. ${error.requestAttempted ? '공급자 응답을 확인했습니다.' : '대기 중이므로 요청하지 않았습니다.'}${retry}`;
+    }
     if (error.connector === 'NAVER') {
       const message = naverFailureMessage(
         error.httpStatus,
@@ -638,6 +664,8 @@ abstract class ConnectorBase implements LinkDiscoveryAdapter {
                 transportCategory: error.transportCategory,
                 retryAt: error.retryAt?.toISOString() ?? null,
                 providerCode: error.providerCode,
+                requestAttempted: error.requestAttempted,
+                skipped: !error.requestAttempted,
               },
             }
           : {}),
@@ -806,6 +834,21 @@ export class NaverNewsConnector extends ConnectorBase {
   }
 }
 
+const secRowsSchema = z
+  .object({
+    accessionNumber: z.array(z.string()).max(20000),
+    filingDate: z.array(z.string()),
+    form: z.array(z.string()),
+    primaryDocument: z.array(z.string()),
+    acceptanceDateTime: z.array(z.string()).optional(),
+    reportDate: z.array(z.string()).optional(),
+  })
+  .passthrough()
+  .superRefine((rows, ctx) => {
+    for (const key of ['filingDate', 'form', 'primaryDocument'] as const)
+      if (rows[key].length !== rows.accessionNumber.length)
+        ctx.addIssue({ code: 'custom', message: 'SEC column length mismatch' });
+  });
 const secSubmissionsSchema = z.object({
   cik: z
     .union([z.string().regex(/^\d{1,10}$/), z.number().int().positive().max(9_999_999_999)])
@@ -813,16 +856,17 @@ const secSubmissionsSchema = z.object({
     .refine((value) => value !== '0000000000'),
   name: z.string(),
   filings: z.object({
-    recent: z
-      .object({
-        accessionNumber: z.array(z.string()),
-        filingDate: z.array(z.string()),
-        form: z.array(z.string()),
-        primaryDocument: z.array(z.string()),
-        acceptanceDateTime: z.array(z.string()).optional(),
-        reportDate: z.array(z.string()).optional(),
-      })
-      .passthrough(),
+    recent: secRowsSchema,
+    files: z
+      .array(
+        z.object({
+          name: z.string().regex(/^CIK\d{10}-submissions-\d+\.json$/),
+          filingFrom: z.string().optional(),
+          filingTo: z.string().optional(),
+        }),
+      )
+      .max(2000)
+      .default([]),
   }),
 });
 
@@ -870,6 +914,18 @@ export class SecSubmissionsConnector extends ConnectorBase {
   private nextAllowedAt = 0;
   private throttleTail: Promise<void> = Promise.resolve();
 
+  private requestsCompleted = 0;
+  private requestsAttempted = 0;
+  private requestsSkipped = 0;
+  public get discoveryMetadata(): Readonly<Record<string, unknown>> {
+    return {
+      ...this.recoveryMetadata,
+      requestsAttempted: this.requestsAttempted,
+      requestsCompleted: this.requestsCompleted,
+      requestsSkipped: this.requestsSkipped,
+    };
+  }
+
   public constructor(
     private readonly userAgent: string | null,
     private readonly fetchImpl: FetchImplementation,
@@ -910,31 +966,58 @@ export class SecSubmissionsConnector extends ConnectorBase {
     await turn;
   }
 
+  private async submissionFile(cik: string, filename = `CIK${cik}.json`): Promise<unknown> {
+    if (!this.userAgent || !/^\d{10}$/.test(cik) || cik === '0000000000')
+      throw new Error('SEC configuration/CIK invalid.');
+    if (
+      filename !== `CIK${cik}.json` &&
+      !new RegExp(`^CIK${cik}-submissions-\\d+\\.json$`).test(filename)
+    )
+      throw new Error('Unsafe SEC history filename.');
+    await this.throttle();
+    const url = new URL(`https://data.sec.gov/submissions/${filename}`);
+    let raw: unknown;
+    try {
+      raw = await fetchJson(
+        this.name,
+        'submissions',
+        this.fetchImpl,
+        url,
+        { headers: { 'User-Agent': this.userAgent, Accept: 'application/json' } },
+        this.timeoutMs,
+      );
+      this.requestsAttempted++;
+      this.requestsCompleted++;
+    } catch (error) {
+      if (error instanceof ConnectorRequestError && !error.requestAttempted) this.requestsSkipped++;
+      else this.requestsAttempted++;
+      throw error;
+    }
+    return raw;
+  }
+
   public async submissions(
     cik: string,
     ticker: string | readonly string[] | null = null,
     limit = 20,
   ): Promise<readonly DiscoveryCandidate[]> {
     if (!this.userAgent) return [];
-    if (!/^\d{10}$/.test(cik)) throw new Error('SEC CIK must contain 10 digits.');
-    await this.throttle();
-    const url = new URL(`https://data.sec.gov/submissions/CIK${cik}.json`);
-    const raw = await fetchJson(
-      this.name,
-      'submissions',
-      this.fetchImpl,
-      url,
-      { headers: { 'User-Agent': this.userAgent, Accept: 'application/json' } },
-      this.timeoutMs,
-    );
-    const parsed = secSubmissionsSchema.parse(raw);
+    const parsed = secSubmissionsSchema.parse(await this.submissionFile(cik));
     if (parsed.cik !== cik)
       throw new Error('SEC submissions CIK does not match the requested issuer.');
-    const rows = parsed.filings.recent;
-    const numericCik = parsed.cik.replace(/^0+/, '');
+    return this.candidates(cik, parsed.name, parsed.filings.recent, ticker).slice(0, limit);
+  }
+
+  private candidates(
+    cik: string,
+    name: string,
+    rows: z.infer<typeof secRowsSchema>,
+    ticker: string | readonly string[] | null,
+  ): readonly DiscoveryCandidate[] {
+    const numericCik = cik.replace(/^0+/, '');
     const tickers = [...new Set(typeof ticker === 'string' ? [ticker] : (ticker ?? []))].sort();
     return Object.freeze(
-      rows.accessionNumber.slice(0, Math.min(100, Math.max(1, limit))).map((accession, index) => {
+      rows.accessionNumber.map((accession, index) => {
         const primary = rows.primaryDocument[index] ?? '';
         if (!/^\d{10}-\d{2}-\d{6}$/.test(accession))
           throw new Error('SEC returned an invalid accession number.');
@@ -953,7 +1036,7 @@ export class SecSubmissionsConnector extends ConnectorBase {
         return Object.freeze({
           connector: this.name,
           externalId: accession,
-          title: `${rows.form[index] ?? 'SEC filing'} — ${parsed.name}`,
+          title: `${rows.form[index] ?? 'SEC filing'} — ${name}`,
           url: `https://www.sec.gov/Archives/edgar/data/${numericCik}/${accession.replaceAll('-', '')}/${segments.map(encodeURIComponent).join('/')}`,
           // filingDate stays date-only; only an explicitly zoned acceptance time is an instant.
           publishedAt: acceptedInstant.success
@@ -978,6 +1061,102 @@ export class SecSubmissionsConnector extends ConnectorBase {
     );
   }
 
+  public discoveryWasTruncated = false;
+  public async *discoverBatches(
+    scope: DiscoveryScope,
+    store: RecoveryStore = emptyRecoveryStore,
+    maxRequests = 4,
+    backfill = false,
+  ): AsyncGenerator<DiscoveryBatch> {
+    const cik = scope.companies.find((company) => company.cik)?.cik?.padStart(10, '0');
+    if (!this.userAgent || !cik) return;
+    const tickers = scope.companies.flatMap((company) => (company.ticker ? [company.ticker] : []));
+    const stream = `SUBMISSIONS:CIK:${cik}`;
+    const checkpoint = await store.load(this.name, stream);
+    let revision = checkpoint.revision;
+    const previous = checkpoint.metadata;
+    const parsed = secSubmissionsSchema.parse(await this.submissionFile(cik));
+    if (parsed.cik !== cik) throw new Error('SEC submissions CIK mismatch.');
+    const recent = this.candidates(cik, parsed.name, parsed.filings.recent, tickers);
+    const baseline =
+      previous.baselineComplete === true && typeof previous.newestKnownAccession === 'string';
+    const gap = !recent.some((item) => item.externalId === previous.newestKnownAccession);
+    const pending = Array.isArray(previous.pendingFiles)
+      ? previous.pendingFiles.filter((v): v is string => typeof v === 'string')
+      : [];
+    const files = parsed.filings.files.map((file) => file.name);
+    // Continue a frozen recovery cursor; a new rollover also adds newly advertised history files.
+    let remaining = [
+      ...new Set([
+        ...pending,
+        ...((!baseline || gap || backfill) && !pending.length
+          ? files
+          : pending.length || gap
+            ? files.filter(
+                (name) =>
+                  gap ||
+                  !(
+                    Array.isArray(previous.completedFiles) && previous.completedFiles.includes(name)
+                  ),
+              )
+            : []),
+      ]),
+    ];
+    const completed =
+      pending.length && Array.isArray(previous.completedFiles) ? [...previous.completedFiles] : [];
+    let metadata: Record<string, unknown> = {
+      ...previous,
+      provider: 'SEC',
+      capability: 'SUBMISSIONS_GAP_RECOVERY',
+      lastFetchedAt: new Date().toISOString(),
+      lastSourceFile: 'recent',
+      newestKnownAccession: recent[0]?.externalId ?? previous.newestKnownAccession ?? null,
+      pendingFiles: remaining,
+      completedFiles: completed,
+      cursor: remaining[0] ?? null,
+      baselineComplete: baseline || remaining.length === 0,
+      incomplete: remaining.length > 0,
+      truncated: false,
+      mode: backfill || !baseline ? 'BACKFILL' : 'POLL',
+    };
+    if (!remaining.length) metadata.lastSuccessfulObservedAt = new Date().toISOString();
+    this.recoveryMetadata = { ...metadata, checkpoint: stream };
+    yield {
+      candidates: recent,
+      suppressAlerts: backfill || !baseline,
+      checkpoint: { stream, expected: revision++, metadata },
+    };
+    let requests = 1;
+    while (remaining.length && requests < maxRequests) {
+      const filename = remaining[0]!;
+      const rows = secRowsSchema.parse(await this.submissionFile(cik, filename));
+      requests++;
+      const candidates = this.candidates(cik, parsed.name, rows, tickers);
+      remaining = remaining.slice(1);
+      completed.push(filename);
+      metadata = {
+        ...metadata,
+        lastFetchedAt: new Date().toISOString(),
+        lastSourceFile: filename,
+        pendingFiles: remaining,
+        completedFiles: [...completed],
+        cursor: remaining[0] ?? null,
+        baselineComplete: baseline || remaining.length === 0,
+        incomplete: remaining.length > 0,
+        ...(remaining.length ? {} : { lastSuccessfulObservedAt: new Date().toISOString() }),
+      };
+      this.recoveryMetadata = { ...metadata, checkpoint: stream };
+      yield {
+        candidates,
+        suppressAlerts: true,
+        checkpoint: { stream, expected: revision++, metadata },
+      };
+    }
+    this.discoveryWasTruncated ||= remaining.length > 0;
+    this.recoveryMetadata = { ...metadata, requestsInIssuerRun: requests, checkpoint: stream };
+  }
+  private recoveryMetadata: Record<string, unknown> = {};
+
   protected override async probe(): Promise<Readonly<Record<string, unknown>>> {
     return this.health().metadata ?? {};
   }
@@ -996,7 +1175,7 @@ export class SecSubmissionsConnector extends ConnectorBase {
       issuers.set(cik, tickers);
     }
     for (const [cik, tickers] of issuers) {
-      results.push(...(await this.submissions(cik, [...tickers].sort(), 20)));
+      results.push(...(await this.submissions(cik, [...tickers].sort(), Number.MAX_SAFE_INTEGER)));
     }
     return Object.freeze(results);
   }
@@ -1014,14 +1193,15 @@ const gdeltSchema = z.object({
         language: z.string().optional(),
       }),
     )
-    .optional(),
+    .max(250),
 });
 
 function gdeltInstant(value: string | undefined): string | null {
   const match = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(value ?? '');
-  return match
-    ? `${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:${match[6]}.000Z`
-    : null;
+  if (!match) return null;
+  const iso = `${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:${match[6]}.000Z`;
+  const instant = new Date(iso);
+  return Number.isFinite(instant.getTime()) && instant.toISOString() === iso ? iso : null;
 }
 
 const GDELT_REQUEST_INTERVAL_MS = 5_000;
@@ -1060,25 +1240,34 @@ function gdeltRequestState(fetchImpl: FetchImplementation): GdeltRequestState {
 export class GdeltMetadataConnector extends ConnectorBase {
   public override readonly name = 'GDELT' as const;
   public override readonly rightsMode = RightsMode.STORE_METADATA_ONLY;
-  protected override readonly disabledMessage =
-    'GDELT is disabled or has no approved publisher domains';
+  protected override readonly configured: boolean;
+  protected override readonly disabledMessage = 'GDELT disabled or publisher policy not approved';
   private readonly requestState: GdeltRequestState;
 
   public constructor(
-    protected override readonly configured: boolean,
+    private readonly enabled: boolean,
     private readonly fetchImpl: FetchImplementation,
     private readonly timeoutMs: number,
     private readonly approvedDomains: readonly string[] = [],
+    private readonly policies: Readonly<
+      Record<string, NewsSourcePolicy>
+    > = APPROVED_GDELT_SOURCE_POLICIES,
   ) {
     super();
-    if (
-      approvedDomains.some(
-        (domain) =>
-          APPROVED_GDELT_SOURCE_POLICIES[domain]?.metadataStorageAllowed !== true ||
-          APPROVED_GDELT_SOURCE_POLICIES[domain]?.displayAllowed !== true,
-      )
-    )
-      throw new Error('GDELT domains require a reviewed source policy.');
+    if (approvedDomains.some((domain) => !isGdeltDomainFilter(domain)))
+      throw new Error('Invalid GDELT domain filter.');
+    this.configured =
+      enabled &&
+      approvedDomains.length > 0 &&
+      approvedDomains.every((domain) => {
+        const policy = policies[domain];
+        return (
+          policy?.metadataStorageAllowed === true &&
+          policy.displayAllowed === true &&
+          policy.rightsMode === this.rightsMode &&
+          Boolean(policy.checkedAt && policy.policyUrl)
+        );
+      });
     this.requestState = gdeltRequestState(fetchImpl);
   }
 
@@ -1088,6 +1277,12 @@ export class GdeltMetadataConnector extends ConnectorBase {
       metadata: {
         healthSource: 'GDELT_INGESTION',
         configured: this.configured,
+        configurationState:
+          !this.enabled || this.approvedDomains.length === 0
+            ? 'UNCONFIGURED'
+            : this.configured
+              ? 'CONFIGURED'
+              : 'POLICY_NOT_APPROVED',
         approvedDomains: this.approvedDomains,
       },
     };
@@ -1096,7 +1291,16 @@ export class GdeltMetadataConnector extends ConnectorBase {
   private assertNotCoolingDown(): void {
     const retryAt = this.requestState.retryAt;
     if (retryAt && retryAt.getTime() > Date.now()) {
-      throw new ConnectorRequestError(this.name, 'document-search', 429, null, retryAt);
+      throw new ConnectorRequestError(
+        this.name,
+        'document-search',
+        429,
+        null,
+        retryAt,
+        null,
+        null,
+        false,
+      );
     }
   }
 
@@ -1109,7 +1313,6 @@ export class GdeltMetadataConnector extends ConnectorBase {
       const waitMs = Math.max(0, state.nextRequestAt - Date.now());
       if (waitMs > 0) await new Promise<void>((resolve) => setTimeout(resolve, waitMs));
       this.assertNotCoolingDown();
-      state.nextRequestAt = Date.now() + GDELT_REQUEST_INTERVAL_MS;
       try {
         const result = await fetchJson(
           this.name,
@@ -1136,6 +1339,10 @@ export class GdeltMetadataConnector extends ConnectorBase {
           throw new ConnectorRequestError(this.name, 'document-search', 429, null, state.retryAt);
         }
         throw error;
+      } finally {
+        // Slow TCP/TLS setup or body delivery must not consume the pause before
+        // the next request reaches GDELT over an already warm connection.
+        state.nextRequestAt = Date.now() + GDELT_REQUEST_INTERVAL_MS;
       }
     });
     state.requestTail = turn.then(
@@ -1174,7 +1381,11 @@ export class GdeltMetadataConnector extends ConnectorBase {
   public async search(
     query: string,
     maxRecords = 20,
-    options: { readonly timespan?: '1h' } = {},
+    options: {
+      readonly timespan?: '1h' | '24h';
+      readonly start?: string;
+      readonly end?: string;
+    } = {},
   ): Promise<readonly DiscoveryCandidate[]> {
     if (!this.configured) return [];
     if (!query.trim()) throw new Error('GDELT query is required.');
@@ -1184,7 +1395,10 @@ export class GdeltMetadataConnector extends ConnectorBase {
     url.searchParams.set('format', 'json');
     url.searchParams.set('sort', 'datedesc');
     url.searchParams.set('maxrecords', String(Math.min(250, Math.max(1, maxRecords))));
-    if (options.timespan) url.searchParams.set('timespan', options.timespan);
+    if (options.start && options.end) {
+      url.searchParams.set('startdatetime', gdeltTimestamp(options.start));
+      url.searchParams.set('enddatetime', gdeltTimestamp(options.end));
+    } else if (options.timespan) url.searchParams.set('timespan', options.timespan);
     const parsed = gdeltSchema.parse(await this.request(url));
     return Object.freeze(
       (parsed.articles ?? []).map((item) =>
@@ -1221,34 +1435,112 @@ export class GdeltMetadataConnector extends ConnectorBase {
     };
   }
 
-  public override async discoverLinks(): Promise<readonly DiscoveryCandidate[]> {
-    if (!this.configured || this.approvedDomains.length === 0) return [];
-    const domains = this.approvedDomains.map((domain) => `domainis:${domain}`).join(' OR ');
-    const query = `(economy OR earnings OR market OR industry OR company) (${domains})`;
-    const candidates = await this.search(query, 250, { timespan: '1h' });
-    return Object.freeze(
-      candidates
-        .filter((candidate) => {
-          const hostname = new URL(candidate.url).hostname.toLowerCase();
-          return this.approvedDomains.some(
-            (domain) => hostname === domain || hostname.endsWith(`.${domain}`),
-          );
-        })
-        .map((candidate) => ({
-          ...candidate,
-          externalId: createHash('sha256').update(candidate.url).digest('hex'),
-          sourceKind: NewsSourceKind.INDEPENDENT_MEDIA,
-          sourcePolicy:
-            APPROVED_GDELT_SOURCE_POLICIES[
-              this.approvedDomains.find(
-                (domain) =>
-                  new URL(candidate.url).hostname === domain ||
-                  new URL(candidate.url).hostname.endsWith(`.${domain}`),
-              )!
-            ],
-          metadata: { ...candidate.metadata, discoveryQuery: query, discoveryProvider: 'GDELT' },
-        })),
-    );
+  public discoveryWasTruncated = false;
+  public discoveryMetadata: Record<string, unknown> = {};
+  private queries(scope?: DiscoveryScope): string[] {
+    const domains = this.approvedDomains.length
+      ? ` (${this.approvedDomains.map((domain) => `domainis:${domain}`).join(' OR ')})`
+      : '';
+    const names = [
+      ...new Set(
+        (scope?.companies ?? [])
+          .flatMap((company) => [company.nameEn, company.nameKo])
+          .filter((name): name is string => Boolean(name && name.trim().length >= 2))
+          .map((name) =>
+            name
+              .normalize('NFKC')
+              .replace(/["\\()]/gu, ' ')
+              .replace(/\s+/gu, ' ')
+              .trim()
+              .slice(0, 100),
+          ),
+      ),
+    ].sort();
+    const topics = [
+      '(economy OR inflation OR "interest rate" OR employment OR "central bank" OR "stock market")',
+    ];
+    for (let index = 0; index < names.length; index += 10)
+      topics.push(
+        `(${names
+          .slice(index, index + 10)
+          .map((name) => `"${name}"`)
+          .join(' OR ')})`,
+      );
+    return topics.map((topic) => `${topic} (sourcelang:english OR sourcelang:korean)${domains}`);
+  }
+
+  private approvedCandidate(candidate: DiscoveryCandidate): DiscoveryCandidate | null {
+    const hostname = new URL(candidate.url).hostname.toLowerCase();
+    // Exact publisher host approval; a parent domain never grants arbitrary subdomains rights.
+    const policy = this.approvedDomains.includes(hostname) ? this.policies[hostname] : undefined;
+    if (!policy || policy.metadataStorageAllowed !== true || policy.displayAllowed !== true)
+      return null;
+    const language = String(candidate.metadata.language ?? '').toLowerCase();
+    if (!['english', 'korean', 'en', 'ko'].includes(language)) return null;
+    return Object.freeze({
+      ...candidate,
+      externalId: createHash('sha256').update(canonicalNewsUrl(candidate.url)).digest('hex'),
+      sourceKind: NewsSourceKind.INDEPENDENT_MEDIA,
+      sourcePolicy: {
+        ...policy,
+        aiAllowed: false,
+        fullTextStorageAllowed: false,
+        notifyAllowed: false,
+      },
+      metadata: {
+        ...candidate.metadata,
+        discoveryProvider: 'GDELT',
+        rightsContext: 'APPROVED_PUBLISHER_METADATA',
+        metadataOnly: true,
+        marketRegion: 'global',
+        attributionName: 'GDELT',
+        attributionUrl: 'https://www.gdeltproject.org/',
+      },
+    });
+  }
+
+  public async *discoverBatches(
+    scope: DiscoveryScope,
+    store: RecoveryStore,
+    options: GdeltRecoveryOptions = DEFAULT_GDELT_RECOVERY,
+  ): AsyncGenerator<DiscoveryBatch> {
+    if (!this.configured) return;
+    this.discoveryWasTruncated = false;
+    const incomplete = new Map<string, boolean>();
+    for await (const batch of recoverGdeltWindows(
+      this.queries(scope),
+      store,
+      (query, window) => this.search(query, 250, window),
+      options,
+    )) {
+      const candidates = batch.candidates
+        .map((candidate) => this.approvedCandidate(candidate))
+        .filter((candidate): candidate is DiscoveryCandidate => candidate !== null);
+      this.discoveryMetadata = {
+        ...batch.checkpoint?.metadata,
+        rejectedByPolicyCount: batch.candidates.length - candidates.length,
+      };
+      if (batch.checkpoint)
+        incomplete.set(batch.checkpoint.stream, batch.checkpoint.metadata.incomplete === true);
+      this.discoveryWasTruncated = [...incomplete.values()].some(Boolean);
+      yield { ...batch, candidates };
+    }
+  }
+
+  public override async discoverLinks(
+    scope?: DiscoveryScope,
+  ): Promise<readonly DiscoveryCandidate[]> {
+    if (!this.configured) return [];
+    const unique = new Map<string, DiscoveryCandidate>();
+    for (const query of this.queries(scope)) {
+      const candidates = await this.search(query, 250, { timespan: '24h' });
+      this.discoveryWasTruncated ||= candidates.length >= 250;
+      for (const item of candidates) {
+        const candidate = this.approvedCandidate(item);
+        if (candidate) unique.set(canonicalNewsUrl(candidate.url), candidate);
+      }
+    }
+    return [...unique.values()];
   }
 }
 
@@ -2041,10 +2333,17 @@ export function createLinkDiscoveryAdapters(
 ): readonly LinkDiscoveryAdapter[] {
   return Object.freeze([
     new SecSubmissionsConnector(config.secUserAgent, fetchImpl, config.httpTimeoutMs),
-    new GdeltMetadataConnector(
-      config.gdeltEnabled && config.gdeltApprovedDomains.length > 0,
+    new AlpacaNewsConnector(
+      config.alpacaNewsEnabled,
+      config.alpacaApiKey,
+      config.alpacaApiSecret,
       fetchImpl,
       config.httpTimeoutMs,
+    ),
+    new GdeltMetadataConnector(
+      config.gdeltEnabled,
+      fetchImpl,
+      GDELT_REQUEST_TIMEOUT_MS,
       config.gdeltApprovedDomains,
     ),
     new RegisteredIrFeedConnector(config.irFeedUrls, config.httpTimeoutMs, checkpointStore),

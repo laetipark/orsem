@@ -35,6 +35,8 @@ import type {
   NewsContentBlock,
 } from '@orsem/contracts';
 import { numericStringTransformer } from './transformers';
+import { WATCHLIST_GROUP_ENTITIES } from './watchlist-group-entities';
+import { NewsSourceCompanyEntity } from './news-relevance-entities';
 import { DISCLOSURE_ENTITIES } from './disclosure-entities';
 import { MarketInstrumentEntity, MarketObservationEntity } from './market-entities';
 import {
@@ -201,6 +203,23 @@ export class WatchlistItemEntity extends EntityBase {
   @Column({ type: 'text', nullable: true }) notes!: string | null;
 }
 
+export interface ManualNewsTranslationIdentity {
+  version: 1;
+  revisionId: string;
+  sourceHash: string;
+  contentHash: string;
+  editedAt: string;
+  editedByAdminId: string;
+}
+export interface ManualNewsMetadataTranslation extends ManualNewsTranslationIdentity {
+  title: string;
+  description: string | null;
+}
+export interface ManualNewsContentTranslation extends ManualNewsTranslationIdentity {
+  markdown: string;
+  blocks: NewsContentBlock[];
+}
+
 @Entity({ name: 'source_items' })
 @Unique('ux_source_external', ['source', 'externalId'])
 @Unique('ux_source_raw_hash', ['source', 'rawHash'])
@@ -240,6 +259,8 @@ export class SourceItemEntity extends EntityBase {
     string,
     unknown
   > | null;
+  @Column({ name: 'manual_translation_json', type: 'json', nullable: true })
+  manualTranslationJson!: ManualNewsMetadataTranslation | null;
 }
 
 @Entity({ name: 'news_articles' })
@@ -252,11 +273,20 @@ export class NewsArticleEntity extends EntityBase {
   @Column({ name: 'first_observed_at', ...instantColumn }) firstObservedAt!: Date;
 }
 
+// Preserve historical provider metadata even after its connector is removed.
 export interface StoredNewsContentTranslation {
+  claimId?: string;
+  chunkOrigins?: Array<{ inputHash: string; provider?: 'LOCAL' | 'AZURE'; model?: string }>;
+  completedChunks?: Array<{
+    inputHash: string;
+    blocks: NewsContentBlock[];
+    provider?: 'LOCAL' | 'AZURE';
+    model?: string;
+  }>;
   version: 1;
   status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'SKIPPED';
   inputHash: string;
-  provider: 'LOCAL';
+  provider: 'LOCAL' | 'AZURE';
   model: string;
   sourceLanguage: string;
   targetLanguage: 'ko';
@@ -299,6 +329,27 @@ export class NewsArticleContentEntity extends EntityBase {
   rightsPolicyJson!: NewsSourcePolicy;
   @Column({ name: 'translation_json', type: 'json', nullable: true })
   translationJson!: StoredNewsContentTranslation | null;
+  @Column({ name: 'manual_translation_json', type: 'json', nullable: true })
+  manualTranslationJson!: ManualNewsContentTranslation | null;
+}
+
+@Entity({ name: 'news_translation_revisions' })
+@Index('ix_news_translation_revision_source', ['sourceItemId', 'createdAt'])
+export class NewsTranslationRevisionEntity extends EntityBase {
+  @Column({ name: 'source_item_id', type: 'char', length: 36 }) sourceItemId!: string;
+  @Column({ name: 'edited_by_admin_id', type: 'char', length: 36, nullable: true })
+  editedByAdminId!: string | null;
+  @Column({ name: 'source_hash', type: 'char', length: 64 }) sourceHash!: string;
+  @Column({ name: 'content_hash', type: 'char', length: 64 }) contentHash!: string;
+  @Column({ name: 'previous_manual_json', type: 'json', nullable: true })
+  previousManualJson!: {
+    metadata: ManualNewsMetadataTranslation | null;
+    content: ManualNewsContentTranslation | null;
+  } | null;
+  @Column({ name: 'manual_json', type: 'json' }) manualJson!: {
+    metadata: ManualNewsMetadataTranslation;
+    content: ManualNewsContentTranslation;
+  };
 }
 
 @Entity({ name: 'news_items' })
@@ -930,6 +981,8 @@ export class BotCommandEntity extends EntityBase {
 }
 
 export const ENTITIES = [
+  ...WATCHLIST_GROUP_ENTITIES,
+  NewsSourceCompanyEntity,
   ...DISCLOSURE_ENTITIES,
   NotificationPreferenceEntity,
   PushSubscriptionEntity,
@@ -948,6 +1001,7 @@ export const ENTITIES = [
   SourceItemEntity,
   NewsArticleEntity,
   NewsArticleContentEntity,
+  NewsTranslationRevisionEntity,
   NewsItemEntity,
   PriceBarEntity,
   IrSourceEntity,

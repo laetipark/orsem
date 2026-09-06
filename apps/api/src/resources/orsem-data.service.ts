@@ -1,3 +1,5 @@
+import { publicDiscoveryStatus } from './connector-public-status';
+import { verifyManualNewsSources } from './manual-news-translation';
 import {
   BadRequestException,
   Inject,
@@ -7,6 +9,7 @@ import {
 } from '@nestjs/common';
 import {
   AlertStatus,
+  APPROVED_GDELT_SOURCE_POLICIES,
   classifyFilingDocumentKind,
   ClassificationReviewResult,
   ConnectorStatus,
@@ -27,6 +30,7 @@ import {
   matchesRegion,
   marketsForRegion,
   hasParseTypeInvariant,
+  largeHoldingSchema,
   isSupportedFilingType,
   type Region,
   type CandleSource,
@@ -56,6 +60,8 @@ import {
   FilingRelationEntity,
   InsiderReportEntity,
   InsiderTransactionEntity,
+  LargeHolderReportEntity,
+  LargeHoldingChangeEntity,
   IrSourceEntity,
   JobOutboxEntity,
   NewsItemEntity,
@@ -86,6 +92,7 @@ import {
   type EntityManager,
   type EntityTarget,
   type ObjectLiteral,
+  type FindOptionsWhere,
 } from 'typeorm';
 import { APP_CONFIG, type AppConfig } from '../config/app-config';
 import { cursorInstant, decodeCursor } from '../common/cursor';
@@ -106,6 +113,7 @@ import {
   NEWS_GROUP_ID,
   NEWS_GROUP_SORT,
   availableNewsContentSql,
+  visibleNewsSql,
   visibleEventSourceSql,
   PUBLIC_NEWS_PUBLISHERS,
 } from './news-query';
@@ -220,6 +228,20 @@ export interface ListQuery extends PageQuery {
   [key: string]: unknown;
 }
 
+const supportedEventFilingsSql = `NOT EXISTS (SELECT 1 FROM event_cluster_items integrity_item
+  JOIN filings integrity_filing ON integrity_filing.id = integrity_item.item_id
+  WHERE integrity_item.event_cluster_id = event.id AND integrity_item.item_type = 'FILING'
+    AND integrity_filing.canonical_type IS NOT NULL
+    AND integrity_filing.canonical_type NOT IN ('D001','D002','D003','D004','D005'))`;
+
+type EventFilingFacts = FilingSummary & {
+  transactions?: Array<
+    Pick<FilingDetail['transactions'][number], 'nature' | 'direction' | 'eventDate'>
+  >;
+  largeHolding?: Pick<NonNullable<FilingDetail['largeHolding']>, 'changes'> | null;
+  tradePlan?: Pick<NonNullable<FilingDetail['tradePlan']>, 'plannedStartDate'> | null;
+};
+
 @Injectable()
 export class OrsemDataService {
   constructor(
@@ -330,7 +352,7 @@ export class OrsemDataService {
 
   async listCompanyViews(query: ListQuery): Promise<CursorPage<CompanySummaryView>> {
     const page = await this.listCompanies(query);
-    const items = await Promise.all(page.items.map((company) => this.companySummaryView(company)));
+    const items = await this.companySummaryViews(page.items);
     return { ...page, items };
   }
 
@@ -379,7 +401,7 @@ export class OrsemDataService {
 
   async listEventViews(query: ListQuery): Promise<CursorPage<EventSummaryView>> {
     const page = await this.listEvents(query);
-    const items = await Promise.all(page.items.map((event) => this.eventSummaryView(event)));
+    const items = await this.eventSummaryViews(page.items);
     return { ...page, items };
   }
 
@@ -894,11 +916,7 @@ export class OrsemDataService {
     }
     const cursor = decodeCursor(query.cursor);
     const qb = this.source().getRepository(EventClusterEntity).createQueryBuilder('event');
-    qb.andWhere(`NOT EXISTS (SELECT 1 FROM event_cluster_items integrity_item
-      JOIN filings integrity_filing ON integrity_filing.id = integrity_item.item_id
-      WHERE integrity_item.event_cluster_id = event.id AND integrity_item.item_type = 'FILING'
-        AND integrity_filing.canonical_type IS NOT NULL
-        AND integrity_filing.canonical_type NOT IN ('D001','D002','D003','D004','D005'))`);
+    qb.andWhere(supportedEventFilingsSql);
     if (query.region && query.region !== 'all') {
       qb.andWhere(
         `(
@@ -993,7 +1011,7 @@ export class OrsemDataService {
       .take(query.limit + 1)
       .getMany();
     const visible = rows.slice(0, query.limit);
-    const items = await Promise.all(visible.map((row) => this.mapEvent(row)));
+    const items = await this.mapEvents(visible);
     return finishPage(rows, query.limit, items, (row) => row.firstObservedAt.toISOString());
   }
 
@@ -1045,6 +1063,13 @@ export class OrsemDataService {
                 ),
             ),
         )
+        .filter((item) =>
+          query.scope === 'market'
+            ? !item.tickers.length
+            : query.scope === 'company'
+              ? item.tickers.length > 0
+              : true,
+        )
         .filter((item) => !query.source || item.source === query.source)
         .filter((item) => !query.sourceKind || item.sourceKind === query.sourceKind)
         .filter(
@@ -1071,14 +1096,52 @@ export class OrsemDataService {
         'article',
         'article.id = source.news_article_id',
       )
-      .innerJoinAndMapOne(
+      .leftJoinAndMapOne(
         'source.newsContent',
         NewsArticleContentEntity,
         'content',
         'content.source_item_id = source.id',
       )
+      .select([
+        ...[
+          'id',
+          'companyId',
+          'newsArticleId',
+          'sourceKind',
+          'sourcePolicyJson',
+          'source',
+          'externalId',
+          'title',
+          'url',
+          'sourceName',
+          'author',
+          'publishedAt',
+          'firstObservedAt',
+          'processedAt',
+          'rawHash',
+          'manualTranslationJson',
+          'rightsMode',
+          'provenanceUrl',
+          'rawMetadataJson',
+          'translationJson',
+        ].map((field) => `source.${field}`),
+        'article.id',
+        'article.sortAt',
+        ...[
+          'id',
+          'sourceItemId',
+          'status',
+          'language',
+          'blocksJson',
+          'contentHash',
+          'fetchedAt',
+          'rightsPolicyJson',
+          'translationJson',
+          'manualTranslationJson',
+        ].map((field) => `content.${field}`),
+      ])
       .where(newsFiltersSql('source', query), newsFilterParameters(query))
-      .andWhere(availableNewsContentSql('content', 'source'))
+      .andWhere(visibleNewsSql('content', 'source'))
       .andWhere(representativeNewsSql(query));
     if (cursor)
       qb.andWhere(
@@ -1091,26 +1154,66 @@ export class OrsemDataService {
       .limit(query.limit + 1)
       .getMany();
     const visible = rows.slice(0, query.limit);
-    const articleIds = visible.flatMap((row) => (row.newsArticleId ? [row.newsArticleId] : []));
+    await verifyManualNewsSources(
+      this.source(),
+      visible,
+      visible.flatMap((row) => {
+        const content = (row as SourceItemEntity & { newsContent?: NewsArticleContentEntity })
+          .newsContent;
+        return content ? [content] : [];
+      }),
+    );
+    const articleIds = [
+      ...new Set(visible.flatMap((row) => (row.newsArticleId ? [row.newsArticleId] : []))),
+    ];
     const provenance = articleIds.length
       ? await this.source()
           .getRepository(SourceItemEntity)
-          .findBy({ newsArticleId: In(articleIds) })
+          .find({
+            select: {
+              id: true,
+              newsArticleId: true,
+              source: true,
+              sourceKind: true,
+              sourceName: true,
+              url: true,
+              sourcePolicyJson: true,
+              rawMetadataJson: true,
+            },
+            where: { newsArticleId: In(articleIds) },
+          })
       : [];
-    const items = visible.map((row) => {
-      const content = (row as SourceItemEntity & { newsContent?: NewsArticleContentEntity })
-        .newsContent;
-      const sources = provenance.filter(
-        (item) =>
-          item.newsArticleId === row.newsArticleId &&
+    const sourcesByArticle = new Map<string, SourceItemEntity[]>();
+    for (const item of provenance) {
+      if (
+        !item.newsArticleId ||
+        !(
           sourcePolicyAllowsDisplay(
             item,
             ['OFFICIAL_RELEASE', 'COMPANY_IR'],
             PUBLIC_NEWS_PUBLISHERS,
-          ),
-      );
+          ) ||
+          (['GDELT', 'ALPACA_NEWS'].includes(item.source) &&
+            item.rawMetadataJson?.rightsContext === 'APPROVED_PUBLISHER_METADATA' &&
+            item.sourcePolicyJson?.metadataStorageAllowed === true &&
+            item.sourcePolicyJson?.displayAllowed === true &&
+            item.sourcePolicyJson?.fullTextStorageAllowed === false &&
+            item.sourcePolicyJson?.aiAllowed === false)
+        )
+      )
+        continue;
+      const sources = sourcesByArticle.get(item.newsArticleId) ?? [];
+      sources.push(item);
+      sourcesByArticle.set(item.newsArticleId, sources);
+    }
+    const relatedBySource = await this.newsRelatedCompanies(visible.map((row) => row.id));
+    const items = visible.map((row) => {
+      const content = (row as SourceItemEntity & { newsContent?: NewsArticleContentEntity })
+        .newsContent;
+      const sources = row.newsArticleId ? (sourcesByArticle.get(row.newsArticleId) ?? []) : [];
       return {
         ...mapSourceItem(row, null, content),
+        relatedCompanies: relatedBySource.get(row.id) ?? [],
         sourceCount: sources.length || 1,
         sources: (sources.length ? sources : [row]).map((item) => ({
           id: item.id,
@@ -1125,6 +1228,34 @@ export class OrsemDataService {
       sort: (row.newsArticle?.sortAt ?? row.publishedAt ?? row.firstObservedAt).toISOString(),
     }));
     return finishPage(positions, query.limit, items, (row) => row.sort);
+  }
+
+  private async newsRelatedCompanies(
+    sourceIds: readonly string[],
+  ): Promise<Map<string, NonNullable<SourceItem['relatedCompanies']>>> {
+    const result = new Map<string, NonNullable<SourceItem['relatedCompanies']>>();
+    if (!sourceIds.length) return result;
+    const rows: {
+      sourceItemId: string;
+      id: string;
+      market: Company['market'];
+      stockCode: string | null;
+      ticker: string | null;
+      nameKo: string;
+      nameEn: string | null;
+    }[] = await this.source().query(
+      `SELECT DISTINCT displayed.id AS sourceItemId, c.id, c.market, c.stock_code AS stockCode, c.ticker, c.name_ko AS nameKo, c.name_en AS nameEn
+       FROM source_items displayed JOIN source_items related ON (related.id = displayed.id OR (displayed.news_article_id IS NOT NULL AND related.news_article_id = displayed.news_article_id))
+       JOIN news_source_companies r ON r.source_item_id = related.id JOIN companies c ON c.id = r.company_id
+       WHERE displayed.id IN (${sourceIds.map(() => '?').join(',')}) ORDER BY c.name_ko, c.id`,
+      [...sourceIds],
+    );
+    for (const { sourceItemId, ...company } of rows) {
+      const list = result.get(sourceItemId) ?? [];
+      list.push(company);
+      result.set(sourceItemId, list);
+    }
+    return result;
   }
 
   private fixtureSourceMatchesRegion(item: SourceItem, region: Region = 'all'): boolean {
@@ -1212,10 +1343,18 @@ export class OrsemDataService {
       throw new NotFoundException('표시할 수 있는 뉴스 본문을 찾을 수 없습니다.');
     const content = (row as SourceItemEntity & { newsContent?: NewsArticleContentEntity })
       .newsContent as NewsContentRecord | undefined;
+    await verifyManualNewsSources(
+      source,
+      [row],
+      content ? [content as NewsArticleContentEntity] : [],
+    );
     const publicContent = publicNewsContent(content, row.rightsMode);
     if (!publicContent) throw new NotFoundException('표시할 수 있는 뉴스 본문을 찾을 수 없습니다.');
     const news = await source.getRepository(NewsItemEntity).findOneBy({ sourceItemId: row.id });
-    const item = mapSourceItem(row, news, content);
+    const item = {
+      ...mapSourceItem(row, news, content, publicContent),
+      relatedCompanies: (await this.newsRelatedCompanies([row.id])).get(row.id) ?? [],
+    };
     if (content?.language === 'en' && !item.translation)
       throw new NotFoundException('표시할 수 있는 뉴스 번역을 찾을 수 없습니다.');
     return { ...item, content: publicContent };
@@ -1378,7 +1517,17 @@ export class OrsemDataService {
       .take(query.limit + 1)
       .getMany();
     const visible = rows.slice(0, query.limit);
-    const items = await Promise.all(visible.map((row) => this.mapWatchlist(row)));
+    const companies = new Map(
+      (
+        await this.findByIds(
+          CompanyEntity,
+          visible.map((row) => row.companyId),
+        )
+      ).map((company) => [company.id, mapCompany(company)]),
+    );
+    const items = await Promise.all(
+      visible.map((row) => this.mapWatchlist(row, companies.get(row.companyId))),
+    );
     return finishPage(
       rows,
       query.limit,
@@ -1389,16 +1538,15 @@ export class OrsemDataService {
 
   async listWatchlistViews(query: ListQuery): Promise<CursorPage<Record<string, unknown>>> {
     const page = await this.listWatchlist(query);
-    const items = await Promise.all(
-      page.items.map(async (watch) => ({
-        ...(await this.companySummaryView(watch.company)),
-        isWatchlisted: true,
-        addedAt: watch.createdAt,
-        note: watch.notes,
-        realtimeAlerts: watch.realtimeAlerts,
-        digestAlerts: watch.digestAlerts,
-      })),
-    );
+    const summaries = await this.companySummaryViews(page.items.map((watch) => watch.company));
+    const items = page.items.map((watch, index) => ({
+      ...summaries[index]!,
+      isWatchlisted: true,
+      addedAt: watch.createdAt,
+      note: watch.notes,
+      realtimeAlerts: watch.realtimeAlerts,
+      digestAlerts: watch.digestAlerts,
+    }));
     return { ...page, items };
   }
 
@@ -1432,7 +1580,9 @@ export class OrsemDataService {
     }>,
   ): Promise<Map<string, { close: number; sessionDate: string }>> {
     if (this.fixtureMode || requests.length === 0) return new Map();
-    const parameters: Record<string, unknown> = {};
+    const parameters: Record<string, unknown> = {
+      closeRightsMode: RightsMode.PRIVATE_DISPLAY_ONLY,
+    };
     const conditions = requests.map((request, index) => {
       parameters[`company${index}`] = request.companyId;
       parameters[`source${index}`] = request.source;
@@ -1442,6 +1592,7 @@ export class OrsemDataService {
         AND bar.sessionDate = (SELECT MAX(previous.session_date) FROM price_bars previous
           WHERE previous.company_id = bar.companyId AND previous.source = bar.source
             AND previous.currency = bar.currency AND previous.interval = '1d'
+            AND previous.rights_mode = :closeRightsMode
             AND previous.session_date < :before${index}))`;
     });
     const rows = await this.source()
@@ -1449,6 +1600,7 @@ export class OrsemDataService {
       .createQueryBuilder('bar')
       .select(['bar.companyId', 'bar.sessionDate', 'bar.close', 'bar.barAt'])
       .where("bar.interval = '1d'")
+      .andWhere('bar.rightsMode = :closeRightsMode', parameters)
       .andWhere(`(${conditions.join(' OR ')})`, parameters)
       .orderBy('bar.barAt', 'DESC')
       .getMany();
@@ -1474,7 +1626,13 @@ export class OrsemDataService {
         lagSeconds: source.lagSeconds,
         rightsMode: source.rightsMode,
         checkedAt: source.checkedAt,
-        message: null,
+        message: ['sec', 'gdelt', 'alpaca_news'].includes(String(source.id))
+          ? (source.message ?? null)
+          : null,
+        httpStatus: source.httpStatus ?? null,
+        requestAttempted: source.requestAttempted ?? null,
+        lastAttemptAt: source.lastAttemptAt ?? null,
+        nextRetryAt: source.nextRetryAt ?? null,
       })),
     };
   }
@@ -1990,7 +2148,17 @@ export class OrsemDataService {
     }
   }
 
-  async connectors(): Promise<ConnectorHealth[]> {
+  async connectors(): Promise<
+    Array<
+      ConnectorHealth &
+        Partial<
+          Pick<
+            ReturnType<typeof publicDiscoveryStatus>,
+            'incomplete' | 'lastWindowStart' | 'lastWindowEnd' | 'latestObservedAt'
+          >
+        >
+    >
+  > {
     if (this.fixtureMode) return this.fixtures.connectors;
     if (!this.database.dataSource) return [];
     const rows = await this.source()
@@ -2000,6 +2168,9 @@ export class OrsemDataService {
       connector: row.connector,
       status: row.status,
       message: row.message,
+      ...(['sec', 'gdelt', 'alpaca_news'].includes(row.connector.toLowerCase())
+        ? publicDiscoveryStatus(row)
+        : {}),
       lastSuccessAt: dateToIso(row.lastSuccessAt),
       lastFailureAt: dateToIso(row.lastFailureAt),
       checkedAt: row.checkedAt.toISOString(),
@@ -2063,12 +2234,29 @@ export class OrsemDataService {
         missing: 'SEC_USER_AGENT가 없습니다.',
       },
       {
-        id: 'gdelt',
-        name: 'GDELT (비활성)',
+        id: 'alpaca_news',
+        name: 'Alpaca News',
         category: 'NEWS',
-        configured: false,
+        configured: Boolean(
+          byName.get('alpaca_news') &&
+          !['UNCONFIGURED', 'DISABLED'].includes(String(byName.get('alpaca_news')?.status)),
+        ),
         rightsMode: RightsMode.STORE_METADATA_ONLY,
-        missing: '승인된 게시자가 없어 수집·표시 경로를 사용하지 않습니다.',
+        missing: 'Alpaca News의 설정·무료 이용·publisher 권리 확인이 필요합니다.',
+      },
+      {
+        id: 'gdelt',
+        name: 'GDELT 뉴스 링크',
+        category: 'NEWS',
+        configured:
+          this.config.gdeltEnabled &&
+          this.config.gdeltNewsDomains.length > 0 &&
+          this.config.gdeltNewsDomains.every((domain) => {
+            const policy = APPROVED_GDELT_SOURCE_POLICIES[domain];
+            return policy?.metadataStorageAllowed === true && policy.displayAllowed === true;
+          }),
+        rightsMode: RightsMode.STORE_METADATA_ONLY,
+        missing: 'GDELT 수집 설정 또는 publisher 저장·표시 승인이 필요합니다.',
       },
       {
         id: 'ir',
@@ -2137,6 +2325,18 @@ export class OrsemDataService {
                   ? '설정됨; 아직 성공 상태가 기록되지 않았습니다.'
                   : definition.missing,
           checkedAt: health?.checkedAt ?? now,
+          ...(['sec', 'gdelt', 'alpaca_news'].includes(definition.id) && health
+            ? {
+                httpStatus: health.httpStatus ?? null,
+                requestAttempted: health.requestAttempted ?? null,
+                lastAttemptAt: health.lastAttemptAt ?? null,
+                nextRetryAt: health.nextRetryAt ?? null,
+                incomplete: health.incomplete === true,
+                lastWindowStart: health.lastWindowStart ?? null,
+                lastWindowEnd: health.lastWindowEnd ?? null,
+                latestObservedAt: health.latestObservedAt ?? null,
+              }
+            : {}),
         };
       }),
       ...feedViews,
@@ -2186,93 +2386,89 @@ export class OrsemDataService {
     });
   }
 
-  async dashboard(): Promise<Record<string, unknown>> {
+  private async dashboardCounts(asOf = new Date().toISOString()) {
+    const today = kstDateFromInstant(asOf)!;
+    const todayCounts = { D001: 0, D002: 0, D003: 0, D004: 0, D005: 0 };
+    const totalCounts = { ...todayCounts };
+    let reviewRequired: number;
+    let failedJobs: number;
+    let watchedCompanies: number;
     if (this.fixtureMode) {
-      return {
-        generatedAt: new Date().toISOString(),
-        counts: {
-          filingsToday: this.fixtures.filings.length,
-          d001Today: this.fixtures.filings.filter((item) => item.detailType === 'D001').length,
-          d002Today: this.fixtures.filings.filter((item) => item.detailType === 'D002').length,
-          d003Today: this.fixtures.filings.filter((item) => item.detailType === 'D003').length,
-          d004Today: this.fixtures.filings.filter((item) => item.detailType === 'D004').length,
-          d005Today: this.fixtures.filings.filter((item) => item.detailType === 'D005').length,
-          reviewRequired: this.fixtures.reviews.filter(
-            (item) => item.status === ReviewTaskStatus.OPEN,
-          ).length,
-          failedJobs: 0,
-          watchedCompanies: this.fixtures.watchlist.length,
-        },
-        recentEvents: this.fixtures.events.map((event) => mapFixtureEvent(event)),
-        connectors: this.fixtures.connectors,
-      };
+      for (const filing of this.fixtures.filings) {
+        if (!isSupportedFilingType(filing.detailType)) continue;
+        totalCounts[filing.detailType] += 1;
+        if (filing.rceptDate === today) todayCounts[filing.detailType] += 1;
+      }
+      reviewRequired = this.fixtures.reviews.filter(
+        (item) => item.status === ReviewTaskStatus.OPEN,
+      ).length;
+      failedJobs = 0;
+      watchedCompanies = this.fixtures.watchlist.length;
+    } else {
+      const source = this.source();
+      const effectiveType = 'COALESCE(filing.canonicalType, filing.detailType)';
+      const [groups, reviews, failures, watches] = await Promise.all([
+        source
+          .getRepository(FilingEntity)
+          .createQueryBuilder('filing')
+          .select(effectiveType, 'detailType')
+          .addSelect('COUNT(*)', 'countTotal')
+          .addSelect('SUM(CASE WHEN filing.rceptDate = :today THEN 1 ELSE 0 END)', 'countToday')
+          .where('filing.source = :source', { source: 'OPENDART' })
+          .andWhere(`${effectiveType} IN (:...supportedTypes)`, {
+            supportedTypes: Object.keys(todayCounts),
+          })
+          .setParameter('today', today)
+          .groupBy(effectiveType)
+          .getRawMany<{ detailType: string; countTotal: string; countToday: string }>(),
+        source.getRepository(ReviewEntity).countBy({ status: ReviewTaskStatus.OPEN }),
+        source.getRepository(JobOutboxEntity).countBy({ status: ProcessingStatus.FAILED }),
+        source.getRepository(WatchlistItemEntity).count(),
+      ]);
+      for (const group of groups) {
+        if (!isSupportedFilingType(group.detailType)) continue;
+        totalCounts[group.detailType] = Number(group.countTotal);
+        todayCounts[group.detailType] = Number(group.countToday);
+      }
+      reviewRequired = reviews;
+      failedJobs = failures;
+      watchedCompanies = watches;
     }
-    const source = this.source();
-    const today = kstDate();
-    const filings = source.getRepository(FilingEntity);
-    const countType = (type: string) =>
-      filings
-        .createQueryBuilder('filing')
-        .where('filing.rceptDate = :today', { today })
-        .andWhere(
-          '(filing.canonical_type = :type OR (filing.canonical_type IS NULL AND filing.detailType = :type))',
-          { type },
-        )
-        .getCount();
-    const [
-      filingsToday,
-      d001Today,
-      d002Today,
-      d003Today,
-      d004Today,
-      d005Today,
-      reviewRequired,
-      failedJobs,
-      watchedCompanies,
-      events,
-      connectors,
-    ] = await Promise.all([
-      filings.countBy({ rceptDate: today }),
-      countType('D001'),
-      countType('D002'),
-      countType('D003'),
-      countType('D004'),
-      countType('D005'),
-      source.getRepository(ReviewEntity).countBy({ status: ReviewTaskStatus.OPEN }),
-      source.getRepository(JobOutboxEntity).countBy({ status: ProcessingStatus.FAILED }),
-      source.getRepository(WatchlistItemEntity).count(),
-      this.listEvents({ limit: 8 }),
-      this.connectors(),
-    ]);
     return {
-      generatedAt: new Date().toISOString(),
       counts: {
-        filingsToday,
-        d001Today,
-        d002Today,
-        d003Today,
-        d004Today,
-        d005Today,
+        filingsToday: Object.values(todayCounts).reduce((sum, count) => sum + count, 0),
+        d001Today: todayCounts.D001,
+        d002Today: todayCounts.D002,
+        d003Today: todayCounts.D003,
+        d004Today: todayCounts.D004,
+        d005Today: todayCounts.D005,
         reviewRequired,
         failedJobs,
         watchedCompanies,
       },
+      totalCounts,
+    };
+  }
+
+  async dashboard(): Promise<Record<string, unknown>> {
+    const [{ counts }, events, connectors] = await Promise.all([
+      this.dashboardCounts(),
+      this.fixtureMode
+        ? Promise.resolve({ items: this.fixtures.events.map(mapFixtureEvent) })
+        : this.listEvents({ limit: 8 }),
+      this.fixtureMode ? Promise.resolve(this.fixtures.connectors) : this.connectors(),
+    ]);
+    return {
+      generatedAt: new Date().toISOString(),
+      counts,
       recentEvents: events.items,
       connectors,
     };
   }
 
   async dashboardView(): Promise<Record<string, unknown>> {
-    const base = (await this.dashboard()) as {
-      counts: {
-        d001Today: number;
-        d002Today: number;
-        d003Today: number;
-        d004Today: number;
-        d005Today: number;
-        reviewRequired: number;
-      };
-    };
+    const asOf = new Date().toISOString();
+    const { counts, totalCounts } = await this.dashboardCounts(asOf);
     const [p1, p2, verified, sources] = await Promise.all([
       this.listEventViews({ priority: 'P1', limit: 3 }),
       this.listEventViews({ priority: 'P2', limit: 3 }),
@@ -2288,16 +2484,17 @@ export class OrsemDataService {
           this.source().getRepository(AlertDeliveryEntity).countBy({ status: AlertStatus.FAILED }),
         ]);
     return {
-      asOf: new Date().toISOString(),
+      asOf,
       todayCounts: {
-        D001: base.counts.d001Today,
-        D002: base.counts.d002Today,
-        D003: base.counts.d003Today,
-        D004: base.counts.d004Today,
-        D005: base.counts.d005Today,
+        D001: counts.d001Today,
+        D002: counts.d002Today,
+        D003: counts.d003Today,
+        D004: counts.d004Today,
+        D005: counts.d005Today,
       },
+      totalCounts,
       priorities: { P1: p1.items, P2: p2.items },
-      reviewPending: base.counts.reviewRequired,
+      reviewPending: counts.reviewRequired,
       parserFailures,
       integrity,
       alertFailures: alertOutboxFailures + alertDeliveryFailures,
@@ -3337,9 +3534,275 @@ export class OrsemDataService {
     await relationRepository.save(relation);
   }
 
+  private async findByIds<T extends ObjectLiteral & { id: string }>(
+    entity: EntityTarget<T>,
+    ids: string[],
+  ): Promise<T[]> {
+    const unique = [...new Set(ids)];
+    return unique.length
+      ? this.source()
+          .getRepository(entity)
+          .findBy({ id: In(unique) } as unknown as FindOptionsWhere<T>)
+      : [];
+  }
+
+  private async activeParseRuns(filings: FilingEntity[]): Promise<Map<string, ParseRunEntity>> {
+    const rows = await this.findByIds(
+      ParseRunEntity,
+      filings.flatMap((filing) => (filing.activeParseRunId ? [filing.activeParseRunId] : [])),
+    );
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    const active = new Map<string, ParseRunEntity>();
+    for (const filing of filings) {
+      const parse = filing.activeParseRunId ? byId.get(filing.activeParseRunId) : undefined;
+      if (parse?.filingId === filing.id && this.isValidActiveParse(filing, parse))
+        active.set(filing.id, parse);
+    }
+    return active;
+  }
+
+  private async mapEvents(rows: EventClusterEntity[]): Promise<Event[]> {
+    if (!rows.length) return [];
+    const memberships = await this.source()
+      .getRepository(EventClusterItemEntity)
+      .findBy({ eventClusterId: In(rows.map((row) => row.id)) });
+    const byEvent = groupRows(memberships, (item) => item.eventClusterId);
+    const filings = await this.findByIds(
+      FilingEntity,
+      rows.flatMap((row) => {
+        const membership = byEvent.get(row.id)?.find((item) => item.itemType === 'FILING');
+        return membership ? [membership.itemId] : [];
+      }),
+    );
+    const [companies, sources, active] = await Promise.all([
+      this.findByIds(CompanyEntity, [
+        ...rows.flatMap((row) => (row.companyId ? [row.companyId] : [])),
+        ...filings.map((filing) => filing.companyId),
+      ]),
+      this.findByIds(
+        SourceItemEntity,
+        memberships.filter((item) => item.itemType === 'SOURCE_ITEM').map((item) => item.itemId),
+      ),
+      this.activeParseRuns(filings),
+    ]);
+    await verifyManualNewsSources(this.source(), sources);
+    const companyById = new Map(companies.map((row) => [row.id, row]));
+    const filingById = new Map(filings.map((row) => [row.id, row]));
+    const sourceById = new Map(sources.map((row) => [row.id, row]));
+    return rows.map((row) => {
+      const links = byEvent.get(row.id) ?? [];
+      const filingLink = links.find((item) => item.itemType === 'FILING');
+      const filingRow = filingLink ? (filingById.get(filingLink.itemId) ?? null) : null;
+      const parse = filingRow ? (active.get(filingRow.id) ?? null) : null;
+      const filingCompany = filingRow ? companyById.get(filingRow.companyId) : undefined;
+      if (filingRow && !filingCompany)
+        throw new Error(`Company ${filingRow.companyId} is missing for filing ${filingRow.id}`);
+      const sourceItems: SourceItem[] = [];
+      for (const link of links) {
+        if (link.itemType !== 'SOURCE_ITEM') continue;
+        const source = sourceById.get(link.itemId);
+        if (
+          source &&
+          sourcePolicyAllowsDisplay(source, [
+            'OFFICIAL_DISCLOSURE',
+            'OFFICIAL_RELEASE',
+            'COMPANY_IR',
+          ])
+        ) {
+          sourceItems.push(mapSourceItem(source));
+        }
+      }
+      return this.eventFromRelations(
+        row,
+        row.companyId ? (companyById.get(row.companyId) ?? null) : null,
+        filingRow,
+        filingRow && filingCompany ? this.filingSummary(filingRow, filingCompany, parse) : null,
+        parse,
+        sourceItems,
+      );
+    });
+  }
+
+  private async companySummaryViews(companies: Company[]): Promise<CompanySummaryView[]> {
+    if (!companies.length) return [];
+    const ids = companies.map((company) => company.id);
+    if (this.fixtureMode) {
+      const priorities = new Map(
+        this.fixtures.watchlist.map((watch) => [watch.company.id, watch.priority]),
+      );
+      const latest = new Map<string, string>();
+      for (const event of this.fixtures.events) {
+        if (!event.company) continue;
+        if (
+          !latest.has(event.company.id) ||
+          latest.get(event.company.id)! < event.firstObservedAt
+        ) {
+          latest.set(event.company.id, event.firstObservedAt);
+        }
+      }
+      return companies.map((company) =>
+        this.companySummary(company, priorities.get(company.id), latest.get(company.id) ?? null),
+      );
+    }
+    const [watches, latest] = await Promise.all([
+      this.source()
+        .getRepository(WatchlistItemEntity)
+        .find({
+          select: { companyId: true, priority: true },
+          where: { companyId: In(ids) },
+        }),
+      this.source()
+        .getRepository(EventClusterEntity)
+        .createQueryBuilder('event')
+        .select('event.companyId', 'companyId')
+        .addSelect(
+          "DATE_FORMAT(MAX(event.firstObservedAt), '%Y-%m-%dT%H:%i:%s.%fZ')",
+          'lastEventAt',
+        )
+        .where('event.companyId IN (:...companyIds)', { companyIds: ids })
+        .andWhere(supportedEventFilingsSql)
+        .groupBy('event.companyId')
+        .getRawMany<{ companyId: string; lastEventAt: string }>(),
+    ]);
+    const priorities = new Map(watches.map((row) => [row.companyId, row.priority]));
+    const latestById = new Map(
+      latest.map((row) => [row.companyId, new Date(row.lastEventAt).toISOString()]),
+    );
+    return companies.map((company) =>
+      this.companySummary(company, priorities.get(company.id), latestById.get(company.id) ?? null),
+    );
+  }
+
+  private async eventSummaryViews(events: Event[]): Promise<EventSummaryView[]> {
+    if (!events.length) return [];
+    if (this.fixtureMode) return Promise.all(events.map((event) => this.eventSummaryView(event)));
+    const companyIds = [
+      ...new Set(
+        events.flatMap((event) => {
+          const company = event.company ?? event.filing?.company;
+          return company ? [company.id] : [];
+        }),
+      ),
+    ];
+    const [filings, watches, sources] = await Promise.all([
+      this.findByIds(
+        FilingEntity,
+        events.flatMap((event) => (event.filing ? [event.filing.id] : [])),
+      ),
+      companyIds.length
+        ? this.source()
+            .getRepository(WatchlistItemEntity)
+            .find({
+              select: { companyId: true, priority: true },
+              where: { companyId: In(companyIds) },
+            })
+        : [],
+      this.findByIds(
+        SourceItemEntity,
+        events.flatMap((event) => {
+          const sec = event.sourceItems.find((source) => source.source === 'SEC');
+          return sec ? [sec.id] : [];
+        }),
+      ),
+    ]);
+    const active = await this.activeParseRuns(filings);
+    const filingIds = (type: string) =>
+      filings
+        .filter((filing) => active.get(filing.id)?.resultType === type)
+        .map((filing) => filing.id);
+    const insiderIds = filingIds('D002');
+    const holderIds = filingIds('D001');
+    const planIds = filingIds('D005');
+    const [reporters, holders, plans] = await Promise.all([
+      insiderIds.length
+        ? this.source()
+            .getRepository(InsiderReportEntity)
+            .find({ where: { filingId: In(insiderIds) }, order: { createdAt: 'ASC' } })
+        : [],
+      holderIds.length
+        ? this.source()
+            .getRepository(LargeHolderReportEntity)
+            .find({ where: { filingId: In(holderIds) }, order: { createdAt: 'ASC' } })
+        : [],
+      planIds.length
+        ? this.source()
+            .getRepository(TradePlanEntity)
+            .find({ where: { filingId: In(planIds) }, order: { createdAt: 'ASC' } })
+        : [],
+    ]);
+    const firstReporters = firstRows(reporters, (row) => row.filingId);
+    const firstHolders = firstRows(holders, (row) => row.filingId);
+    const firstPlans = firstRows(plans, (row) => row.filingId);
+    const [transactions, changes] = await Promise.all([
+      firstReporters.size
+        ? this.source()
+            .getRepository(InsiderTransactionEntity)
+            .find({
+              select: { insiderReportId: true, nature: true, direction: true, eventDate: true },
+              where: { insiderReportId: In([...firstReporters.values()].map((row) => row.id)) },
+              order: { eventDate: 'ASC' },
+            })
+        : [],
+      firstHolders.size
+        ? this.source()
+            .getRepository(LargeHoldingChangeEntity)
+            .find({
+              where: { largeHolderReportId: In([...firstHolders.values()].map((row) => row.id)) },
+              order: { eventDate: 'ASC', id: 'ASC' },
+            })
+        : [],
+    ]);
+    const firstTransactions = firstRows(transactions, (row) => row.insiderReportId);
+    const changesByHolder = groupRows(changes, (row) => row.largeHolderReportId);
+    const filingById = new Map(filings.map((row) => [row.id, row]));
+    const priorities = new Map(watches.map((row) => [row.companyId, row.priority]));
+    const sourcesById = new Map(sources.map((row) => [row.id, row]));
+    return events.map((event) => {
+      let facts: EventFilingFacts | null = null;
+      if (event.filing) {
+        if (!filingById.has(event.filing.id))
+          throw new NotFoundException('공시를 찾을 수 없습니다.');
+        facts = { ...event.filing };
+        const reporter = firstReporters.get(event.filing.id);
+        const transaction = reporter ? firstTransactions.get(reporter.id) : undefined;
+        facts.transactions = transaction ? [transaction] : [];
+        facts.tradePlan = firstPlans.get(event.filing.id) ?? null;
+        const holder = firstHolders.get(event.filing.id);
+        if (holder) {
+          const reason = holder.rawJson?.reportReasonKind;
+          facts.largeHolding = largeHoldingSchema.parse({
+            ...holder,
+            reportReasonKind:
+              typeof reason === 'string' &&
+              ['HOLDINGS_CHANGE', 'CONTRACT_CHANGE', 'REPORTING_STATUS_CHANGE'].includes(reason)
+                ? reason
+                : 'UNKNOWN',
+            changes: changesByHolder.get(holder.id) ?? [],
+          });
+        }
+      }
+      const company = event.company ?? facts?.company;
+      const sec = event.sourceItems.find((source) => source.source === 'SEC');
+      return this.eventSummary(
+        event,
+        facts,
+        company ? priorities.get(company.id) : undefined,
+        sec ? (sourcesById.get(sec.id) ?? null) : null,
+      );
+    });
+  }
+
   private async companySummaryView(company: Company): Promise<CompanySummaryView> {
     const watch = await this.watchForCompany(company.id);
     const latest = (await this.listEvents({ companyId: company.id, limit: 1 })).items[0] ?? null;
+    return this.companySummary(company, watch?.priority, latest?.firstObservedAt ?? null);
+  }
+
+  private companySummary(
+    company: Company,
+    priority: WatchlistItem['priority'] | undefined,
+    lastEventAt: string | null,
+  ): CompanySummaryView {
     return {
       id: company.id,
       nameKo: company.nameKo,
@@ -3348,25 +3811,36 @@ export class OrsemDataService {
       ticker: company.ticker,
       market: company.market,
       sector: '미분류',
-      priority: watch?.priority ?? null,
+      priority: priority ?? null,
       isListed: company.isListed,
-      isWatchlisted: watch !== null,
-      lastEventAt: latest?.firstObservedAt ?? null,
+      isWatchlisted: priority !== undefined,
+      lastEventAt,
     };
   }
 
   private async eventSummaryView(event: Event): Promise<EventSummaryView> {
     const filing = event.filing ? await this.getFiling(event.filing.id) : null;
-    const transaction = filing?.transactions[0] ?? null;
-    const holdingChange = filing?.largeHolding?.changes[0] ?? null;
     const company = event.company ?? filing?.company ?? null;
     const watch = company ? await this.watchForCompany(company.id) : null;
     const secSource = event.sourceItems.find((item) => item.source === 'SEC');
-    const source = secSource ?? event.sourceItems[0] ?? null;
     const secRow =
       secSource && !this.fixtureMode
         ? await this.source().getRepository(SourceItemEntity).findOneBy({ id: secSource.id })
         : null;
+    return this.eventSummary(event, filing, watch?.priority, secRow);
+  }
+
+  private eventSummary(
+    event: Event,
+    filing: EventFilingFacts | null,
+    priority: WatchlistItem['priority'] | undefined,
+    secRow: SourceItemEntity | null,
+  ): EventSummaryView {
+    const transaction = filing?.transactions?.[0] ?? null;
+    const holdingChange = filing?.largeHolding?.changes[0] ?? null;
+    const company = event.company ?? filing?.company ?? null;
+    const secSource = event.sourceItems.find((item) => item.source === 'SEC');
+    const source = secSource ?? event.sourceItems[0] ?? null;
     const secFilingDate = secRow?.rawMetadataJson?.filingDate;
     const secForm = secRow?.rawMetadataJson?.form;
     const detailType: EventSummaryView['detailType'] =
@@ -3378,7 +3852,7 @@ export class OrsemDataService {
       stockCode: company?.stockCode ?? null,
       ticker: company?.ticker ?? null,
       market: company?.market ?? 'OTHER',
-      priority: watch?.priority ?? (filing || secSource ? 'P3' : 'P4'),
+      priority: priority ?? (filing || secSource ? 'P3' : 'P4'),
       detailType,
       title: filing?.reportName ?? source?.title ?? event.canonicalEventType,
       translation: !filing && detailType === 'NEWS' ? (source?.translation ?? null) : null,
@@ -3421,6 +3895,14 @@ export class OrsemDataService {
     const company = await source.getRepository(CompanyEntity).findOneBy({ id: row.companyId });
     if (!company) throw new Error(`Company ${row.companyId} is missing for filing ${row.id}`);
     const parse = await this.activeParseRun(row);
+    return this.filingSummary(row, company, parse);
+  }
+
+  private filingSummary(
+    row: FilingEntity,
+    company: CompanyEntity,
+    parse: ParseRunEntity | null,
+  ): FilingSummary {
     return {
       id: row.id,
       rceptNo: row.rceptNo,
@@ -3455,21 +3937,42 @@ export class OrsemDataService {
       : null;
     const filing = filingRow ? await this.mapFilingSummary(filingRow) : null;
     const parse = filingRow ? await this.activeParseRun(filingRow) : null;
-    const sourceItems = await Promise.all(
-      sourceMemberships.map(async (item) => {
-        const sourceRow = await source
+    const sourceRows = sourceMemberships.length
+      ? await source
           .getRepository(SourceItemEntity)
-          .findOneBy({ id: item.itemId });
-        return sourceRow &&
-          sourcePolicyAllowsDisplay(sourceRow, [
-            'OFFICIAL_DISCLOSURE',
-            'OFFICIAL_RELEASE',
-            'COMPANY_IR',
-          ])
-          ? mapSourceItem(sourceRow)
-          : null;
-      }),
+          .findBy({ id: In(sourceMemberships.map((item) => item.itemId)) })
+      : [];
+    await verifyManualNewsSources(source, sourceRows);
+    const sourcesById = new Map(sourceRows.map((item) => [item.id, item]));
+    const sourceItems = sourceMemberships.map((item) => {
+      const sourceRow = sourcesById.get(item.itemId);
+      return sourceRow &&
+        sourcePolicyAllowsDisplay(sourceRow, [
+          'OFFICIAL_DISCLOSURE',
+          'OFFICIAL_RELEASE',
+          'COMPANY_IR',
+        ])
+        ? mapSourceItem(sourceRow)
+        : null;
+    });
+    return this.eventFromRelations(
+      row,
+      company,
+      filingRow,
+      filing,
+      parse,
+      sourceItems.filter((item): item is SourceItem => item !== null),
     );
+  }
+
+  private eventFromRelations(
+    row: EventClusterEntity,
+    company: CompanyEntity | null,
+    filingRow: FilingEntity | null,
+    filing: FilingSummary | null,
+    parse: ParseRunEntity | null,
+    sourceItems: SourceItem[],
+  ): Event {
     const canonicalEventTypes = {
       D001: 'LARGE_HOLDER',
       D002: 'INSIDER_OWNERSHIP',
@@ -3500,7 +4003,7 @@ export class OrsemDataService {
       summary: requiresParseReview ? `원문 검증 대기 — ${filingRow!.reportName}` : row.summary,
       company: company ? mapCompany(company) : null,
       filing,
-      sourceItems: sourceItems.filter((item): item is SourceItem => item !== null),
+      sourceItems,
     };
   }
 
@@ -3539,10 +4042,10 @@ export class OrsemDataService {
     );
   }
 
-  private async mapWatchlist(row: WatchlistItemEntity): Promise<WatchlistItem> {
+  private async mapWatchlist(row: WatchlistItemEntity, company?: Company): Promise<WatchlistItem> {
     return {
       id: row.id,
-      company: await this.getCompany(row.companyId),
+      company: company ?? (await this.getCompany(row.companyId)),
       priority: row.priority,
       realtimeAlerts: row.realtimeAlerts,
       digestAlerts: row.digestAlerts,
@@ -3553,13 +4056,21 @@ export class OrsemDataService {
   }
 }
 
-function kstDate(): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Seoul',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date());
+function groupRows<T>(rows: T[], key: (row: T) => string): Map<string, T[]> {
+  const grouped = new Map<string, T[]>();
+  for (const row of rows) {
+    const id = key(row);
+    const items = grouped.get(id) ?? [];
+    items.push(row);
+    grouped.set(id, items);
+  }
+  return grouped;
+}
+
+function firstRows<T>(rows: T[], key: (row: T) => string): Map<string, T> {
+  const first = new Map<string, T>();
+  for (const row of rows) if (!first.has(key(row))) first.set(key(row), row);
+  return first;
 }
 
 function kstDateFromInstant(value: string | null): string | null {

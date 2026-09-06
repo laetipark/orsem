@@ -13,6 +13,7 @@ import {
   PriorityBadge,
 } from './domain-badges';
 import './event-company.css';
+import './event-cards.css';
 
 export function EventCompanyIdentity({
   event,

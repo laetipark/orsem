@@ -71,3 +71,11 @@
     padding: 15px 14px;
   }
 }
+
+.naver-search__controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-top: 0.75rem;
+}

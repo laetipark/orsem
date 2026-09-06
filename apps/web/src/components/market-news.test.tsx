@@ -68,8 +68,8 @@ describe('market news presentation', () => {
 
     expect(screen.getByText(translation.title)).toHaveAttribute('lang', 'ko');
     expect(screen.getByText(translation.description!)).toHaveAttribute('lang', 'ko');
-    expect(screen.getByText('Company publishes its outlook')).toBeVisible();
-    expect(screen.getByText('The original verified summary.')).toBeVisible();
+    expect(screen.queryByText('Company publishes its outlook')).not.toBeInTheDocument();
+    expect(screen.queryByText('The original verified summary.')).not.toBeInTheDocument();
     expect(screen.getByText('자동 번역')).toBeVisible();
     expect(screen.getByText('지역 미확인')).toBeVisible();
     expect(screen.getByText('2개 출처에서 확인')).toBeVisible();
@@ -171,4 +171,46 @@ describe('news freshness summary', () => {
       'DISABLED',
     );
   });
+});
+
+it('keeps metadata-only media in original-link cards with related companies and GDELT attribution', () => {
+  const { container } = render(
+    <MemoryRouter>
+      <MarketNewsList
+        items={[
+          newsItem({
+            source: 'GDELT',
+            displayMode: 'EXTERNAL_LINK',
+            sourceName: 'publisher-one.example',
+            relatedCompanies: [
+              {
+                id: 'company-1',
+                nameKo: '관련 기업',
+                nameEn: 'Related',
+                market: 'KRX',
+                stockCode: '000000',
+                ticker: null,
+              },
+            ],
+          }),
+        ]}
+      />
+    </MemoryRouter>,
+  );
+  expect(
+    screen.getByRole('link', { name: /Company publishes its outlook.*원문 새 창에서 보기/ }),
+  ).toHaveAttribute('href', 'https://publisher-one.example/story');
+  expect(screen.queryByText(translation.title)).not.toBeInTheDocument();
+  expect(screen.queryByText('The original verified summary.')).not.toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: /뉴스 상세 보기/ })).not.toBeInTheDocument();
+  expect(screen.getByRole('link', { name: '관련 기업 · 000000' })).toHaveAttribute(
+    'href',
+    '/companies/company-1',
+  );
+  expect(screen.getByRole('link', { name: /데이터 제공 GDELT/ })).toHaveAttribute(
+    'href',
+    'https://www.gdeltproject.org/',
+  );
+  expect(container.querySelector('a a')).toBeNull();
+  expect(container.querySelector('img')).toBeNull();
 });

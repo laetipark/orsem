@@ -9,9 +9,10 @@ import {
 } from 'lucide-react';
 import { Link, useOutletContext } from 'react-router-dom';
 import { api } from '../lib/api';
-import { formatKst } from '../lib/format';
+import { formatDate, formatKst, formatNumber } from '../lib/format';
 import { disclosureDescriptions, disclosureLabels, priorityLabels } from '../lib/domain-labels';
 import { DashboardMarkets } from '../components/dashboard-markets';
+import { WatchlistGroupsPanel } from '../components/watchlist-groups-panel';
 import { DashboardNews } from '../components/market-news';
 import { ParseIntegritySummary } from '../components/parse-integrity-summary';
 import { EventCompactRow } from '../components/event-row';
@@ -60,6 +61,7 @@ export function DashboardPage() {
       <DashboardMarkets />
 
       <DashboardNews />
+      <WatchlistGroupsPanel compact />
 
       <section className="priority-grid" aria-label="우선순위 이벤트">
         <Card>
@@ -157,24 +159,40 @@ export function DashboardPage() {
           </span>
         </div>
       ) : null}
-      <section className="disclosure-strip" aria-label="오늘의 OpenDART 공시 건수">
-        {disclosureTypes.map((type) => (
-          <Link
-            key={type}
-            to={`/events?detailType=${type}`}
-            className={`disclosure-stat disclosure-stat--${type.toLowerCase()}`}
-          >
-            <div className="disclosure-stat__copy">
-              <b>{disclosureLabels[type]}</b>
-              <small>{disclosureDescriptions[type]}</small>
-            </div>
-            <strong>
-              {data.todayCounts[type] ?? 0}
-              <span>건</span>
-            </strong>
-            <ChevronRight size={18} aria-hidden="true" />
-          </Link>
-        ))}
+      <section className="disclosure-summary" aria-label="OpenDART 공시 건수">
+        <div className="disclosure-summary__heading">
+          <h2>오늘 접수된 공시</h2>
+          <span>{formatDate(data.asOf)} KST 접수일 기준</span>
+        </div>
+        <p className="disclosure-summary__note">
+          전체 누적은 수집된 공시 건수입니다. 공시를 선택하면 전체 기간 목록으로 이동합니다.
+        </p>
+        <div className="disclosure-strip">
+          {disclosureTypes.map((type) => (
+            <Link
+              key={type}
+              to={`/events?detailType=${type}`}
+              className={`disclosure-stat disclosure-stat--${type.toLowerCase()}`}
+              aria-label={`${disclosureLabels[type]} 전체 보기 · 오늘 접수 ${formatNumber(data.todayCounts[type] ?? 0)}건${data.totalCounts ? ` · 전체 누적 ${formatNumber(data.totalCounts[type])}건` : ''}`}
+            >
+              <div className="disclosure-stat__copy">
+                <b>{disclosureLabels[type]}</b>
+                <small>{disclosureDescriptions[type]}</small>
+              </div>
+              <div className="disclosure-stat__counts">
+                <strong>
+                  {formatNumber(data.todayCounts[type] ?? 0)}
+                  <span>건</span>
+                </strong>
+                <small>
+                  전체 누적 {formatNumber(data.totalCounts?.[type])}
+                  {data.totalCounts ? '건' : ''}
+                </small>
+              </div>
+              <ChevronRight size={18} aria-hidden="true" />
+            </Link>
+          ))}
+        </div>
       </section>
       <ObservationDisclaimer compact />
     </div>

@@ -50,3 +50,15 @@ NEWS_TRANSLATION_ENABLED=true
 본문 수집은 뉴스 발견 뒤 별도 작업으로 순차 처리합니다. 원문 해시, 정책, 추출기, 모델이나 번역 프롬프트 버전이 바뀌면 이전 결과를 공개하지 않고 다시 처리합니다. 실제 원문은 테스트 fixture로 커밋하지 않으며 합성된 최소 RSS·HTML만 사용합니다.
 
 배포 확인에는 마이그레이션 전 백업, 이용 불가 뉴스 삭제 건수, 활성 피드별 HTTP 상태, 본문 추출 상태, 번역 대기·실패 건수, `/news`의 소스 목록, Samsung KST 표시와 재수집 시 중복 증가 여부가 모두 포함됩니다.
+
+## 2026-09-06 구간 복구와 선택적 미국 뉴스
+
+GDELT 수집은 `GDELT_ENABLED`와 `GDELT_NEWS_DOMAINS`, `APPROVED_GDELT_SOURCE_POLICIES`의 정확한 publisher 승인 세 조건을 모두 요구한다. 현재 승인 레지스트리는 비어 있어 활성화 설정만으로 HTTP를 보내지 않는다. 기존 일반 GDELT 메타데이터 정책을 publisher 승인으로 사용하지 않는다.
+
+[DOC 2.0 공식 명세](https://blog.gdeltproject.org/gdelt-doc-2-0-api-debuts/)의 startdatetime/enddatetime(UTC YYYYMMDDHHMMSS), artlist/json/maxrecords=250을 사용한다. 초기 24시간, 완료 커서에서 기본 10분 overlap, 한 창 최대 24시간을 조회한다. 250건이면 왼쪽/오른쪽으로 분할한다. 최소 창 15분·최대 깊이 4·전체 실행 요청 12회 한도를 두며 250건 포화가 남으면 incomplete/truncated로 남긴다. 약 3개월 검색 범위 밖의 미처리 구간은 건너뛰지 않고 별도 대조 필요 상태로 둔다.
+
+`DOC_WINDOW:{queryHash}`의 pendingWindows에 진행 중 구간을 보존한다. 최초 HTTP 요청 전에는 구간 계획만 저장하고 성공 커서는 진행하지 않는다. 첫 요청 실패 후에도 최초 조회 범위가 뒤로 밀리지 않게 하기 위해서다. 쿼리·도메인 변경은 다른 stream이 된다. 성공한 leaf의 항목·관련 회사 저장 후 그 leaf를 확정한다. 뒤쪽 429 또는 저장 실패가 앞쪽 완료 구간을 지우지 않는다. 경계·겹침 중복은 기존 canonical URL과 공급자별 externalId로 제거한다. seendate는 observedBySourceAt, publishedAt은 null, firstObservedAt은 Orsem 관측이다.
+
+승인된 메타데이터 기사만 `APPROVED_PUBLISHER_METADATA`로 저장하고 본문·이미지·AI·알림을 사용하지 않는다. 이전 `GDELT_DATASET_METADATA` 기록은 새 목록·검색 권리 조건을 충족하지 않으며 데이터를 삭제하지 않는다. 공식 RSS/IR 콘텐츠와 그 번역 검증은 유지한다.
+
+Alpaca News는 별도 ALPACA_NEWS source로 저장하고 `EXTERNAL_LINK`로 표시한다. 같은 URL의 GDELT 발견 이력과 SourceItem을 합치지 않는다. [공급자 비교·승인 방법](NEWS_PROVIDER_COMPARISON.md)을 따른다.

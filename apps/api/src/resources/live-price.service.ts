@@ -1,5 +1,7 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { CompanyObservationService } from '../watchlist-groups/company-observation.service';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import {
+  companyRegion,
   livePriceQuoteSchema,
   livePriceSnapshotSchema,
   type CompanyLivePrice,
@@ -12,10 +14,13 @@ import { OrsemDataService } from './orsem-data.service';
 
 @Injectable()
 export class LivePriceService {
+  private readonly logger = new Logger(LivePriceService.name);
+
   constructor(
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     private readonly data: OrsemDataService,
     private readonly sessions: SessionRuntimeService,
+    @Optional() private readonly observations?: CompanyObservationService,
   ) {}
 
   async companyLivePrice(companyId: string): Promise<CompanyLivePrice> {
@@ -25,7 +30,15 @@ export class LivePriceService {
       this.config.tossClientId && this.config.tossClientSecret
         ? await this.sessions.readMarketQuote(companyId)
         : { available: false, value: null };
-    return this.cachedCompanyPrice(company, cached, now);
+    const price = this.cachedCompanyPrice(company, cached, now);
+    const closes = await this.fallbackCloses([company], [price], now);
+    return {
+      ...price,
+      fallbackClose: closes.get(company.id) ?? null,
+      ...(this.observations
+        ? { displayPrice: await this.observations.price(company, cached, now) }
+        : {}),
+    };
   }
 
   async watchlistQuotes(companyIds: string[]): Promise<WatchlistQuotes> {
@@ -42,26 +55,29 @@ export class LivePriceService {
         now,
       ),
     );
-    const references = await this.data.previousDailyCloses(
-      prices.flatMap((price) =>
-        price.quote
-          ? [
-              {
-                companyId: price.companyId,
-                source:
-                  price.quote.currency === 'USD' ? ('TOSS_US' as const) : ('TOSS_KR' as const),
-                currency: price.quote.currency,
-                beforeDate: new Intl.DateTimeFormat('en-CA', {
-                  timeZone: price.quote.currency === 'USD' ? 'America/New_York' : 'Asia/Seoul',
-                  year: 'numeric',
-                  month: '2-digit',
-                  day: '2-digit',
-                }).format(new Date(price.quote.providerAt)),
-              },
-            ]
-          : [],
+    const [references, closes] = await Promise.all([
+      this.data.previousDailyCloses(
+        prices.flatMap((price) =>
+          price.quote
+            ? [
+                {
+                  companyId: price.companyId,
+                  source:
+                    price.quote.currency === 'USD' ? ('TOSS_US' as const) : ('TOSS_KR' as const),
+                  currency: price.quote.currency,
+                  beforeDate: new Intl.DateTimeFormat('en-CA', {
+                    timeZone: price.quote.currency === 'USD' ? 'America/New_York' : 'Asia/Seoul',
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                  }).format(new Date(price.quote.providerAt)),
+                },
+              ]
+            : [],
+        ),
       ),
-    );
+      this.fallbackCloses(companies, prices, now),
+    ]);
     return {
       asOf: now.toISOString(),
       items: prices.map((price) => {
@@ -73,6 +89,7 @@ export class LivePriceService {
           companyId: price.companyId,
           status: price.status,
           quote: price.quote,
+          fallbackClose: closes.get(price.companyId) ?? null,
           previousClose: reference?.close ?? null,
           change: change !== null && Number.isFinite(change) ? change : null,
           changePercent: percent !== null && Number.isFinite(percent) ? percent : null,
@@ -80,6 +97,59 @@ export class LivePriceService {
         };
       }),
     };
+  }
+
+  private async fallbackCloses(
+    companies: Company[],
+    prices: CompanyLivePrice[],
+    now: Date,
+  ): Promise<Map<string, NonNullable<CompanyLivePrice['fallbackClose']>>> {
+    const today = this.kstDate(now);
+    const requests = companies.flatMap((company, index) => {
+      const quote = prices[index]?.quote;
+      if (
+        companyRegion(company.market) !== 'kr' ||
+        (quote && this.kstDate(new Date(quote.providerAt)) >= today)
+      ) {
+        return [];
+      }
+      return [
+        {
+          companyId: company.id,
+          source: 'TOSS_KR' as const,
+          currency: 'KRW' as const,
+          beforeDate: today,
+        },
+      ];
+    });
+    if (!requests.length) return new Map();
+    try {
+      const closes = await this.data.previousDailyCloses(requests);
+      return new Map(
+        [...closes].map(([companyId, close]) => [
+          companyId,
+          {
+            price: String(close.close),
+            currency: 'KRW' as const,
+            sessionDate: close.sessionDate,
+            source: 'TOSS_KR' as const,
+          },
+        ]),
+      );
+    } catch {
+      // Stored closes are supplementary; their failure must not hide an available live quote.
+      this.logger.warn('Previous session closing prices are unavailable.');
+      return new Map();
+    }
+  }
+
+  private kstDate(instant: Date): string {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Seoul',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(instant);
   }
 
   private cachedCompanyPrice(
@@ -93,6 +163,7 @@ export class LivePriceService {
       provider: 'toss',
       status: 'NOT_CONFIGURED',
       quote: null,
+      fallbackClose: null,
       asOf: now.toISOString(),
     };
     if (!this.config.tossClientId || !this.config.tossClientSecret) return result;

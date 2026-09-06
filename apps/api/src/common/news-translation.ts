@@ -1,4 +1,9 @@
 import {
+  manualMetadataSchema,
+  manualNewsTranslationSql,
+  storedJson,
+} from '../resources/manual-news-translation';
+import {
   RightsMode,
   isoInstantSchema,
   newsTranslationSchema,
@@ -12,6 +17,8 @@ interface TranslationSource {
   rawHash?: string | null;
   translationJson?: unknown;
   sourcePolicyJson?: unknown;
+  manualTranslationJson?: unknown;
+  manualRevisionVerified?: boolean | number | string;
 }
 
 const translationSources = ['NEWS_RSS', 'IR'] as const;
@@ -19,13 +26,13 @@ const translationRights: readonly RightsMode[] = [
   RightsMode.OFFICIAL_PUBLIC_DATA,
   RightsMode.PRIVATE_DISPLAY_ONLY,
 ];
-const storedTranslationSchema = z.object({
+export const storedTranslationSchema = z.object({
   version: z.literal(1),
   status: z.literal('COMPLETED'),
   inputHash: z.string().regex(/^[a-f0-9]{64}$/u),
   sourceLanguage: z.literal('en'),
   targetLanguage: z.literal('ko'),
-  provider: z.literal('LOCAL'),
+  provider: z.enum(['LOCAL', 'AZURE']),
   model: z.string().trim().min(1),
   title: z.string().trim().min(1),
   description: z.string().nullable(),
@@ -62,6 +69,26 @@ export function publicNewsTranslation(source: TranslationSource): NewsTranslatio
     !source.rawHash
   )
     return null;
+  if (source.manualTranslationJson != null) {
+    const manual = manualMetadataSchema.safeParse(storedJson(source.manualTranslationJson));
+    if (
+      !manual.success ||
+      ![true, 1, '1'].includes(source.manualRevisionVerified ?? false) ||
+      manual.data.sourceHash !== source.rawHash
+    )
+      return null;
+    const original = storedTranslationSchema.safeParse(storedJson(source.translationJson));
+    if (!original.success) return null;
+    return {
+      language: 'ko',
+      title: manual.data.title,
+      description: manual.data.description,
+      translatedAt: manual.data.editedAt,
+      provider: original.data.provider,
+      model: original.data.model,
+      editedAt: manual.data.editedAt,
+    };
+  }
   let stored = source.translationJson;
   if (typeof stored === 'string') {
     // MariaDB의 원시 조회는 JSON 컬럼을 문자열로 반환할 수 있습니다.
@@ -98,7 +125,7 @@ export function publicNewsDescription(rightsMode: RightsMode, description: unkno
     : null;
 }
 
-export function completedNewsTranslationCondition(alias: string): string {
+export function completedAutomaticNewsTranslationCondition(alias: string): string {
   if (!/^[a-z_][a-z0-9_]*$/iu.test(alias))
     throw new Error('Invalid translation source identifier.');
   const json = `${alias}.translation_json`;
@@ -118,7 +145,7 @@ export function completedNewsTranslationCondition(alias: string): string {
     AND BINARY ${value('inputHash')} = BINARY ${alias}.raw_hash
     AND BINARY ${value('sourceLanguage')} = BINARY 'en'
     AND BINARY ${value('targetLanguage')} = BINARY 'ko'
-    AND BINARY ${value('provider')} = BINARY 'LOCAL'
+    AND BINARY ${value('provider')} IN (BINARY 'LOCAL', BINARY 'AZURE')
     AND JSON_TYPE(JSON_EXTRACT(${json}, '$.title')) = 'STRING'
     AND CHAR_LENGTH(TRIM(${value('title')})) > 0
     AND JSON_TYPE(JSON_EXTRACT(${json}, '$.model')) = 'STRING'
@@ -131,11 +158,15 @@ export function completedNewsTranslationCondition(alias: string): string {
     AND JSON_TYPE(JSON_EXTRACT(${json}, '$.nextAttemptAt')) IN ('STRING', 'NULL'))`;
 }
 
+export function completedNewsTranslationCondition(alias: string): string {
+  return `((${alias}.manual_translation_json IS NULL AND ${completedAutomaticNewsTranslationCondition(alias)}) OR ${manualNewsTranslationSql(alias)})`;
+}
+
 export function newsTranslationSearchCondition(alias: string, parameter: string): string {
   // 별칭과 파라미터 이름은 코드에서 정한 식별자만 받으며 검색어는 항상 바인딩합니다.
   if (!/^[a-z_][a-z0-9_]*$/iu.test(parameter))
     throw new Error('Invalid translation search identifier.');
   const json = `${alias}.translation_json`;
-  const title = `JSON_UNQUOTE(JSON_EXTRACT(${json}, '$.title'))`;
+  const title = `CASE WHEN ${alias}.manual_translation_json IS NOT NULL THEN JSON_UNQUOTE(JSON_EXTRACT(${alias}.manual_translation_json, '$.title')) ELSE JSON_UNQUOTE(JSON_EXTRACT(${json}, '$.title')) END`;
   return `(${completedNewsTranslationCondition(alias)} AND ${title} LIKE :${parameter} ESCAPE '!')`;
 }

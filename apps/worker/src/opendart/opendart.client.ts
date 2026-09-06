@@ -11,6 +11,7 @@ import { XMLParser } from 'fast-xml-parser';
 import { z } from 'zod';
 import { WORKER_CONFIG, type WorkerConfig } from '../config/worker-config';
 import { compactDate, nextKstMidnight } from '../common/kst-date';
+import { readBoundedResponseBytes } from '../common/bounded-response';
 import { openDartStatusPolicy } from './status-policy';
 
 const OPENDART_BASE_URL = 'https://opendart.fss.or.kr/api/';
@@ -148,35 +149,6 @@ export function redactOpenDartUrl(input: string | URL): string {
 export function openDartViewerUrl(rceptNo: string): string {
   if (!/^\d{14}$/.test(rceptNo)) throw new Error('Invalid OpenDART receipt number.');
   return `https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${rceptNo}`;
-}
-
-async function readBoundedResponse(response: Response, maxBytes: number): Promise<Uint8Array> {
-  if (!response.body) {
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    if (bytes.byteLength > maxBytes) throw new Error('OpenDART response is too large.');
-    return bytes;
-  }
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    if (!value) continue;
-    total += value.byteLength;
-    if (total > maxBytes) {
-      await reader.cancel('response too large');
-      throw new Error('OpenDART response is too large.');
-    }
-    chunks.push(value);
-  }
-  const output = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    output.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return output;
 }
 
 function decodeJson(bytes: Uint8Array): unknown {
@@ -361,7 +333,13 @@ export class OpenDartClient {
     params: Readonly<Record<string, string>>,
   ): Promise<unknown> {
     const response = await this.fetch(endpoint, params);
-    return decodeJson(await readBoundedResponse(response, MAX_JSON_BYTES));
+    return decodeJson(
+      await readBoundedResponseBytes(response, {
+        maxBytes: MAX_JSON_BYTES,
+        errorMessage: 'OpenDART response is too large.',
+        cancelReason: 'response too large',
+      }),
+    );
   }
 
   private async requestArchive(
@@ -370,7 +348,11 @@ export class OpenDartClient {
     operation: 'DOCUMENT' | 'CORP_CODE',
   ): Promise<Uint8Array> {
     const response = await this.fetch(endpoint, params);
-    const bytes = await readBoundedResponse(response, MAX_BINARY_BYTES);
+    const bytes = await readBoundedResponseBytes(response, {
+      maxBytes: MAX_BINARY_BYTES,
+      errorMessage: 'OpenDART response is too large.',
+      cancelReason: 'response too large',
+    });
     if (!hasZipMagic(bytes)) {
       try {
         await readOpenDartArchive(bytes, { operation });

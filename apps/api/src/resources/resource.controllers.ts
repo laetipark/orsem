@@ -1,3 +1,4 @@
+import { CompanyObservationService } from '../watchlist-groups/company-observation.service';
 import {
   Body,
   Controller,
@@ -68,6 +69,7 @@ export class CompaniesController {
     private readonly data: OrsemDataService,
     private readonly livePrices: LivePriceService,
     private readonly workerQueue: WorkerQueueService,
+    private readonly observations: CompanyObservationService,
   ) {}
 
   @Get()
@@ -92,6 +94,22 @@ export class CompaniesController {
     // 소유하고 모든 조회자의 수집 요청을 하나로 합칩니다.
     await this.workerQueue.requestTossCandles(id, input.interval).catch(() => undefined);
     return result;
+  }
+
+  @Get(':id/recent-activity')
+  async recentActivity(@Param('id') id: string, @Query() query: unknown) {
+    const companyId = parseWith(z.uuid(), id);
+    const { limit } = parseWith(
+      z.object({
+        limit: z
+          .union([z.string().regex(/^\d+$/u).transform(Number), z.number()])
+          .pipe(z.number().int().min(1).max(20))
+          .default(3),
+      }),
+      query,
+    );
+    await this.data.getCompany(companyId);
+    return this.observations.recent(companyId, limit);
   }
 
   @Get(':id/live-price')
@@ -142,8 +160,9 @@ export class NewsController {
     const parsed = parseWith(
       cursorQuerySchema.extend({
         q: z.string().trim().max(120).optional(),
-        source: z.enum(['NEWS_RSS', 'IR', 'SEC', 'GDELT', 'OPENDART']).optional(),
+        source: z.enum(['NEWS_RSS', 'IR', 'SEC', 'GDELT', 'ALPACA_NEWS', 'OPENDART']).optional(),
         sourceKind: z.enum(NewsSourceKind).optional(),
+        scope: z.enum(['all', 'market', 'company']).default('all'),
         publisher: z.string().trim().max(255).optional(),
         companyId: z.string().uuid().optional(),
       }),

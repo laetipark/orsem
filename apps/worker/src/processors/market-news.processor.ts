@@ -13,7 +13,11 @@ export class MarketNewsProcessor extends WorkerHost {
     if (job.name !== JobName.DISCOVER_LINKS)
       throw new UnrecoverableError(`Unsupported market-news job: ${job.name}`);
     const parsed = discoverLinksJobSchema.parse(job.data);
-    if (parsed.connectors.some((connector) => !['NEWS_RSS', 'IR'].includes(connector)))
+    if (
+      parsed.connectors.some(
+        (connector) => !['NEWS_RSS', 'IR', 'GDELT', 'ALPACA_NEWS'].includes(connector),
+      )
+    )
       throw new UnrecoverableError('Unsupported market-news connector.');
     return this.discovery.discover(parsed);
   }

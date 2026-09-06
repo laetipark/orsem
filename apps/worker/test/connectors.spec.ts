@@ -1,8 +1,8 @@
+import { GdeltMetadataConnector } from './gdelt-approved-fixture';
 import { ConnectorStatus, RightsMode } from '@orsem/contracts';
 import {
   ConnectorRequestError,
   createLinkDiscoveryAdapters,
-  GdeltMetadataConnector,
   RegisteredIrFeedConnector,
   NaverNewsConnector,
 } from '../src/connectors/connector-adapters';

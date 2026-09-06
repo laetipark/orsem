@@ -3,7 +3,7 @@ import {
   MarketInstrumentEntity,
   MarketObservationEntity,
 } from '@orsem/database';
-import type { DataSource } from 'typeorm';
+import { FindOperator, type DataSource, type FindManyOptions } from 'typeorm';
 import { loadWorkerConfig } from '../src/config/worker-config';
 import { TossMarketClient } from '../src/market-data/toss-market.client';
 import {
@@ -362,7 +362,44 @@ function databaseHarness(initial: MarketObservationEntity[] = []) {
   const observations = [...initial];
   const health = new Map<string, ConnectorHealthEntity>();
   const quoteRepo = {
-    find: jest.fn(async () => observations),
+    find: jest.fn(async (options: FindManyOptions<MarketObservationEntity>) => {
+      const conditions = Array.isArray(options.where) ? options.where : [options.where];
+      return observations
+        .filter((row) =>
+          conditions.some((condition) => {
+            if (!condition) return true;
+            if (row.instrumentId !== condition.instrumentId || row.kind !== condition.kind)
+              return false;
+            if (condition.period && row.period !== condition.period) return false;
+            if (condition.sourceDate instanceof FindOperator) {
+              const params = condition.sourceDate.objectLiteralParameters!;
+              const before = Object.entries(params).find(([key]) => key.startsWith('before'))![1];
+              const previousDate = observations
+                .filter(
+                  (item) =>
+                    item.instrumentId === row.instrumentId &&
+                    item.kind === 'DAILY' &&
+                    item.sourceDate &&
+                    item.sourceDate < before,
+                )
+                .map((item) => item.sourceDate!)
+                .sort()
+                .at(-1);
+              return row.sourceDate === previousDate;
+            }
+            return true;
+          }),
+        )
+        .map(
+          (row) =>
+            Object.fromEntries(
+              Object.keys(options.select ?? row).map((key) => [
+                key,
+                row[key as keyof MarketObservationEntity],
+              ]),
+            ) as unknown as MarketObservationEntity,
+        );
+    }),
     create: jest.fn((value) => value),
     save: jest.fn(async (values: MarketObservationEntity[]) => {
       for (const value of values) {
@@ -476,6 +513,171 @@ describe('market observations and partial connector health', () => {
       now,
     );
     expect(harness.observations.find((row) => row.kind === 'QUOTE')?.referenceValue).toBe('3.7');
+  });
+
+  const daily = (
+    instrumentId: string,
+    date: string,
+    value: string,
+    overrides: Partial<IndicatorObservation> = {},
+  ): IndicatorObservation => ({
+    instrumentId,
+    kind: 'DAILY',
+    period: date,
+    sourceDate: date,
+    providerAt: null,
+    value,
+    raw: {},
+    ...overrides,
+  });
+  const persisted = (row: IndicatorObservation): MarketObservationEntity =>
+    ({
+      ...row,
+      id: `${row.instrumentId}:${row.kind}:${row.period}`,
+      firstObservedAt: new Date('2026-08-01T00:00:00Z'),
+      lastObservedAt: now,
+      rawMetadataJson: { unchanged: 'source data stays out of lookup results' },
+    }) as unknown as MarketObservationEntity;
+
+  it('reads only matching rows and each nearest earlier date across mixed instruments and dates', async () => {
+    const harness = databaseHarness(
+      [
+        daily('us2y', '2026-08-20', '3.1'),
+        daily('us2y', '2026-08-27', '3.2'),
+        daily('us2y', '2026-08-28', '3.3'),
+        daily('us2y', '2026-09-01', '3.4'),
+        daily('us2y', '2026-09-02', '3.5'),
+        daily('us2y', '2026-09-03', '3.6'),
+        daily('us10y', '2026-08-27', '4.0'),
+        daily('us10y', '2026-09-02', '4.2'),
+        daily('gold', '2026-09-03', '9999'),
+      ].map(persisted),
+    );
+    const service = new MarketIndicatorIngestionService(harness.db, {} as MarketIndicatorClient);
+    await service.saveObservations(
+      'TREASURY',
+      [
+        daily('us2y', '2026-09-04', '3.8'),
+        daily('us2y', '2026-08-28', '3.25'),
+        daily('us2y', '2026-08-31', '3.3'),
+        daily('us10y', '2026-09-04', '4.3'),
+      ],
+      now,
+    );
+    expect(harness.observations.find((row) => row.period === '2026-08-31')).toMatchObject({
+      referenceDate: '2026-08-28',
+      referenceValue: '3.25',
+    });
+    expect(
+      harness.observations.find((row) => row.instrumentId === 'us2y' && row.kind === 'QUOTE'),
+    ).toMatchObject({ referenceDate: '2026-09-03', referenceValue: '3.6' });
+    expect(
+      harness.observations.find((row) => row.instrumentId === 'us10y' && row.kind === 'QUOTE'),
+    ).toMatchObject({ referenceDate: '2026-09-02', referenceValue: '4.2' });
+    const readRows = (
+      await Promise.all(harness.quoteRepo.find.mock.results.map((item) => item.value))
+    ).flat() as MarketObservationEntity[];
+    expect(readRows).toHaveLength(5);
+    expect(readRows.every((row) => row.rawMetadataJson === undefined)).toBe(true);
+    expect(readRows.some((row) => row.sourceDate === '2026-08-20')).toBe(false);
+    expect(harness.quoteRepo.find).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects stale daily corrections as both writes and references and keeps a newer promoted quote', async () => {
+    const newerAt = new Date(now.getTime() + 60_000);
+    const harness = databaseHarness([
+      persisted(daily('us2y', '2026-09-02', '3.8', { providerAt: newerAt })),
+      persisted(daily('us2y', '2026-09-04', '4.1', { kind: 'QUOTE', period: 'latest' })),
+    ]);
+    const service = new MarketIndicatorIngestionService(harness.db, {} as MarketIndicatorClient);
+    await expect(
+      service.saveObservations(
+        'TREASURY',
+        [daily('us2y', '2026-09-02', '1', { providerAt: now }), daily('us2y', '2026-09-03', '3.9')],
+        now,
+      ),
+    ).resolves.toBe(1);
+    expect(harness.observations.find((row) => row.period === '2026-09-03')).toMatchObject({
+      referenceDate: '2026-09-02',
+      referenceValue: '3.8',
+    });
+    expect(harness.observations.find((row) => row.kind === 'QUOTE')).toMatchObject({
+      value: '4.1',
+      sourceDate: '2026-09-04',
+    });
+  });
+
+  it('retains newest duplicate input, explicit references, and first-observed metadata for corrections', async () => {
+    const old = persisted(daily('gold', '2026-09-03', '4000'));
+    const harness = databaseHarness([old]);
+    const service = new MarketIndicatorIngestionService(harness.db, {} as MarketIndicatorClient);
+    await service.saveObservations(
+      'GOLD_API',
+      [
+        daily('gold', '2026-09-03', '4100', {
+          providerAt: now,
+          referenceValue: '3900',
+          referenceDate: '2026-09-01',
+        }),
+        daily('gold', '2026-09-03', '10', { providerAt: new Date(now.getTime() - 1) }),
+      ],
+      now,
+    );
+    expect(harness.observations[0]).toMatchObject({
+      value: '4100',
+      referenceValue: '3900',
+      referenceDate: '2026-09-01',
+      firstObservedAt: old.firstObservedAt,
+      lastObservedAt: now,
+    });
+    expect(harness.quoteRepo.find).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not promote rejected stale daily input when no current quote has been stored', async () => {
+    const harness = databaseHarness([
+      persisted(daily('us2y', '2026-09-03', '3.8', { providerAt: now })),
+    ]);
+    const service = new MarketIndicatorIngestionService(harness.db, {} as MarketIndicatorClient);
+    await expect(
+      service.saveObservations(
+        'TREASURY',
+        [daily('us2y', '2026-09-03', '1', { providerAt: new Date(now.getTime() - 1) })],
+        now,
+      ),
+    ).resolves.toBe(0);
+    expect(harness.observations).toHaveLength(1);
+    expect(harness.quoteRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('returns immediately for empty input and validates source ownership before any lookup', async () => {
+    const harness = databaseHarness();
+    const service = new MarketIndicatorIngestionService(harness.db, {} as MarketIndicatorClient);
+    await expect(service.saveObservations('GOLD_API', [], now)).resolves.toBe(0);
+    await expect(service.saveObservations('TREASURY', [gold], now)).rejects.toThrow(
+      'Unexpected instrument source',
+    );
+    expect(harness.quoteRepo.find).not.toHaveBeenCalled();
+    expect(harness.quoteRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('bounds lookup batches for large incoming histories while preserving consecutive references', async () => {
+    const rows = Array.from({ length: 401 }, (_, index) => {
+      const date = new Date(Date.UTC(2025, 0, index + 1)).toISOString().slice(0, 10);
+      return daily('gold', date, String(4000 + index));
+    });
+    const harness = databaseHarness();
+    const service = new MarketIndicatorIngestionService(harness.db, {} as MarketIndicatorClient);
+    await expect(service.saveObservations('GOLD_API', rows, now)).resolves.toBe(401);
+    expect(harness.quoteRepo.find).toHaveBeenCalledTimes(6);
+    expect(
+      harness.quoteRepo.find.mock.calls.map(([options]) =>
+        Array.isArray(options.where) ? options.where.length : 0,
+      ),
+    ).toEqual([200, 200, 1, 200, 200, 1]);
+    expect(harness.observations.at(-1)).toMatchObject({
+      referenceValue: '4399',
+      referenceDate: rows.at(-2)!.sourceDate,
+    });
   });
 
   it('retains healthy gold quotes when history is unconfigured and preserves the last value on later quote failure', async () => {

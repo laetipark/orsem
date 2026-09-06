@@ -5,3 +5,7 @@ export * from './region';
 export * from './notifications';
 export * from './filing-classification';
 export * from './news-sources';
+export * from './news-markdown';
+export * from './watchlist-groups';
+
+export * from './watchlist-rooms';

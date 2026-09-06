@@ -36,34 +36,6 @@
   font-size: 13px;
   line-height: 1.65;
 }
-.translated-text .translated-text__original {
-  display: block;
-  margin-top: 2px;
-  color: var(--subtle);
-  font-size: 12px;
-  line-height: 1.65;
-}
-.translated-text__original-label {
-  display: block;
-  font-size: 11px;
-  font-weight: 700;
-}
-.translated-text__original-copy {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-.translated-text__original summary {
-  width: fit-content;
-  cursor: pointer;
-  color: var(--text);
-  padding-block: 5px;
-}
-.translated-text__original summary:focus-visible {
-  outline: 2px solid var(--teal);
-  outline-offset: 3px;
-  border-radius: 3px;
-}
 .event-row > .translated-text,
 .event-mobile-card > .translated-text {
   margin-block: 10px;

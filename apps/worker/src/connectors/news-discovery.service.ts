@@ -1,3 +1,6 @@
+import { AlpacaNewsConnector } from './alpaca-news.connector';
+import { ingestPendingSecOwnership } from '../sec/ownership-ingestion';
+import { recoveryStore, type DiscoveryBatch } from './discovery-recovery';
 import { createHash } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import {
@@ -36,16 +39,19 @@ import {
   isApprovedContentIrFeed,
   RegisteredIrFeedConnector,
   PublisherNewsRssConnector,
+  GdeltMetadataConnector,
+  SecSubmissionsConnector,
   type ConnectorName,
   type DiscoveryCandidate,
   type DiscoveryScope,
   type FeedCheckpointStore,
   type FeedCheckpoint,
 } from './connector-adapters';
-import { matchNewsCompany } from './news-company-matching';
+import { createNewsCompanyMatcher, newsCompanyAliases } from './news-company-matching';
+import { APPROVED_GROUP_COMPANIES_SQL, replaceNewsCompanyRelevance } from './news-relevance';
 import { projectSecFilingEvents } from './sec-event-projection';
+import { newsTranslationInputHash, translationInput } from '../ai/news-translation.service';
 
-const MAX_CANDIDATES_PER_DISCOVERY_BATCH = 500;
 const MAX_DISCOVERY_SCOPE_COMPANIES = 25;
 const COMPANY_LOOKUP_BATCH_SIZE = 500;
 const MAX_CLASSIFICATION_VALUES = 100;
@@ -172,9 +178,17 @@ export class NewsDiscoveryService {
       ...this.config,
       irFeedUrls: Object.freeze([...feedUrls]),
     };
-    const aliases = job.connectors.some((connector) => ['NEWS_RSS', 'GDELT'].includes(connector))
-      ? await this.dataSource.getRepository(CompanyAliasEntity).find()
+    const aliases = job.connectors.some((connector) =>
+      ['NEWS_RSS', 'GDELT', 'IR', 'ALPACA_NEWS'].includes(connector),
+    )
+      ? newsCompanyAliases(
+          await this.dataSource.getRepository(CompanyEntity).find({
+            select: { id: true, nameKo: true, nameEn: true, ticker: true, stockCode: true },
+          }),
+          await this.dataSource.getRepository(CompanyAliasEntity).find(),
+        )
       : [];
+    const matchCompanies = createNewsCompanyMatcher(aliases);
     const scopedCompanies = await this.loadDiscoveryCompanies(job);
     const scopedCompanyValues = scopedCompanies.map((company) =>
       Object.freeze({
@@ -255,6 +269,17 @@ export class NewsDiscoveryService {
         ...(adapter.name === 'SEC' ? secScopeMetadata : {}),
       };
       if (configured.status === ConnectorStatus.UNCONFIGURED) {
+        const health = this.dataSource.getRepository(ConnectorHealthEntity);
+        const row =
+          (await health.findOne({ where: { connector: adapter.name.toLowerCase() } })) ??
+          health.create({ connector: adapter.name.toLowerCase() });
+        Object.assign(row, {
+          status: configured.status,
+          message: configured.message,
+          checkedAt: new Date(),
+          metadataJson: { ...row.metadataJson, ...configured.metadata, requestAttempted: false },
+        });
+        await health.save(row);
         results.push({
           connector: adapter.name,
           status: configured.status,
@@ -287,50 +312,91 @@ export class NewsDiscoveryService {
         const adapterScopes =
           adapter.name === 'SEC'
             ? secScopes
-            : ['IR', 'NEWS_RSS', 'GDELT'].includes(adapter.name)
-              ? discoveryScopes.slice(0, 1)
-              : discoveryScopes;
-        for (const scope of adapterScopes) {
-          const issuerCiks =
-            adapter.name === 'SEC'
-              ? [
-                  ...new Set(
-                    scope.companies.flatMap((company) =>
-                      company.cik ? [company.cik.padStart(10, '0')] : [],
-                    ),
+            : adapter.name === 'GDELT'
+              ? [{ companies: scopedCompanyValues }]
+              : ['IR', 'NEWS_RSS'].includes(adapter.name)
+                ? discoveryScopes.slice(0, 1)
+                : discoveryScopes;
+        for (const rawScope of adapterScopes) {
+          const scope =
+            adapter.name === 'ALPACA_NEWS'
+              ? {
+                  companies: rawScope.companies.filter((company) =>
+                    scopedUsCompanies.some((us) => us.ticker === company.ticker),
                   ),
-                ]
-              : [];
-          const initialIssuers = await this.initialSecIssuers(issuerCiks);
-          const candidates = await adapter.discoverLinks(scope);
-          seen += candidates.length;
-          // RSS/IR parsers already bound each feed. Persist every returned feed item before
-          // saving HTTP validators, otherwise a 304 could hide unpersisted articles forever.
-          const selected = ['NEWS_RSS', 'IR'].includes(adapter.name)
-            ? candidates
-            : candidates.slice(0, MAX_CANDIDATES_PER_DISCOVERY_BATCH);
-          truncated ||= candidates.length > selected.length;
-          for (const candidate of selected) {
-            const suppressAlerts =
-              job.suppressAlerts ||
-              job.reason === 'BACKFILL' ||
-              (candidate.connector === 'SEC' && initialIssuers.has(String(candidate.metadata.cik)));
-            if (
-              await this.persistCandidate(
-                candidate,
-                irCompanyIdsByUrl,
-                job,
-                suppressAlerts,
-                matchNewsCompany(candidate.title, aliases),
-              )
-            ) {
-              created += 1;
+                }
+              : rawScope;
+          const store = recoveryStore(this.dataSource);
+          const batches: AsyncIterable<DiscoveryBatch> =
+            adapter instanceof SecSubmissionsConnector
+              ? adapter.discoverBatches(
+                  scope,
+                  store,
+                  this.config.secBackfillMaxRequests,
+                  job.reason === 'BACKFILL',
+                )
+              : adapter instanceof GdeltMetadataConnector
+                ? adapter.discoverBatches(scope, store, {
+                    overlapMinutes: this.config.gdeltOverlapMinutes,
+                    maxDepth: this.config.gdeltMaxSplitDepth,
+                    maxRequests: 12,
+                  })
+                : adapter instanceof AlpacaNewsConnector
+                  ? adapter.discoverBatches(scope, store)
+                  : (async function* () {
+                      yield { candidates: await adapter.discoverLinks(scope) };
+                    })();
+          for await (const batch of batches) {
+            seen += batch.candidates.length;
+            run.itemsSeen = String(seen);
+            let selected = batch.candidates;
+            if (adapter instanceof SecSubmissionsConnector && batch.suppressAlerts !== true) {
+              const known = new Set<string>();
+              for (
+                let offset = 0;
+                offset < batch.candidates.length;
+                offset += COMPANY_LOOKUP_BATCH_SIZE
+              ) {
+                const ids = batch.candidates
+                  .slice(offset, offset + COMPANY_LOOKUP_BATCH_SIZE)
+                  .flatMap((candidate) => (candidate.externalId ? [candidate.externalId] : []));
+                if (!ids.length) continue;
+                const existing = await this.dataSource.getRepository(SourceItemEntity).find({
+                  select: { externalId: true },
+                  where: { source: 'SEC', externalId: In(ids) },
+                });
+                for (const row of existing) if (row.externalId) known.add(row.externalId);
+              }
+              selected = batch.candidates.filter(
+                (candidate) => !candidate.externalId || !known.has(candidate.externalId),
+              );
             }
+            for (const candidate of selected) {
+              if (
+                await this.persistCandidate(
+                  candidate,
+                  irCompanyIdsByUrl,
+                  job,
+                  job.suppressAlerts || job.reason === 'BACKFILL' || batch.suppressAlerts === true,
+                  matchCompanies(candidate.title),
+                )
+              ) {
+                created++;
+                run.itemsCreated = String(created);
+              }
+            }
+            // No checkpoint writes happen when an item, relationship, or projection failed.
+            if (batch.checkpoint)
+              await store.commit(
+                adapter.name,
+                batch.checkpoint.stream,
+                batch.checkpoint.expected,
+                batch.checkpoint.metadata,
+              );
           }
-          if (selected.length === candidates.length)
-            await this.completeSecBaselines(issuerCiks, job);
         }
-        const partialFailureCount =
+
+        let partialFailureCount =
           adapter instanceof RegisteredIrFeedConnector ||
           adapter instanceof PublisherNewsRssConnector
             ? adapter.discoveryFailureCount
@@ -342,6 +408,24 @@ export class NewsDiscoveryService {
           truncated ||= adapter.discoveryWasTruncated;
           await adapter.commitFeedCheckpoints();
         }
+        if (
+          adapter instanceof GdeltMetadataConnector ||
+          adapter instanceof SecSubmissionsConnector ||
+          adapter instanceof AlpacaNewsConnector
+        )
+          truncated ||= adapter.discoveryWasTruncated;
+        const ownershipMetadata =
+          adapter instanceof SecSubmissionsConnector &&
+          this.config.secForm4Enabled &&
+          this.config.secUserAgent
+            ? await ingestPendingSecOwnership(
+                this.dataSource,
+                this.fetchImpl,
+                this.config.secUserAgent,
+                this.config.httpTimeoutMs,
+              )
+            : {};
+        partialFailureCount += Number(ownershipMetadata.ownershipFailed ?? 0);
         const completedAt = new Date();
         run.status = ProcessingStatus.COMPLETED;
         run.itemsSeen = String(seen);
@@ -350,12 +434,14 @@ export class NewsDiscoveryService {
         const runWarnings = [
           adapter.name === 'SEC' ? secScopeWarning : null,
           truncated
-            ? `A discovery batch was capped at ${MAX_CANDIDATES_PER_DISCOVERY_BATCH} candidates.`
+            ? adapter.name === 'GDELT'
+              ? 'GDELT window recovery is incomplete; inspect its checkpoint.'
+              : 'Discovery recovery is incomplete; inspect the remaining cursor.'
             : null,
           partialFailureCount > 0
             ? adapter.name === 'NEWS_RSS'
               ? `${partialFailureCount} RSS feed/item failure(s); healthy items were retained.`
-              : `${partialFailureCount} registered IR feed(s) failed; healthy feeds were retained.`
+              : `${partialFailureCount} supplementary document/feed processing failure(s); saved receipts/items were retained.`
             : null,
         ].filter((message): message is string => Boolean(message));
         run.errorMessage = runWarnings.length > 0 ? runWarnings.join(' ') : null;
@@ -371,14 +457,28 @@ export class NewsDiscoveryService {
           stream,
           {
             ...discoveryMetadata,
+            ...ownershipMetadata,
+            ...(adapter instanceof SecSubmissionsConnector ||
+            adapter instanceof GdeltMetadataConnector ||
+            adapter instanceof AlpacaNewsConnector
+              ? adapter.discoveryMetadata
+              : {}),
             ...(adapter instanceof PublisherNewsRssConnector ||
             adapter instanceof RegisteredIrFeedConnector
               ? adapter.discoveryMetadata
               : {}),
           },
           adapter.name === 'SEC'
-            ? { degradedMessage: secScopeWarning, recordSuccessInstant: secScopes.length > 0 }
-            : {},
+            ? {
+                degradedMessage: secScopeWarning,
+                recordSuccessInstant: secScopes.length > 0 && !truncated,
+              }
+            : {
+                recordSuccessInstant:
+                  !truncated &&
+                  (!(adapter instanceof AlpacaNewsConnector) ||
+                    Number(adapter.discoveryMetadata.requestsAttempted ?? 0) > 0),
+              },
         );
         results.push({
           connector: adapter.name,
@@ -392,13 +492,22 @@ export class NewsDiscoveryService {
         });
       } catch (error) {
         const failedAt = new Date();
-        const message = messageOf(error);
+        const message =
+          ['SEC', 'GDELT', 'ALPACA_NEWS'].includes(adapter.name) &&
+          !(error instanceof ConnectorRequestError)
+            ? `${adapter.name} 수집 처리에 실패했습니다.`
+            : messageOf(error);
         run.status = ProcessingStatus.FAILED;
         run.finishedAt = failedAt;
         run.errorMessage = message;
         await runs.save(run);
         await this.recordFailure(adapter.name, adapter.rightsMode, failedAt, message, stream, {
           ...discoveryMetadata,
+          ...(adapter instanceof SecSubmissionsConnector ||
+          adapter instanceof GdeltMetadataConnector ||
+          adapter instanceof AlpacaNewsConnector
+            ? adapter.discoveryMetadata
+            : {}),
           ...(adapter instanceof PublisherNewsRssConnector ||
           adapter instanceof RegisteredIrFeedConnector
             ? adapter.discoveryMetadata
@@ -410,6 +519,8 @@ export class NewsDiscoveryService {
                 transportCategory: error.transportCategory,
                 retryAt: error.retryAt?.toISOString() ?? null,
                 providerCode: error.providerCode,
+                requestAttempted: error.requestAttempted,
+                skipped: !error.requestAttempted,
               }
             : {}),
         });
@@ -531,6 +642,19 @@ export class NewsDiscoveryService {
         companyIds.push(...watchlist.map((item) => item.companyId));
       }
     }
+    if (
+      job.reason === 'SCHEDULED' &&
+      job.connectors.some((connector) => ['SEC', 'GDELT', 'ALPACA_NEWS'].includes(connector))
+    ) {
+      const groupRows: { companyId: string }[] = await this.dataSource.query(
+        APPROVED_GROUP_COMPANIES_SQL,
+      );
+      companyIds.push(...groupRows.map((row) => row.companyId));
+      if (job.connectors.some((connector) => ['GDELT', 'ALPACA_NEWS'].includes(connector))) {
+        const global = await watchlistRepository.find({ select: { companyId: true } });
+        companyIds.push(...global.map((row) => row.companyId));
+      }
+    }
     const uniqueIds = [...new Set(companyIds)];
     if (uniqueIds.length === 0) return Object.freeze([]);
     const companies: CompanyEntity[] = [];
@@ -575,11 +699,11 @@ export class NewsDiscoveryService {
     }
     const issuers = [...groups.values()].filter((group) => group.length > 0);
     const scopes: DiscoveryScope[] = [];
-    // Keep every share class of an issuer in the same batch: at most 25 issuers × 20 filings.
-    for (let offset = 0; offset < issuers.length; offset += MAX_DISCOVERY_SCOPE_COMPANIES) {
+    // Keep each issuer and all its share classes together; persist before requesting the next issuer.
+    for (let offset = 0; offset < issuers.length; offset += 1) {
       scopes.push({
         companies: issuers
-          .slice(offset, offset + MAX_DISCOVERY_SCOPE_COMPANIES)
+          .slice(offset, offset + 1)
           .flat()
           .map((company) => ({
             ticker: company.ticker,
@@ -593,50 +717,12 @@ export class NewsDiscoveryService {
     return scopes;
   }
 
-  private async initialSecIssuers(ciks: readonly string[]): Promise<ReadonlySet<string>> {
-    const checkpoints = this.dataSource.getRepository(SourceCheckpointEntity);
-    const initial = new Set<string>();
-    for (const cik of ciks) {
-      const row = await checkpoints.findOne({
-        where: { connector: 'SEC', stream: `SUBMISSIONS:CIK:${cik}` },
-      });
-      if (!row?.lastSuccessAt || row.metadataJson?.baselineComplete !== true) initial.add(cik);
-    }
-    return initial;
-  }
-
-  private async completeSecBaselines(
-    ciks: readonly string[],
-    job: DiscoverLinksJob,
-  ): Promise<void> {
-    if (ciks.length === 0) return;
-    await this.dataSource.transaction(async (manager) => {
-      const checkpoints = manager.getRepository(SourceCheckpointEntity);
-      const now = new Date();
-      for (const cik of ciks) {
-        const stream = `SUBMISSIONS:CIK:${cik}`;
-        const row =
-          (await checkpoints.findOne({ where: { connector: 'SEC', stream } })) ??
-          checkpoints.create({ connector: 'SEC', stream, lastSuccessDate: null, cursor: null });
-        row.lastSuccessAt = now;
-        row.metadataJson = {
-          ...row.metadataJson,
-          cik,
-          baselineComplete: true,
-          baselineCompletedAt: row.metadataJson?.baselineCompletedAt ?? now.toISOString(),
-          lastDiscoveryReason: job.reason,
-        };
-        await checkpoints.save(row);
-      }
-    });
-  }
-
   private async persistCandidate(
     candidate: DiscoveryCandidate,
     irCompanyIdsByUrl: ReadonlyMap<string, readonly string[]>,
     job: DiscoverLinksJob,
     suppressAlerts = false,
-    matchedCompanyId: string | null = null,
+    matchedCompanyIds: readonly string[] = [],
   ): Promise<boolean> {
     const sourcePolicy =
       candidate.sourcePolicy ?? (candidate.connector === 'SEC' ? SEC_NEWS_POLICY : null);
@@ -682,15 +768,17 @@ export class NewsDiscoveryService {
             where: [{ cik: secCik }, { cik: secCik.replace(/^0+/, '') }],
             order: { id: 'ASC' },
           })
-        : matchedCompanyId
-          ? await manager.getRepository(CompanyEntity).find({ where: { id: matchedCompanyId } })
+        : matchedCompanyIds.length > 0
+          ? await manager
+              .getRepository(CompanyEntity)
+              .find({ where: { id: In([...matchedCompanyIds]) } })
           : tickers.length === 0
             ? []
             : await manager.getRepository(CompanyEntity).find({
                 where: [{ ticker: In(tickers) }, { stockCode: In(tickers) }],
                 take: 2,
               });
-      if (secCik || matchedCompanyId)
+      if (secCik || matchedCompanyIds.length > 0)
         tickers = boundedValues(
           companies.flatMap((company) => (company.ticker ? [company.ticker] : [])),
         ).sort();
@@ -707,9 +795,11 @@ export class NewsDiscoveryService {
       let sourceItem = externalId
         ? await sourceRepository.findOne({
             where: { source: candidate.connector, externalId },
+            lock: { mode: 'pessimistic_write' },
           })
         : await sourceRepository.findOne({
             where: { source: candidate.connector, rawHash: candidateHash },
+            lock: { mode: 'pessimistic_write' },
           });
       if (
         !sourceItem &&
@@ -733,10 +823,31 @@ export class NewsDiscoveryService {
               const storedFeedUrl = source.rawMetadataJson?.['feedUrl'];
               return typeof storedFeedUrl === 'string' && isApprovedContentIrFeed(storedFeedUrl);
             }) ?? null;
-          if (sourceItem) sourceItem.externalId = externalId;
+          if (sourceItem) {
+            sourceItem = await sourceRepository.findOne({
+              where: { id: sourceItem.id },
+              lock: { mode: 'pessimistic_write' },
+            });
+            if (sourceItem) sourceItem.externalId = externalId;
+          }
         }
       }
       const created = !sourceItem;
+      const newsRepository = manager.getRepository(NewsItemEntity);
+      let newsItem = sourceItem
+        ? await newsRepository.findOne({ where: { sourceItemId: sourceItem.id } })
+        : null;
+      const contentRepository = manager.getRepository(NewsArticleContentEntity);
+      const storedContent =
+        sourceItem && content
+          ? await contentRepository.findOne({
+              where: { sourceItemId: sourceItem.id },
+              lock: { mode: 'pessimistic_write' },
+            })
+          : null;
+      const previousInput = sourceItem && newsItem ? translationInput(sourceItem, newsItem) : null;
+      const previousTranslation = sourceItem?.translationJson;
+      const previousRawHash = sourceItem?.rawHash;
       sourceItem ??= sourceRepository.create({
         source: candidate.connector,
         externalId,
@@ -759,22 +870,55 @@ export class NewsDiscoveryService {
       sourceItem.sourcePolicyJson = sourcePolicy;
       sourceItem.provenanceUrl = candidate.url;
       sourceItem.rawMetadataJson = {
+        ...(candidate.connector === 'SEC' ? sourceItem.rawMetadataJson : {}),
         ...candidate.metadata,
         ...(secCik ? { companyIds: companies.map((company) => company.id).sort() } : {}),
         tickers,
         tags,
-        matchedCompanyId,
-        companyMatchMethod: matchedCompanyId ? 'UNAMBIGUOUS_TITLE_ALIAS' : null,
+        matchedCompanyIds,
+        companyMatchMethod: matchedCompanyIds.length > 0 ? 'UNAMBIGUOUS_TITLE_ALIAS_V1' : null,
         discoveryReason: job.reason,
         discoveryPriorities: job.priorities,
         triggerFilingId: job.triggerFilingId ?? null,
         externalIdTruncatedToHash: candidate.externalId !== null && externalId === null,
       };
+      // Feed metadata can change without changing the text sent to the translator.
+      // Rebind a valid completed result, including legacy results without a text fingerprint.
+      const nextInput = translationInput(
+        sourceItem,
+        newsRepository.create({
+          title,
+          description,
+          tickersJson: tickers.length > 0 ? tickers : null,
+        }),
+      );
+      if (
+        !sourceItem.manualTranslationJson &&
+        !storedContent?.manualTranslationJson &&
+        previousInput &&
+        nextInput &&
+        previousTranslation?.version === 1 &&
+        previousTranslation.status === 'COMPLETED' &&
+        previousTranslation.inputHash === previousRawHash &&
+        newsTranslationInputHash(previousInput) === newsTranslationInputHash(nextInput)
+      ) {
+        sourceItem.translationJson = {
+          ...previousTranslation,
+          inputHash: candidateHash,
+          sourceTextHash: newsTranslationInputHash(nextInput),
+        };
+      }
       sourceItem = await sourceRepository.save(sourceItem);
       await attachNewsArticle(manager, sourceItem);
+      await replaceNewsCompanyRelevance(manager, sourceItem.id, title, [
+        ...companies.map((company) => ({
+          companyId: company.id,
+          matchMethod: secCik ? 'SEC_CIK' : 'TITLE_ALIAS',
+        })),
+        ...registeredCompanyIds.map((id) => ({ companyId: id, matchMethod: 'REGISTERED_IR' })),
+      ]);
       if (content && contentPolicyValid) {
-        const contentRepository = manager.getRepository(NewsArticleContentEntity);
-        let content = await contentRepository.findOne({ where: { sourceItemId: sourceItem.id } });
+        let content = storedContent;
         if (!(content?.status === 'AVAILABLE' && candidate.content.status === 'FAILED')) {
           const previousHash = content?.contentHash ?? null;
           content ??= contentRepository.create({ sourceItemId: sourceItem.id });
@@ -794,7 +938,11 @@ export class NewsDiscoveryService {
             candidate.content.status === 'FAILED' ? new Date(Date.now() + 15 * 60_000) : null;
           content.failureCode = candidate.content.failureCode;
           content.rightsPolicyJson = candidate.content.rightsPolicy;
-          if (previousHash !== candidate.content.contentHash) {
+          if (
+            previousHash !== candidate.content.contentHash &&
+            !sourceItem.manualTranslationJson &&
+            !content.manualTranslationJson
+          ) {
             content.translationJson =
               candidate.content.status === 'AVAILABLE' &&
               candidate.content.language === 'en' &&
@@ -822,10 +970,6 @@ export class NewsDiscoveryService {
       if (candidate.connector === 'SEC')
         await projectSecFilingEvents(manager, sourceItem, companies);
 
-      const newsRepository = manager.getRepository(NewsItemEntity);
-      let newsItem = await newsRepository.findOne({
-        where: { sourceItemId: sourceItem.id },
-      });
       newsItem ??= newsRepository.create({ sourceItemId: sourceItem.id });
       newsItem.companyId = companyId;
       newsItem.title = title;
@@ -897,7 +1041,9 @@ export class NewsDiscoveryService {
         [
           completion.degradedMessage,
           truncated
-            ? `A discovery batch was capped at ${MAX_CANDIDATES_PER_DISCOVERY_BATCH}.`
+            ? connector === 'GDELT'
+              ? 'GDELT window recovery is incomplete; inspect its checkpoint.'
+              : 'Discovery recovery is incomplete; inspect the remaining cursor.'
             : null,
           partialFailureCount > 0
             ? connector === 'NEWS_RSS'
@@ -914,9 +1060,24 @@ export class NewsDiscoveryService {
       else row.lastFailureAt ??= null;
       row.metadataJson = {
         ...metadata,
+        requestAttempted: ['SEC', 'GDELT', 'ALPACA_NEWS'].includes(connector)
+          ? Number(metadata.requestsAttempted ?? metadata.requestsInRun ?? 0) > 0
+          : true,
+        httpStatus:
+          !['SEC', 'GDELT', 'ALPACA_NEWS'].includes(connector) ||
+          Number(
+            metadata.requestsCompleted ?? metadata.requestsInRun ?? metadata.requestsAttempted ?? 0,
+          ) > 0
+            ? 200
+            : null,
+        lastAttemptAt:
+          connector !== 'SEC' || Number(metadata.requestsAttempted ?? 0) > 0
+            ? now.toISOString()
+            : (row.metadataJson?.lastAttemptAt ?? null),
         rightsMode,
         discoverySeen: seen,
         discoveryCreated: created,
+        truncated,
         partialFailureCount,
       };
       await health.save(row);
@@ -940,7 +1101,15 @@ export class NewsDiscoveryService {
     row.checkedAt = now;
     row.lastSuccessAt ??= null;
     row.lastFailureAt = now;
-    row.metadataJson = { rightsMode, operation: stream, ...metadata };
+    row.metadataJson = {
+      rightsMode,
+      operation: stream,
+      ...metadata,
+      lastAttemptAt:
+        metadata.requestAttempted === false
+          ? (row.metadataJson?.lastAttemptAt ?? null)
+          : now.toISOString(),
+    };
     await health.save(row);
   }
 }

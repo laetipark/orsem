@@ -23,3 +23,10 @@ export * from './migrations/1788400000000-RepairLegacyParserClock';
 export * from './news-articles';
 export * from './migrations/1788401000000-AddNewsArticles';
 export * from './migrations/1788403000000-AddNewsArticleContents';
+export * from './migrations/1788405000000-AddManualNewsTranslations';
+export * from './watchlist-group-entities';
+export * from './news-relevance-entities';
+export * from './migrations/1788406000000-AddWatchlistGroups';
+export * from './migrations/1788407000000-AddNewsCompanyRelevance';
+
+export * from './migrations/1788408000000-AddWatchlistRooms';

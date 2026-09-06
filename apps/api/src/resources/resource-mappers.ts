@@ -1,4 +1,11 @@
-import type { Company, Event, IrSource, Review, SourceItem } from '@orsem/contracts';
+import type {
+  Company,
+  Event,
+  IrSource,
+  Review,
+  SourceItem,
+  NewsArticleContentDetail,
+} from '@orsem/contracts';
 import {
   irSourceSchema,
   NEWS_RSS_FEEDS,
@@ -65,6 +72,7 @@ export function mapSourceItem(
   row: SourceItemEntity,
   news?: NewsItemEntity | null,
   content?: NewsContentRecord | null,
+  validatedContent?: NewsArticleContentDetail | null,
 ): SourceItem {
   const metadata = row.rawMetadataJson ?? {};
   const feed =
@@ -74,10 +82,20 @@ export function mapSourceItem(
   const region = feed?.marketRegion ?? metadata.marketRegion;
   return {
     id: row.id,
+    displayMode: ['GDELT', 'ALPACA_NEWS'].includes(row.source)
+      ? 'EXTERNAL_LINK'
+      : 'INTERNAL_CONTENT',
     articleId: row.newsArticleId ?? null,
     sourceKind: row.sourceKind ?? feed?.sourceKind ?? sourceKindForSource(row.source),
     sourceCount: 1,
-    ...contentSummary(content, row.rightsMode),
+    ...(['GDELT', 'ALPACA_NEWS'].includes(row.source)
+      ? {
+          contentState: 'UNAVAILABLE' as const,
+          contentSourceId: null,
+          contentLanguage: null,
+          translated: false,
+        }
+      : contentSummary(content, row.rightsMode, validatedContent)),
     publisherId:
       feed?.publisherId ??
       (typeof metadata.publisherId === 'string'
@@ -95,11 +113,13 @@ export function mapSourceItem(
     externalId: row.externalId,
     url: row.url as IrSource['url'],
     title: news?.title ?? row.title,
-    description: publicNewsDescription(
-      row.rightsMode,
-      news?.description ?? row.rawMetadataJson?.description,
-    ),
-    translation: publicNewsTranslation(row),
+    description: ['GDELT', 'ALPACA_NEWS'].includes(row.source)
+      ? null
+      : publicNewsDescription(
+          row.rightsMode,
+          news?.description ?? row.rawMetadataJson?.description,
+        ),
+    translation: ['GDELT', 'ALPACA_NEWS'].includes(row.source) ? null : publicNewsTranslation(row),
     sourceName: row.sourceName,
     author: row.author,
     publishedAt: dateToIso(news?.publishedAt ?? row.publishedAt),

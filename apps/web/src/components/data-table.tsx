@@ -1,19 +1,22 @@
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
+import './data-table.css';
 
 export function DataTable<TData>({
   data,
   columns,
   emptyMessage = '표시할 데이터가 없습니다.',
+  variant,
 }: {
   data: TData[];
   columns: Array<ColumnDef<TData>>;
   emptyMessage?: string;
+  variant: 'events' | 'operations';
 }) {
   const table = useReactTable({ data, columns, getCoreRowModel: getCoreRowModel() });
 
   return (
     <div className="table-scroll">
-      <table className="data-table">
+      <table className={`data-table data-table--${variant}`}>
         <thead>
           {table.getHeaderGroups().map((headerGroup) => (
             <tr key={headerGroup.id}>

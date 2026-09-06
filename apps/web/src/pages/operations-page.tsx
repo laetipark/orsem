@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { ColumnDef } from '@tanstack/react-table';
 import { Activity, Clock3, DatabaseZap, RefreshCw, ServerCog } from 'lucide-react';
 import { api } from '../lib/api';
+import { COMPACT_LAYOUT_QUERY, useMediaQuery } from '../lib/use-media-query';
 import { formatKst, formatLag, formatNumber } from '../lib/format';
 import type { OperationRun } from '../types';
 import { DataTable } from '../components/data-table';
@@ -20,6 +21,7 @@ import {
   Progress,
   cn,
 } from '../components/ui';
+import './operations-page.css';
 
 const runStatusLabel = {
   RUNNING: '실행 중',
@@ -28,7 +30,67 @@ const runStatusLabel = {
   SKIPPED: '건너뜀',
 } as const;
 
+function RunStatus({ status }: { status: OperationRun['status'] }) {
+  return (
+    <Badge
+      tone={
+        status === 'SUCCEEDED'
+          ? 'teal'
+          : status === 'FAILED'
+            ? 'red'
+            : status === 'RUNNING'
+              ? 'blue'
+              : 'neutral'
+      }
+    >
+      {runStatusLabel[status]}
+    </Badge>
+  );
+}
+
+function RunCards({ items }: { items: OperationRun[] }) {
+  if (!items.length) return <p className="operation-runs__empty">표시할 데이터가 없습니다.</p>;
+  return (
+    <div className="operation-runs">
+      {items.map((run) => (
+        <article className="operation-run" key={run.id}>
+          <header>
+            <strong>{run.job}</strong>
+            <RunStatus status={run.status} />
+          </header>
+          <dl>
+            <div>
+              <dt>소스</dt>
+              <dd>{run.source}</dd>
+            </div>
+            <div>
+              <dt>시작</dt>
+              <dd>{formatKst(run.startedAt)}</dd>
+            </div>
+            <div>
+              <dt>완료</dt>
+              <dd>{formatKst(run.finishedAt)}</dd>
+            </div>
+            <div>
+              <dt>처리</dt>
+              <dd>
+                {formatNumber(run.processed)} ·{' '}
+                <span className={run.failed ? 'negative' : ''}>실패 {run.failed}</span>
+              </dd>
+            </div>
+            <div>
+              <dt>메시지</dt>
+              <dd>{run.message ?? '정상 완료'}</dd>
+            </div>
+          </dl>
+        </article>
+      ))}
+    </div>
+  );
+}
+
 export function OperationsPage() {
+  const isCompact = useMediaQuery(COMPACT_LAYOUT_QUERY);
   const integrity = useQuery({
     queryKey: ['parse-integrity'],
     queryFn: api.parseIntegrity,
@@ -69,21 +131,7 @@ export function OperationsPage() {
       {
         id: 'status',
         header: '상태',
-        cell: ({ row }) => (
-          <Badge
-            tone={
-              row.original.status === 'SUCCEEDED'
-                ? 'teal'
-                : row.original.status === 'FAILED'
-                  ? 'red'
-                  : row.original.status === 'RUNNING'
-                    ? 'blue'
-                    : 'neutral'
-            }
-          >
-            {runStatusLabel[row.original.status]}
-          </Badge>
-        ),
+        cell: ({ row }) => <RunStatus status={row.original.status} />,
       },
       {
         id: 'time',
@@ -269,7 +317,11 @@ export function OperationsPage() {
             </span>
           </CardHeader>
           <CardContent>
-            <DataTable data={runs.data.items} columns={runColumns} />
+            {isCompact ? (
+              <RunCards items={runs.data.items} />
+            ) : (
+              <DataTable variant="operations" data={runs.data.items} columns={runColumns} />
+            )}
           </CardContent>
         </Card>
       ) : null}

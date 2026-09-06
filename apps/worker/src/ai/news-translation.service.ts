@@ -1,3 +1,4 @@
+import { createHash, randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { RightsMode, type NewsContentBlock } from '@orsem/contracts';
 import { NewsArticleContentEntity, NewsItemEntity, SourceItemEntity } from '@orsem/database';
@@ -5,11 +6,12 @@ import { Brackets, DataSource } from 'typeorm';
 import type { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
 import { WORKER_CONFIG, type WorkerConfig } from '../config/worker-config';
 import {
-  LocalNewsTranslationClient,
   NewsContentTranslationError,
+  validateNewsContentTranslation,
   type NewsContentTranslationFailureCode,
   type NewsTranslationInput,
-} from './local-news-translation.client';
+} from './news-translation-validation';
+import { LocalNewsTranslationClient } from './local-news-translation.client';
 
 const TRANSLATABLE_SOURCES = ['IR', 'NEWS_RSS'];
 const DESCRIPTION_RIGHTS = new Set<RightsMode>([
@@ -58,9 +60,12 @@ export function looksLikeEnglishNews(title: string): boolean {
 }
 
 export function translationIsDue(
-  source: Pick<SourceItemEntity, 'translationJson' | 'rawHash'>,
+  source: Pick<SourceItemEntity, 'translationJson' | 'rawHash'> & {
+    manualTranslationJson?: unknown;
+  },
   now: Date,
 ): boolean {
+  if (source.manualTranslationJson) return false;
   const saved = source.translationJson;
   if (!saved || saved.inputHash !== source.rawHash || saved.version !== 1) return true;
   if (saved.status === 'COMPLETED' || saved.status === 'SKIPPED') return false;
@@ -69,9 +74,12 @@ export function translationIsDue(
 }
 
 export function contentTranslationIsDue(
-  content: Pick<NewsArticleContentEntity, 'translationJson' | 'contentHash'>,
+  content: Pick<NewsArticleContentEntity, 'translationJson' | 'contentHash'> & {
+    manualTranslationJson?: unknown;
+  },
   now: Date,
 ): boolean {
+  if (content.manualTranslationJson) return false;
   const saved = content.translationJson;
   if (
     !content.contentHash ||
@@ -138,6 +146,16 @@ export function translationInput(
   };
 }
 
+export function newsTranslationInputHash(input: NewsTranslationInput): string {
+  return createHash('sha256').update(JSON.stringify(input)).digest('hex');
+}
+
+class StaleTranslationClaimError extends Error {}
+
+function contentChunkHash(blocks: readonly NewsContentBlock[], tickers: readonly string[]): string {
+  return createHash('sha256').update(JSON.stringify({ blocks, tickers })).digest('hex');
+}
+
 @Injectable()
 export class NewsTranslationService {
   public constructor(
@@ -174,6 +192,7 @@ export class NewsTranslationService {
       .innerJoin(NewsItemEntity, 'news', 'news.sourceItemId = source.id')
       .innerJoin(NewsArticleContentEntity, 'content', 'content.sourceItemId = source.id')
       .where('source.source IN (:...sources)', { sources: TRANSLATABLE_SOURCES })
+      .andWhere('source.manualTranslationJson IS NULL AND content.manualTranslationJson IS NULL')
       .andWhere('source.rawHash IS NOT NULL')
       .andWhere("source.rightsMode IN ('OFFICIAL_PUBLIC_DATA', 'PRIVATE_DISPLAY_ONLY')")
       .andWhere("JSON_EXTRACT(source.sourcePolicyJson, '$.aiAllowed') = CAST('true' AS JSON)")
@@ -233,6 +252,13 @@ export class NewsTranslationService {
           translated = await this.client.translate(claimed.input);
         } catch (error) {
           if (claimed.input.description === null) throw error;
+          if (
+            !(await this.saveSourceTranslation(id, claimed, {
+              ...claimed.audit,
+              nextAttemptAt: this.claimExpiresAt(),
+            }))
+          )
+            throw new StaleTranslationClaimError();
           translated = await this.client.translate({ ...claimed.input, description: null });
         }
         final = {
@@ -253,19 +279,8 @@ export class NewsTranslationService {
         };
         outcome = 'failed';
       }
-      const saved = await this.dataSource
-        .getRepository(SourceItemEntity)
-        .createQueryBuilder()
-        .update(SourceItemEntity)
-        .set({
-          translationJson: final as QueryDeepPartialEntity<SourceItemEntity>['translationJson'],
-        })
-        .where('id = :id AND raw_hash = :rawHash', { id, rawHash: claimed.rawHash })
-        .andWhere("JSON_UNQUOTE(JSON_EXTRACT(translation_json, '$.attemptedAt')) = :attemptedAt", {
-          attemptedAt: claimed.audit.attemptedAt,
-        })
-        .execute();
-      if (saved.affected === 1) result[outcome]++;
+      const saved = await this.saveSourceTranslation(id, claimed, final);
+      if (saved) result[outcome]++;
       else result.stale++;
     }
     await this.translateContentBatch(now, result);
@@ -282,6 +297,7 @@ export class NewsTranslationService {
       .select('content.id', 'id')
       .innerJoin(SourceItemEntity, 'source', 'source.id = content.sourceItemId')
       .where("content.status = 'AVAILABLE'")
+      .andWhere('source.manualTranslationJson IS NULL AND content.manualTranslationJson IS NULL')
       .andWhere("content.language = 'en'")
       .andWhere('content.contentHash IS NOT NULL')
       .andWhere('source.source IN (:...sources)', { sources: TRANSLATABLE_SOURCES })
@@ -333,12 +349,20 @@ export class NewsTranslationService {
       try {
         const translated: NewsContentBlock[] = [];
         for (const chunk of contentChunks(claimed.blocks)) {
-          translated.push(...(await this.translateContentChunk(chunk, claimed.tickers)));
+          translated.push(...(await this.translateContentChunk(chunk, claimed, id)));
         }
         const final = {
           ...claimed.audit,
           status: 'COMPLETED' as const,
           blocks: translated,
+          chunkOrigins: (claimed.audit.completedChunks ?? []).map(
+            ({ inputHash, provider, model }) => ({
+              inputHash,
+              ...(provider ? { provider } : {}),
+              ...(model ? { model } : {}),
+            }),
+          ),
+          completedChunks: [],
           translatedAt: new Date().toISOString(),
           nextAttemptAt: null,
           failureCode: null,
@@ -364,17 +388,130 @@ export class NewsTranslationService {
 
   private async translateContentChunk(
     chunk: readonly NewsContentBlock[],
-    tickers: readonly string[],
+    claimed: NonNullable<Awaited<ReturnType<NewsTranslationService['claimContent']>>>,
+    id: string,
+    allowSplit = true,
   ): Promise<readonly NewsContentBlock[]> {
-    try {
-      return await this.client.translateContentChunk(chunk, tickers);
-    } catch (error) {
-      if (chunk.length < 2) throw error;
+    const inputHash = contentChunkHash(chunk, claimed.tickers);
+    const cached = claimed.audit.completedChunks?.find((item) => item.inputHash === inputHash);
+    if (cached) {
+      try {
+        return validateNewsContentTranslation(chunk, claimed.tickers, { blocks: cached.blocks });
+      } catch {
+        claimed.audit.completedChunks = claimed.audit.completedChunks?.filter(
+          (item) => item !== cached,
+        );
+      }
+    }
+    const onlyBlock = chunk.length === 1 ? chunk[0] : null;
+    if (
+      onlyBlock?.type === 'LIST' &&
+      onlyBlock.items.length > 1 &&
+      JSON.stringify(chunk).length > CONTENT_CHUNK_MAX_JSON_CHARS
+    ) {
+      // A single source list can exceed one provider request. Checkpoint its item groups
+      // separately, then restore the original list structure when assembling the article.
+      const parts: string[][] = [];
+      let part: string[] = [];
+      for (const item of onlyBlock.items) {
+        if (
+          part.length > 0 &&
+          JSON.stringify([{ ...onlyBlock, items: [...part, item] }]).length >
+            CONTENT_CHUNK_MAX_JSON_CHARS
+        ) {
+          parts.push(part);
+          part = [];
+        }
+        part.push(item);
+      }
+      if (part.length) parts.push(part);
+      const items: string[] = [];
+      for (const entries of parts) {
+        const translated = await this.translateContentChunk(
+          [{ ...onlyBlock, items: entries }],
+          claimed,
+          id,
+          false,
+        );
+        const list = translated[0];
+        if (translated.length !== 1 || list?.type !== 'LIST')
+          throw new NewsContentTranslationError('VALIDATION');
+        items.push(...list.items);
+      }
+      return [{ ...onlyBlock, items }];
+    }
+    if (allowSplit && chunk.length >= 2) {
       const middle = Math.ceil(chunk.length / 2);
-      const first = await this.client.translateContentChunk(chunk.slice(0, middle), tickers);
-      const second = await this.client.translateContentChunk(chunk.slice(middle), tickers);
+      const halves = [chunk.slice(0, middle), chunk.slice(middle)];
+      if (
+        halves.some((half) =>
+          claimed.audit.completedChunks?.some(
+            (item) => item.inputHash === contentChunkHash(half, claimed.tickers),
+          ),
+        )
+      ) {
+        const first = await this.translateContentChunk(halves[0]!, claimed, id, false);
+        const second = await this.translateContentChunk(halves[1]!, claimed, id, false);
+        return [...first, ...second];
+      }
+    }
+    const persistProgress = async () => {
+      claimed.audit.nextAttemptAt = this.claimExpiresAt();
+      if (!(await this.saveContentTranslation(id, claimed, claimed.audit)))
+        throw new StaleTranslationClaimError();
+    };
+    // Refresh before every bounded inference, including split retries. A long article owns
+    // the claim for its whole run instead of only the timeout of its first chunk.
+    await persistProgress();
+    let blocks: readonly NewsContentBlock[];
+    try {
+      blocks = await this.client.translateContentChunk(chunk, claimed.tickers);
+    } catch (error) {
+      if (!allowSplit || chunk.length < 2) throw error;
+      const middle = Math.ceil(chunk.length / 2);
+      const first = await this.translateContentChunk(chunk.slice(0, middle), claimed, id, false);
+      const second = await this.translateContentChunk(chunk.slice(middle), claimed, id, false);
       return [...first, ...second];
     }
+    claimed.audit.completedChunks ??= [];
+    claimed.audit.completedChunks.push({
+      inputHash,
+      blocks: [...blocks],
+      provider: this.client.provider,
+      model: this.client.model,
+    });
+    await persistProgress();
+    return blocks;
+  }
+
+  private claimExpiresAt(): string {
+    return new Date(Date.now() + this.config.newsTranslationTimeoutMs + 60_000).toISOString();
+  }
+
+  private async saveSourceTranslation(
+    id: string,
+    claimed: NonNullable<Awaited<ReturnType<NewsTranslationService['claim']>>>,
+    translationJson: Record<string, string | number | null>,
+  ): Promise<boolean> {
+    const saved = await this.dataSource
+      .getRepository(SourceItemEntity)
+      .createQueryBuilder()
+      .update(SourceItemEntity)
+      .set({
+        translationJson:
+          translationJson as QueryDeepPartialEntity<SourceItemEntity>['translationJson'],
+      })
+      .where('id = :id AND raw_hash = :rawHash', { id, rawHash: claimed.rawHash })
+      .andWhere('manual_translation_json IS NULL')
+      .andWhere("JSON_UNQUOTE(JSON_EXTRACT(translation_json, '$.status')) = 'PROCESSING'")
+      .andWhere("JSON_UNQUOTE(JSON_EXTRACT(translation_json, '$.claimId')) = :claimId", {
+        claimId: claimed.audit.claimId,
+      })
+      .andWhere("JSON_UNQUOTE(JSON_EXTRACT(translation_json, '$.attemptedAt')) = :attemptedAt", {
+        attemptedAt: claimed.audit.attemptedAt,
+      })
+      .execute();
+    return saved.affected === 1;
   }
 
   private async saveContentTranslation(
@@ -389,6 +526,11 @@ export class NewsTranslationService {
       .update(NewsArticleContentEntity)
       .set({ translationJson })
       .where('id = :id AND content_hash = :contentHash', { id, contentHash: claimed.contentHash })
+      .andWhere('manual_translation_json IS NULL')
+      .andWhere("JSON_UNQUOTE(JSON_EXTRACT(translation_json, '$.status')) = 'PROCESSING'")
+      .andWhere("JSON_UNQUOTE(JSON_EXTRACT(translation_json, '$.claimId')) = :claimId", {
+        claimId: claimed.audit.claimId,
+      })
       .andWhere("JSON_UNQUOTE(JSON_EXTRACT(translation_json, '$.attemptedAt')) = :attemptedAt", {
         attemptedAt: claimed.audit.attemptedAt,
       })
@@ -399,6 +541,13 @@ export class NewsTranslationService {
   private async claimContent(id: string) {
     return this.dataSource.transaction(async (manager) => {
       const contents = manager.getRepository(NewsArticleContentEntity);
+      const initial = await contents.findOne({ where: { id } });
+      if (!initial) return null;
+      // Discovery and admin edits take the same lock order: source, then content.
+      const source = await manager.getRepository(SourceItemEntity).findOne({
+        where: { id: initial.sourceItemId },
+        lock: { mode: 'pessimistic_write' },
+      });
       const content = await contents.findOne({
         where: { id },
         lock: { mode: 'pessimistic_write' },
@@ -409,12 +558,10 @@ export class NewsTranslationService {
         content.status !== 'AVAILABLE' ||
         content.language !== 'en' ||
         !content.blocksJson?.length ||
+        source?.manualTranslationJson ||
         !contentTranslationIsDue(content, now)
       )
         return null;
-      const source = await manager.getRepository(SourceItemEntity).findOne({
-        where: { id: content.sourceItemId },
-      });
       if (
         !source ||
         !TRANSLATABLE_SOURCES.includes(source.source) ||
@@ -432,13 +579,15 @@ export class NewsTranslationService {
       const attemptedAt = now.toISOString();
       const audit: NonNullable<NewsArticleContentEntity['translationJson']> = {
         version: 1,
+        claimId: randomUUID(),
         status: 'PROCESSING',
         inputHash: content.contentHash,
-        provider: 'LOCAL',
+        provider: this.client.provider,
         model: this.client.model,
         sourceLanguage: 'en',
         targetLanguage: 'ko',
         blocks: null,
+        completedChunks: previous?.completedChunks ?? [],
         attemptedAt,
         translatedAt: null,
         attempts,
@@ -470,13 +619,14 @@ export class NewsTranslationService {
       const content = source
         ? await manager
             .getRepository(NewsArticleContentEntity)
-            .findOne({ where: { sourceItemId: id } })
+            .findOne({ where: { sourceItemId: id }, lock: { mode: 'pessimistic_write' } })
         : null;
       const now = new Date();
       if (
         !source?.rawHash ||
         source.source === 'NAVER' ||
         !content ||
+        content.manualTranslationJson ||
         !contentPolicyAllowsTranslation(content, source) ||
         !translationIsDue(source, now)
       )
@@ -486,6 +636,25 @@ export class NewsTranslationService {
         .findOne({ where: { sourceItemId: id } });
       if (!news) return null;
       const input = translationInput(source, news);
+      const sourceTextHash = input ? newsTranslationInputHash(input) : null;
+      const savedTranslation = source.translationJson;
+      if (
+        input &&
+        savedTranslation?.version === 1 &&
+        savedTranslation.status === 'COMPLETED' &&
+        savedTranslation.sourceTextHash === sourceTextHash
+      ) {
+        await repository.update(
+          { id, rawHash: source.rawHash },
+          {
+            translationJson: {
+              ...savedTranslation,
+              inputHash: source.rawHash,
+            } as QueryDeepPartialEntity<SourceItemEntity>['translationJson'],
+          },
+        );
+        return null;
+      }
       const previous =
         source.translationJson?.inputHash === source.rawHash ? source.translationJson : null;
       const attempts = Number.isSafeInteger(previous?.attempts)
@@ -493,11 +662,13 @@ export class NewsTranslationService {
         : 1;
       const audit: Record<string, string | number | null> = {
         version: 1,
+        claimId: randomUUID(),
+        sourceTextHash,
         status: input ? 'PROCESSING' : 'SKIPPED',
         inputHash: source.rawHash,
         sourceLanguage: 'en',
         targetLanguage: 'ko',
-        provider: 'LOCAL',
+        provider: this.client.provider,
         model: this.client.model,
         title: null,
         description: null,

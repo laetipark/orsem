@@ -24,6 +24,7 @@ import { dateOnlyInTimeZone } from './market-data-ingestion.service';
 import { TossMarketClient, type TossCandle, type TossStock } from './toss-market.client';
 import { TossStockInfoService } from './toss-stock-info.service';
 import { planTossViewFetch } from './toss-view-fetch-policy';
+import { APPROVED_GROUP_COMPANIES_SQL } from '../connectors/news-relevance';
 
 const KR_MARKETS: readonly string[] = [Market.KRX, Market.KOSPI, Market.KOSDAQ, Market.KONEX];
 const US_MARKETS: readonly string[] = [Market.NASDAQ, Market.NYSE, Market.AMEX];
@@ -164,7 +165,12 @@ export class TossMarketDataService {
       .getRepository(WatchlistItemEntity)
       .find({ where: { priority: In([WatchPriority.P1, WatchPriority.P2]) } });
     const priorities = new Map(watches.map((watch) => [watch.companyId, watch.priority]));
-    let requested = companyIds ? [...companyIds] : watches.map((watch) => watch.companyId);
+    const grouped: Array<{ companyId: string }> = companyIds
+      ? []
+      : await this.dataSource.query(`${APPROVED_GROUP_COMPANIES_SQL} ORDER BY companyId`);
+    let requested = companyIds
+      ? [...companyIds]
+      : [...watches.map((watch) => watch.companyId), ...grouped.map((row) => row.companyId)];
     if (this.client.enabled) {
       const redis = await this.client.storage();
       const activeKey = `${this.config.redisPrefix}market:toss:active`;
@@ -226,9 +232,13 @@ export class TossMarketDataService {
         order: { lastSuccessAt: 'DESC' },
         take: 200,
       });
+      const grouped: Array<{ companyId: string }> = await this.dataSource.query(
+        `${APPROVED_GROUP_COMPANIES_SQL} ORDER BY companyId`,
+      );
       selected = [
         ...new Set([
           ...watches.map((watch) => watch.companyId),
+          ...grouped.map((row) => row.companyId),
           ...recent
             .map((checkpoint) => checkpoint.stream.split(':').at(-1)!)
             .filter((id) => /^[0-9a-f-]{36}$/iu.test(id)),

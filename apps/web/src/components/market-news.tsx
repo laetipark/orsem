@@ -97,11 +97,15 @@ function newsSourceLinks(item: SourceItem) {
 function NewsCopy({ item }: { item: SourceItem }) {
   return (
     <span className="market-news__copy">
-      <TranslatedText
-        title={item.title}
-        description={item.description}
-        translation={item.translation}
-      />
+      {item.displayMode === 'EXTERNAL_LINK' ? (
+        <strong>{item.title}</strong>
+      ) : (
+        <TranslatedText
+          title={item.title}
+          description={item.description}
+          translation={item.translation}
+        />
+      )}
       <span className="market-news__meta">
         <span className="market-news__publisher">{item.sourceName || '뉴스 출처'}</span>
         {item.marketRegion ? <span>{regionLabels[item.marketRegion]}</span> : null}
@@ -124,12 +128,26 @@ export function MarketNewsList({ items }: { items: SourceItem[] }) {
     <ul className="market-news__list">
       {items.map((item) => {
         const itemUrl = safeNewsUrl(item.url);
-        const detailId = item.contentState === 'AVAILABLE' ? (item.articleId ?? item.id) : null;
+        const detailId =
+          item.displayMode !== 'EXTERNAL_LINK' && item.contentState === 'AVAILABLE'
+            ? (item.articleId ?? item.id)
+            : null;
         const sources = newsSourceLinks(item);
         const hasAdditionalSources = sources.some((source) => source.url !== itemUrl);
         return (
           <li className="market-news__item" key={item.articleId ?? item.id}>
-            {detailId ? (
+            {item.displayMode === 'EXTERNAL_LINK' && itemUrl ? (
+              <a
+                className="market-news__link"
+                href={itemUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <NewsCopy item={item} />
+                <ArrowUpRight size={16} />
+                <span className="sr-only">원문 새 창에서 보기</span>
+              </a>
+            ) : detailId ? (
               <Link className="market-news__link" to={`/news/${encodeURIComponent(detailId)}`}>
                 <NewsCopy item={item} />
                 <ChevronRight size={16} aria-hidden="true" />
@@ -141,6 +159,22 @@ export function MarketNewsList({ items }: { items: SourceItem[] }) {
                 <span className="sr-only">안전한 원문 링크가 없습니다.</span>
               </div>
             )}
+            {item.relatedCompanies?.length ? (
+              <div className="market-news__companies" aria-label="관련 기업">
+                {item.relatedCompanies.map((company) => (
+                  <Link key={company.id} to={`/companies/${encodeURIComponent(company.id)}`}>
+                    {company.nameKo} · {company.stockCode ?? company.ticker ?? company.market}
+                  </Link>
+                ))}
+              </div>
+            ) : null}
+            {item.source === 'GDELT' ? (
+              <div className="market-news__companies">
+                <a href="https://www.gdeltproject.org/" target="_blank" rel="noopener noreferrer">
+                  데이터 제공 GDELT<span className="sr-only"> 새 창에서 보기</span>
+                </a>
+              </div>
+            ) : null}
             {hasAdditionalSources ? (
               <details className="market-news__sources">
                 <summary>연결된 원문 출처 {sources.length}개</summary>
@@ -175,8 +209,8 @@ export function MarketNewsEmpty() {
 
 export function DashboardNews() {
   const news = useQuery({
-    queryKey: ['news', 'latest', 6],
-    queryFn: () => api.news({ limit: 6 }),
+    queryKey: ['news', 'market', 'latest', 6],
+    queryFn: ({ signal }) => api.news({ limit: 6, scope: 'market' }, signal),
     refetchInterval: NEWS_REFRESH_INTERVAL,
     staleTime: 30_000,
   });
@@ -187,7 +221,7 @@ export function DashboardNews() {
         <h2 id="dashboard-news-title">
           <Newspaper size={19} aria-hidden="true" /> 시장 뉴스
         </h2>
-        <Link className="text-link" to="/news">
+        <Link className="text-link" to="/news?scope=market">
           전체 보기 <ChevronRight size={14} aria-hidden="true" />
         </Link>
       </CardHeader>

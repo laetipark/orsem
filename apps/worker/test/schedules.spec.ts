@@ -117,6 +117,18 @@ describe('worker schedules', () => {
   it('uses the approved source and priority-specific discovery cadences', () => {
     expect(NEWS_DISCOVERY_SCHEDULES).toEqual([
       expect.objectContaining({
+        id: 'alpaca-news-thirty-minutes',
+        pattern: '*/30 * * * *',
+        timezone: 'Asia/Seoul',
+        payload: expect.objectContaining({ connectors: ['ALPACA_NEWS'], priorities: [] }),
+      }),
+      expect.objectContaining({
+        id: 'gdelt-metadata-thirty-minutes',
+        pattern: '*/30 * * * *',
+        timezone: 'Asia/Seoul',
+        payload: expect.objectContaining({ connectors: ['GDELT'], priorities: [] }),
+      }),
+      expect.objectContaining({
         id: 'sec-submissions-p1-p2-ten-minutes',
         pattern: '*/10 * * * *',
         timezone: 'Asia/Seoul',

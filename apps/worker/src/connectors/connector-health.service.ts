@@ -65,7 +65,7 @@ export class ConnectorHealthService {
     const adapters = createLinkDiscoveryAdapters(effectiveConfig, this.fetchImpl);
     const adapterChecks = await Promise.all(
       adapters.map((adapter) =>
-        ['NEWS_RSS', 'SEC', 'IR', 'GDELT'].includes(adapter.name)
+        ['NEWS_RSS', 'SEC', 'IR', 'GDELT', 'ALPACA_NEWS'].includes(adapter.name)
           ? this.discoveryHealth(adapter.health())
           : adapter.check(),
       ),
@@ -112,9 +112,12 @@ export class ConnectorHealthService {
     const repository = this.dataSource.getRepository(ConnectorHealthEntity);
     for (const check of checks) {
       const marketDataHealth = check.metadata?.healthSource === 'TOSS_INGESTION';
-      const rssDiscoveryHealth = ['NEWS_RSS_INGESTION', 'IR_INGESTION', 'GDELT_INGESTION'].includes(
-        String(check.metadata?.healthSource),
-      );
+      const rssDiscoveryHealth = [
+        'NEWS_RSS_INGESTION',
+        'IR_INGESTION',
+        'GDELT_INGESTION',
+        'ALPACA_NEWS_INGESTION',
+      ].includes(String(check.metadata?.healthSource));
       const secDiscoveryHealth = check.metadata?.healthSource === 'SEC_INGESTION';
       // 시세 커넥터가 설정되어 있으면 마지막으로 저장된 토스 상태를 읽기만 합니다.
       // 여기서 이전 상태를 다시 저장하면 checkAll 실행 중에 커밋된 수집 결과를

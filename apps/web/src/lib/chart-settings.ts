@@ -8,7 +8,7 @@ export interface ChartSettings {
   rsiPeriod: number;
 }
 export function defaultChartSettings(): ChartSettings {
-  return { volume: true, sma: [20], rsi: false, rsiPeriod: 14 };
+  return { volume: true, sma: [5, 20, 60], rsi: true, rsiPeriod: 14 };
 }
 export function loadChartSettings(): ChartSettings {
   try {

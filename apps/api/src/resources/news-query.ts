@@ -1,11 +1,13 @@
+import { manualNewsTranslationSql } from './manual-news-translation';
 import { marketsForRegion, type Region } from '@orsem/contracts';
 import {
-  completedNewsTranslationCondition,
+  completedAutomaticNewsTranslationCondition,
   literalSearchPattern,
   newsTranslationSearchCondition,
 } from '../common/news-translation';
 
 export interface NewsFilters {
+  scope?: unknown;
   q?: string;
   region?: Region;
   source?: unknown;
@@ -13,6 +15,24 @@ export interface NewsFilters {
   publisher?: unknown;
   companyId?: unknown;
 }
+
+export function gdeltMetadataSql(alias: string): string {
+  return `(${alias}.source IN ('GDELT','ALPACA_NEWS') AND ${alias}.rights_mode = 'STORE_METADATA_ONLY'
+    AND JSON_UNQUOTE(JSON_EXTRACT(${alias}.raw_metadata_json, '$.rightsContext')) = 'APPROVED_PUBLISHER_METADATA'
+    AND JSON_EXTRACT(${alias}.source_policy_json, '$.metadataStorageAllowed') = true
+    AND JSON_EXTRACT(${alias}.source_policy_json, '$.displayAllowed') = true
+    AND JSON_EXTRACT(${alias}.source_policy_json, '$.fullTextStorageAllowed') = false
+    AND JSON_EXTRACT(${alias}.source_policy_json, '$.aiAllowed') = false)`;
+}
+
+export function visibleNewsSql(contentAlias: string, sourceAlias: string): string {
+  return `((${availableNewsContentSql(contentAlias, sourceAlias)}) OR ${gdeltMetadataSql(sourceAlias)})`;
+}
+
+export function companyRelevanceSql(alias: string, companyId = false, region = false): string {
+  return `EXISTS (SELECT 1 FROM news_source_companies relevance JOIN source_items relevance_source ON relevance_source.id = relevance.source_item_id ${region ? 'JOIN companies relevance_company ON relevance_company.id = relevance.company_id' : ''} WHERE (relevance.source_item_id = ${alias}.id OR (${alias}.news_article_id IS NOT NULL AND relevance_source.news_article_id = ${alias}.news_article_id))${companyId ? ' AND relevance.company_id = :newsCompanyId' : ''}${region ? ' AND relevance_company.market IN (:...newsMarkets)' : ''})`;
+}
+
 export const PUBLIC_NEWS_PUBLISHERS = [
   'samsung-global-newsroom',
   'federal-reserve',
@@ -37,16 +57,17 @@ export function newsFiltersSql(alias: string, query: NewsFilters): string {
     `${alias}.source NOT LIKE 'NAVER%'`,
     `JSON_EXTRACT(${alias}.source_policy_json, '$.metadataStorageAllowed') = true`,
     `JSON_EXTRACT(${alias}.source_policy_json, '$.displayAllowed') = true`,
-    `${newsKindSql(alias)} IN ('OFFICIAL_RELEASE', 'COMPANY_IR')`,
-    `${newsPublisherSql(alias)} IN (${PUBLIC_NEWS_PUBLISHERS.map((value) => `'${value}'`).join(', ')})`,
+    `((${newsKindSql(alias)} IN ('OFFICIAL_RELEASE', 'COMPANY_IR') AND ${newsPublisherSql(alias)} IN (${PUBLIC_NEWS_PUBLISHERS.map((value) => `'${value}'`).join(', ')})) OR ${gdeltMetadataSql(alias)})`,
   ];
-  if (query.companyId) clauses.push(`${alias}.company_id = :newsCompanyId`);
+  if (query.companyId) clauses.push(companyRelevanceSql(alias, true));
+  if (query.scope === 'market') clauses.push(`NOT (${companyRelevanceSql(alias)})`);
+  if (query.scope === 'company') clauses.push(companyRelevanceSql(alias));
   if (query.source) clauses.push(`${alias}.source = :newsSource`);
   if (query.sourceKind) clauses.push(`${newsKindSql(alias)} = :newsKind`);
   if (query.publisher) clauses.push(`${newsPublisherSql(alias)} = :newsPublisher`);
   if (query.region && query.region !== 'all')
     clauses.push(
-      `(EXISTS (SELECT 1 FROM companies nc WHERE nc.id = ${alias}.company_id AND nc.market IN (:...newsMarkets)) OR ${alias}.source = :newsRegionSource OR JSON_UNQUOTE(JSON_EXTRACT(${alias}.raw_metadata_json, '$.marketRegion')) IN ('global', :newsRegion))`,
+      `(${companyRelevanceSql(alias, false, true)} OR (NOT (${companyRelevanceSql(alias)}) AND (${alias}.source = :newsRegionSource OR JSON_UNQUOTE(JSON_EXTRACT(${alias}.raw_metadata_json, '$.marketRegion')) IN ('global', :newsRegion))))`,
     );
   if (query.q)
     clauses.push(
@@ -89,7 +110,8 @@ export function availableNewsContentSql(contentAlias: string, sourceAlias: strin
     AND ${contentAlias}.status = 'AVAILABLE'
     AND JSON_TYPE(${contentAlias}.blocks_json) = 'ARRAY'
     AND JSON_LENGTH(${contentAlias}.blocks_json) BETWEEN 1 AND 2000
-    AND (${contentAlias}.language = 'ko' OR (${contentAlias}.language = 'en'
+    AND (${contentAlias}.language = 'ko' OR (${manualNewsTranslationSql(sourceAlias)}) OR (${contentAlias}.language = 'en'
+      AND ${sourceAlias}.manual_translation_json IS NULL AND ${contentAlias}.manual_translation_json IS NULL
       AND JSON_EXTRACT(${sourcePolicy}, '$.aiAllowed') = true
       AND JSON_EXTRACT(${contentPolicy}, '$.aiAllowed') = true
       AND ${contentAlias}.content_hash IS NOT NULL
@@ -99,7 +121,7 @@ export function availableNewsContentSql(contentAlias: string, sourceAlias: strin
       AND BINARY JSON_UNQUOTE(JSON_EXTRACT(${translation}, '$.inputHash')) = BINARY ${contentAlias}.content_hash
       AND BINARY JSON_UNQUOTE(JSON_EXTRACT(${translation}, '$.sourceLanguage')) = BINARY 'en'
       AND BINARY JSON_UNQUOTE(JSON_EXTRACT(${translation}, '$.targetLanguage')) = BINARY 'ko'
-      AND BINARY JSON_UNQUOTE(JSON_EXTRACT(${translation}, '$.provider')) = BINARY 'LOCAL'
+      AND BINARY JSON_UNQUOTE(JSON_EXTRACT(${translation}, '$.provider')) IN (BINARY 'LOCAL', BINARY 'AZURE')
       AND JSON_TYPE(JSON_EXTRACT(${translation}, '$.model')) = 'STRING'
       AND CHAR_LENGTH(TRIM(JSON_UNQUOTE(JSON_EXTRACT(${translation}, '$.model')))) > 0
       AND JSON_TYPE(JSON_EXTRACT(${translation}, '$.blocks')) = 'ARRAY'
@@ -110,7 +132,7 @@ export function availableNewsContentSql(contentAlias: string, sourceAlias: strin
       AND JSON_TYPE(JSON_EXTRACT(${translation}, '$.attempts')) = 'INTEGER'
       AND JSON_EXTRACT(${translation}, '$.attempts') > 0
       AND JSON_TYPE(JSON_EXTRACT(${translation}, '$.nextAttemptAt')) IN ('STRING', 'NULL')
-      AND ${completedNewsTranslationCondition(sourceAlias)}))`;
+      AND ${completedAutomaticNewsTranslationCondition(sourceAlias)}))`;
 }
 
 export function representativeNewsSql(query: NewsFilters, sourceAlias = 'source'): string {
@@ -120,11 +142,11 @@ export function representativeNewsSql(query: NewsFilters, sourceAlias = 'source'
   // This prevents the list metadata and detail body from coming from different providers.
   return `NOT EXISTS (SELECT 1 FROM source_items duplicate WHERE ${sourceAlias}.news_article_id IS NOT NULL
     AND duplicate.news_article_id = ${sourceAlias}.news_article_id AND ${newsFiltersSql('duplicate', query)}
-    AND EXISTS (SELECT 1 FROM news_article_contents duplicate_content
+    AND (${gdeltMetadataSql('duplicate')} OR EXISTS (SELECT 1 FROM news_article_contents duplicate_content
       WHERE duplicate_content.source_item_id = duplicate.id
-        AND ${availableNewsContentSql('duplicate_content', 'duplicate')})
-    AND ((duplicate.source = 'GDELT') < (${sourceAlias}.source = 'GDELT')
-      OR ((duplicate.source = 'GDELT') = (${sourceAlias}.source = 'GDELT') AND
+        AND ${availableNewsContentSql('duplicate_content', 'duplicate')}))
+    AND ((duplicate.source IN ('GDELT','ALPACA_NEWS')) < (${sourceAlias}.source IN ('GDELT','ALPACA_NEWS'))
+      OR ((duplicate.source IN ('GDELT','ALPACA_NEWS')) = (${sourceAlias}.source IN ('GDELT','ALPACA_NEWS')) AND
         (duplicate.first_observed_at < ${sourceAlias}.first_observed_at OR
          (duplicate.first_observed_at = ${sourceAlias}.first_observed_at AND duplicate.id < ${sourceAlias}.id)))))`;
 }

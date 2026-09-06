@@ -26,7 +26,7 @@ export interface NewsDiscoveryScheduleDefinition {
   readonly pattern: string;
   readonly timezone: 'Asia/Seoul';
   readonly payload: Readonly<{
-    connectors: readonly ('SEC' | 'IR' | 'NEWS_RSS' | 'GDELT')[];
+    connectors: readonly ('SEC' | 'IR' | 'NEWS_RSS' | 'GDELT' | 'ALPACA_NEWS')[];
     priorities: readonly (
       typeof WatchPriority.P1 | typeof WatchPriority.P2 | typeof WatchPriority.P3
     )[];
@@ -36,6 +36,30 @@ export interface NewsDiscoveryScheduleDefinition {
 }
 
 export const NEWS_DISCOVERY_SCHEDULES: readonly NewsDiscoveryScheduleDefinition[] = Object.freeze([
+  Object.freeze({
+    id: 'alpaca-news-thirty-minutes',
+    pattern: '*/30 * * * *',
+    timezone: 'Asia/Seoul',
+    payload: Object.freeze({
+      reason: 'SCHEDULED' as const,
+      connectors: Object.freeze(['ALPACA_NEWS'] as const),
+      priorities: Object.freeze([]),
+      companyIds: Object.freeze([]),
+      suppressAlerts: true,
+    }),
+  }),
+  Object.freeze({
+    id: 'gdelt-metadata-thirty-minutes',
+    pattern: '*/30 * * * *',
+    timezone: 'Asia/Seoul',
+    payload: Object.freeze({
+      reason: 'SCHEDULED' as const,
+      connectors: Object.freeze(['GDELT'] as const),
+      priorities: Object.freeze([]),
+      companyIds: Object.freeze([]),
+      suppressAlerts: true,
+    }),
+  }),
   Object.freeze({
     id: 'sec-submissions-p1-p2-ten-minutes',
     pattern: '*/10 * * * *',

@@ -1,10 +1,11 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, useNavigate } from 'react-router-dom';
+import { MemoryRouter, Outlet, Route, Routes, useNavigate } from 'react-router-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import { WatchlistPage } from './watchlist-page';
 
 const mocks = vi.hoisted(() => ({ watchlist: vi.fn(), quotes: vi.fn() }));
+vi.mock('../components/watchlist-groups-panel', () => ({ WatchlistGroupsPanel: () => null }));
 vi.mock('../lib/api', () => ({
   api: {
     watchlist: mocks.watchlist,
@@ -35,7 +36,11 @@ it('restores regional pagination on browser back and clears old cursors when cha
   render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={['/watchlist?region=kr']}>
-        <NavigationHarness />
+        <Routes>
+          <Route element={<Outlet context={{ user: { id: 'admin', role: 'ADMIN' } }} />}>
+            <Route path="watchlist" element={<NavigationHarness />} />
+          </Route>
+        </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
   );

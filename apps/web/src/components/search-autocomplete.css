@@ -1,0 +1,130 @@
+.header-search {
+  position: relative;
+}
+.search-autocomplete__panel {
+  position: absolute;
+  z-index: 1;
+  top: calc(100% + 8px);
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: min(420px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
+  max-height: min(520px, calc(100dvh - 170px));
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  color: var(--text);
+}
+.search-autocomplete__panel [role='listbox'] {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.search-autocomplete__heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 11px 13px 7px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+.search-autocomplete__heading > span {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+.search-autocomplete__option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 10px 13px;
+  cursor: pointer;
+}
+.search-autocomplete__option:hover,
+.search-autocomplete__option[aria-selected='true'] {
+  background: var(--teal-soft);
+}
+.search-autocomplete__option[aria-selected='true'] {
+  box-shadow: inset 3px 0 var(--teal);
+}
+.search-autocomplete__option > svg {
+  flex-shrink: 0;
+  color: var(--subtle);
+}
+.search-autocomplete__copy {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  overflow-wrap: anywhere;
+}
+.search-autocomplete__copy > strong,
+.search-autocomplete__copy > span {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.search-autocomplete__copy > strong {
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.search-autocomplete__copy > span {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.search-autocomplete__empty {
+  margin: 0;
+  padding: 8px 13px 14px;
+  color: var(--subtle);
+  font-size: 12px;
+}
+.search-autocomplete__status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+  margin: 0;
+  padding: 12px 13px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.search-autocomplete__status:has(> .sr-only) {
+  padding: 0;
+}
+.header-search .search-autocomplete__all {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 13px;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--surface-2);
+  color: var(--teal);
+  text-align: left;
+}
+.search-autocomplete__all > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.search-autocomplete__all > svg {
+  flex-shrink: 0;
+}
+.search-autocomplete__hint {
+  flex-shrink: 0;
+  padding: 7px 13px;
+  color: var(--subtle);
+  font-size: 10px;
+  background: var(--surface-2);
+}

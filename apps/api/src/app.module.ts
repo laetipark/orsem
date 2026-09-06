@@ -1,3 +1,9 @@
+import { WatchlistAccessService } from './watchlist-groups/watchlist-access.service';
+import { WatchlistRoomsController } from './watchlist-groups/watchlist-rooms.controller';
+import { WatchlistRoomsService } from './watchlist-groups/watchlist-rooms.service';
+import { CompanyObservationService } from './watchlist-groups/company-observation.service';
+import { NewsTranslationEditorController } from './resources/news-translation-editor.controller';
+import { NewsTranslationEditorService } from './resources/news-translation-editor.service';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
@@ -38,6 +44,9 @@ import { NotificationsController } from './notifications/notifications.controlle
 import { NotificationsService } from './notifications/notifications.service';
 import { NaverNewsSearchController } from './news-search/naver-news-search.controller';
 import { NaverNewsSearchService } from './news-search/naver-news-search.service';
+import { NaverNewsBudgetService } from './news-search/naver-news-budget.service';
+import { WatchlistGroupsController } from './watchlist-groups/watchlist-groups.controller';
+import { WatchlistGroupsService } from './watchlist-groups/watchlist-groups.service';
 
 @Module({
   imports: [
@@ -48,10 +57,13 @@ import { NaverNewsSearchService } from './news-search/naver-news-search.service'
     }),
   ],
   controllers: [
+    NewsTranslationEditorController,
     AuthController,
     KakaoAuthController,
     SearchController,
     NaverNewsSearchController,
+    WatchlistGroupsController,
+    WatchlistRoomsController,
     MarketsController,
     NotificationsController,
     ...RESOURCE_CONTROLLERS,
@@ -67,12 +79,18 @@ import { NaverNewsSearchService } from './news-search/naver-news-search.service'
     SessionRuntimeService,
     FixtureStoreService,
     OrsemDataService,
+    NewsTranslationEditorService,
     LivePriceService,
     AuthService,
     MemberService,
     KakaoAuthService,
     SearchService,
     NaverNewsSearchService,
+    NaverNewsBudgetService,
+    WatchlistGroupsService,
+    WatchlistAccessService,
+    WatchlistRoomsService,
+    CompanyObservationService,
     MarketsService,
     NotificationsService,
     BotService,

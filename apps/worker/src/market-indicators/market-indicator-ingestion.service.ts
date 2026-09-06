@@ -5,7 +5,7 @@ import {
   MarketInstrumentEntity,
   MarketObservationEntity,
 } from '@orsem/database';
-import { DataSource, In } from 'typeorm';
+import { DataSource, Raw, type Repository } from 'typeorm';
 import {
   IndicatorRequestError,
   MarketIndicatorClient,
@@ -19,6 +19,26 @@ interface SourceResult {
   instrumentIds: readonly string[];
   retryAt?: string;
   httpStatus?: number;
+}
+
+const LOOKUP_BATCH_SIZE = 200;
+const instrumentDefinitions = new Map(MARKET_INSTRUMENTS.map((item) => [item.id, item]));
+type DailyReference = Pick<MarketObservationEntity, 'sourceDate' | 'value'>;
+
+function observationKey(row: Pick<IndicatorObservation, 'instrumentId' | 'kind' | 'period'>) {
+  return `${row.instrumentId}:${row.kind}:${row.period}`;
+}
+
+function earlierReference(rows: readonly DailyReference[], date: string | null) {
+  if (!date) return undefined;
+  let low = 0;
+  let high = rows.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (rows[middle]!.sourceDate! < date) low = middle + 1;
+    else high = middle;
+  }
+  return rows[low - 1];
 }
 
 @Injectable()
@@ -99,18 +119,15 @@ export class MarketIndicatorIngestionService implements OnModuleInit {
     input: readonly IndicatorObservation[],
     now: Date,
   ): Promise<number> {
+    if (!input.length) return 0;
     const repo = this.db.getRepository(MarketObservationEntity);
-    const ids = [...new Set(input.map((row) => row.instrumentId))];
-    const existing = await repo.find({ where: { instrumentId: In(ids) } });
-    const current = new Map(
-      existing.map((row) => [`${row.instrumentId}:${row.kind}:${row.period}`, row]),
-    );
     const next = new Map<string, IndicatorObservation>();
+    const promotedFrom = new Map<string, string>();
     for (const row of input) {
-      const definition = MARKET_INSTRUMENTS.find((item) => item.id === row.instrumentId);
+      const definition = instrumentDefinitions.get(row.instrumentId);
       if (!definition || definition.provider !== source || definition.displayKind !== 'NATIVE')
         throw new Error('Unexpected instrument source');
-      const key = `${row.instrumentId}:${row.kind}:${row.period}`;
+      const key = observationKey(row);
       const previous = next.get(key);
       if (
         !previous ||
@@ -122,36 +139,35 @@ export class MarketIndicatorIngestionService implements OnModuleInit {
     }
     // Daily publications also supply the current value, without inventing a publication instant.
     if (source === 'TREASURY' || source === 'EIA') {
-      for (const id of ids) {
-        const latest = [...next.values()]
-          .filter((row) => row.instrumentId === id && row.kind === 'DAILY')
-          .sort((a, b) => b.period.localeCompare(a.period))[0];
-        if (latest) next.set(`${id}:QUOTE:latest`, { ...latest, kind: 'QUOTE', period: 'latest' });
+      const latestByInstrument = new Map<string, IndicatorObservation>();
+      for (const row of next.values()) {
+        if (row.kind !== 'DAILY') continue;
+        const latest = latestByInstrument.get(row.instrumentId);
+        if (!latest || latest.period < row.period) latestByInstrument.set(row.instrumentId, row);
+      }
+      for (const [id, latest] of latestByInstrument) {
+        const key = `${id}:QUOTE:latest`;
+        next.set(key, { ...latest, kind: 'QUOTE', period: 'latest' });
+        promotedFrom.set(key, observationKey(latest));
       }
     }
+    const existing = await this.readCurrentObservations(repo, [...next.values()]);
+    const current = new Map(existing.map((row) => [observationKey(row), row]));
+    for (const [key, row] of next) {
+      const previous = current.get(key);
+      if (
+        (previous?.providerAt && row.providerAt && previous.providerAt > row.providerAt) ||
+        (previous?.sourceDate && row.sourceDate && previous.sourceDate > row.sourceDate)
+      )
+        next.delete(key);
+    }
+    for (const [key, dailyKey] of promotedFrom) if (!next.has(dailyKey)) next.delete(key);
+    const references = await this.readDailyReferences(repo, [...next.values()], existing);
     const writes: MarketObservationEntity[] = [];
     for (const [key, row] of next) {
       const previous = current.get(key);
-      if (previous?.providerAt && row.providerAt && previous.providerAt > row.providerAt) continue;
-      if (previous?.sourceDate && row.sourceDate && previous.sourceDate > row.sourceDate) continue;
-      const definition = MARKET_INSTRUMENTS.find((item) => item.id === row.instrumentId)!;
-      const dailyByDate = new Map(
-        [
-          ...existing.filter(
-            (item) => item.instrumentId === row.instrumentId && item.kind === 'DAILY',
-          ),
-          ...[...next.values()].filter(
-            (item) => item.instrumentId === row.instrumentId && item.kind === 'DAILY',
-          ),
-        ]
-          .filter((item) => item.sourceDate && row.sourceDate && item.sourceDate < row.sourceDate)
-          .map((item) => [item.sourceDate!, item]),
-      );
-      // The current response supersedes older persisted values for a corrected source date.
-      const candidates = [...dailyByDate.values()].sort((a, b) =>
-        b.sourceDate!.localeCompare(a.sourceDate!),
-      );
-      const reference = candidates[0];
+      const definition = instrumentDefinitions.get(row.instrumentId)!;
+      const reference = earlierReference(references.get(row.instrumentId) ?? [], row.sourceDate);
       const referenceLabel =
         row.referenceLabel ??
         (definition.historyKind === 'daily_average'
@@ -184,6 +200,85 @@ export class MarketIndicatorIngestionService implements OnModuleInit {
     }
     if (writes.length) await repo.save(writes, { chunk: 200 });
     return writes.length;
+  }
+
+  private async readCurrentObservations(
+    repo: Repository<MarketObservationEntity>,
+    input: readonly IndicatorObservation[],
+  ): Promise<MarketObservationEntity[]> {
+    const rows: MarketObservationEntity[] = [];
+    for (let offset = 0; offset < input.length; offset += LOOKUP_BATCH_SIZE) {
+      rows.push(
+        ...(await repo.find({
+          select: {
+            id: true,
+            instrumentId: true,
+            kind: true,
+            period: true,
+            value: true,
+            sourceDate: true,
+            providerAt: true,
+            firstObservedAt: true,
+          },
+          where: input.slice(offset, offset + LOOKUP_BATCH_SIZE).map((row) => ({
+            instrumentId: row.instrumentId,
+            kind: row.kind,
+            period: row.period,
+          })),
+        })),
+      );
+    }
+    return rows;
+  }
+
+  private async readDailyReferences(
+    repo: Repository<MarketObservationEntity>,
+    input: readonly IndicatorObservation[],
+    existing: readonly MarketObservationEntity[],
+  ): Promise<Map<string, DailyReference[]>> {
+    const thresholds = new Map<string, { instrumentId: string; sourceDate: string }>();
+    for (const row of input) {
+      if (row.sourceDate && (row.referenceValue == null || row.referenceDate == null))
+        thresholds.set(`${row.instrumentId}:${row.sourceDate}`, {
+          instrumentId: row.instrumentId,
+          sourceDate: row.sourceDate,
+        });
+    }
+    const daily = new Map<string, Map<string, DailyReference>>();
+    const add = (row: DailyReference & { instrumentId: string }) => {
+      if (!row.sourceDate) return;
+      let dates = daily.get(row.instrumentId);
+      if (!dates) daily.set(row.instrumentId, (dates = new Map()));
+      dates.set(row.sourceDate, row);
+    };
+    const targets = [...thresholds.values()];
+    for (let offset = 0; offset < targets.length; offset += LOOKUP_BATCH_SIZE) {
+      // Each indexed MAX lookup returns only the nearest prior date; long histories stay in SQL.
+      const rows = await repo.find({
+        select: { instrumentId: true, sourceDate: true, value: true },
+        where: targets.slice(offset, offset + LOOKUP_BATCH_SIZE).map((row, index) => ({
+          instrumentId: row.instrumentId,
+          kind: 'DAILY',
+          sourceDate: Raw(
+            (alias) =>
+              `${alias} = (SELECT MAX(prior.source_date) FROM market_observations prior ` +
+              `WHERE prior.instrument_id = :instrument${index} AND prior.kind = 'DAILY' ` +
+              `AND prior.source_date < :before${index})`,
+            { [`instrument${index}`]: row.instrumentId, [`before${index}`]: row.sourceDate },
+          ),
+        })),
+      });
+      for (const row of rows) add(row);
+    }
+    for (const row of existing) if (row.kind === 'DAILY') add(row);
+    // Accepted corrections win for a date. Rejected stale input never becomes a reference.
+    for (const row of input) if (row.kind === 'DAILY') add(row);
+    return new Map(
+      [...daily].map(([id, dates]) => [
+        id,
+        [...dates.values()].sort((a, b) => a.sourceDate!.localeCompare(b.sourceDate!)),
+      ]),
+    );
   }
 
   private async recordHealth(

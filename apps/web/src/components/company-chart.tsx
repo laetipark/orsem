@@ -1,4 +1,14 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { Maximize } from 'lucide-react';
+import { HelpPopover } from './help-popover';
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type KeyboardEvent,
+} from 'react';
 import {
   CandlestickSeries,
   HistogramSeries,
@@ -17,6 +27,7 @@ import {
   type Time,
 } from 'lightweight-charts';
 import { useTheme } from '../theme';
+import { useMediaQuery } from '../lib/use-media-query';
 import type { CompanyLivePrice, CompanyTimeline } from '../types';
 import {
   chartPriceData,
@@ -51,7 +62,9 @@ const timeKey = (time: Time) => (typeof time === 'object' ? chartTimeLabel(time)
 export function CompanyChart({
   timeline,
   livePrice,
+  toolbar,
 }: {
+  toolbar?: ReactNode;
   timeline: CompanyTimeline;
   livePrice?: CompanyLivePrice | null;
 }) {
@@ -66,6 +79,13 @@ export function CompanyChart({
   const fittedRef = useRef(false);
   const [settings, setSettings] = useState(loadChartSettings);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const compact = useMediaQuery('(max-width: 620px)');
+  const sizingRef = useRef(settings);
+  sizingRef.current = settings;
+  const resizeChartRef = useRef<(() => void) | null>(null);
+  const [rsiTop, setRsiTop] = useState<number | null>(null);
+  const [settingsExpanded, setSettingsExpanded] = useState(false);
+  const settingsPanelId = useId();
   const { theme } = useTheme();
   const hasCandles = hasChartCandles(timeline.prices);
   const minute = timeline.interval === '1m';
@@ -117,11 +137,18 @@ export function CompanyChart({
     const dark = theme === 'dark';
     const chart = createChart(container, {
       width: container.clientWidth,
-      height: container.clientWidth < 640 ? 440 : 530,
+      height:
+        container.clientWidth < 640
+          ? sizingRef.current.rsi
+            ? 400
+            : 320
+          : sizingRef.current.rsi
+            ? 480
+            : 420,
       layout: {
         background: { type: ColorType.Solid, color: 'transparent' },
         textColor: dark ? '#aab9bd' : '#4f6268',
-        fontSize: 12,
+        fontSize: container.clientWidth < 640 ? 11 : 12,
         attributionLogo: false,
         panes: {
           separatorColor: dark ? '#34454b' : '#d6e0df',
@@ -133,7 +160,7 @@ export function CompanyChart({
       crosshair: { mode: CrosshairMode.Normal },
       rightPriceScale: {
         borderColor: dark ? '#34454b' : '#dbe2e0',
-        minimumWidth: 76,
+        minimumWidth: container.clientWidth < 640 ? 64 : 76,
         scaleMargins: { top: 0.1, bottom: 0.1 },
       },
       timeScale: {
@@ -199,16 +226,26 @@ export function CompanyChart({
     seriesRef.current = series;
     markersRef.current = createSeriesMarkers(series, []);
     fittedRef.current = false;
-    const observer = new ResizeObserver(([entry]) => {
-      if (entry)
-        chart.applyOptions({
-          width: entry.contentRect.width,
-          height: entry.contentRect.width < 640 ? 440 : 530,
-        });
-    });
+    const resize = () => {
+      const width = container.clientWidth,
+        narrow = width < 640,
+        setting = sizingRef.current;
+      const height = narrow ? (setting.rsi ? 400 : 320) : setting.rsi ? 480 : 420;
+      chart.applyOptions({
+        width,
+        height,
+        layout: { fontSize: narrow ? 11 : 12 },
+        rightPriceScale: { minimumWidth: narrow ? 64 : 76 },
+      });
+      volumeRef.current?.getPane().setHeight(narrow ? 50 : 60);
+      rsiRef.current?.getPane().setHeight(narrow ? 80 : 90);
+    };
+    resizeChartRef.current = resize;
+    const observer = new ResizeObserver(() => resize());
     observer.observe(container);
     return () => {
       observer.disconnect();
+      resizeChartRef.current = null;
       chart.unsubscribeCrosshairMove(selectBar);
       chart.unsubscribeClick(selectBar);
       chart.remove();
@@ -291,7 +328,50 @@ export function CompanyChart({
       rsiRef.current.getPane().setStretchFactor(1.25);
     }
     candles.getPane().setStretchFactor(4);
+    resizeChartRef.current?.();
     if (visible) chart.timeScale().setVisibleLogicalRange(visible);
+  }, [
+    settings,
+    theme,
+    timeline.companyId,
+    timeline.currency,
+    timeline.provider,
+    minute,
+    hasCandles,
+  ]);
+
+  useEffect(() => {
+    if (!settings.rsi || !containerRef.current || !rsiRef.current) {
+      setRsiTop(null);
+      return;
+    }
+    const container = containerRef.current;
+    let observedPane: HTMLElement | null = null;
+    let frame = 0;
+    let attempts = 0;
+    const measure = () => {
+      const pane = rsiRef.current?.getPane().getHTMLElement();
+      // The chart creates pane elements on its next paint, after the series is added.
+      if (!pane) {
+        if (attempts++ < 10) frame = requestAnimationFrame(measure);
+        return;
+      }
+      if (pane !== observedPane) {
+        if (observedPane) observer.unobserve(observedPane);
+        observer.observe(pane);
+        observedPane = pane;
+      }
+      setRsiTop(
+        Math.max(0, pane.getBoundingClientRect().top - container.getBoundingClientRect().top),
+      );
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(container);
+    frame = requestAnimationFrame(measure);
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+    };
   }, [
     settings,
     theme,
@@ -357,6 +437,8 @@ export function CompanyChart({
   ]);
 
   function selectWithKeyboard(event: KeyboardEvent<HTMLDivElement>) {
+    // Focused overflow rows keep native keyboard scrolling; the outer legend selects candles.
+    if (event.target !== event.currentTarget) return;
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End', 'Escape'].includes(event.key)) return;
     event.preventDefault();
     if (event.key === 'End' || event.key === 'Escape') {
@@ -377,19 +459,91 @@ export function CompanyChart({
     if (price) setSelectedKey(timeKey(chartTime(price.time)));
   }
 
+  const candleValues = (
+    <dl className="candle-values">
+      {(
+        [
+          ['시가', selected?.open],
+          ['고가', selected?.high],
+          ['저가', selected?.low],
+          ['종가', selected?.close],
+        ] as const
+      ).map(([label, value]) => (
+        <div key={label}>
+          <dt>{label}</dt>
+          <dd>{formatPrice(noTrades && label !== '종가' ? undefined : value)}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+  const candleVolume = (
+    <dl className="candle-volume">
+      <dt>거래량 (주)</dt>
+      <dd>
+        {selected
+          ? new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 6 }).format(selected.volume)
+          : '—'}
+      </dd>
+    </dl>
+  );
+
   return (
     <section className="chart-workspace" aria-label="차트와 보조지표">
       <div className="indicator-toolbar">
-        <details className="indicator-settings">
-          <summary>
-            지표 설정{' '}
-            <span>
-              {settings.sma.length + Number(settings.volume) + Number(settings.rsi)}개 사용
-            </span>
-          </summary>
-          <div className="indicator-settings__body">
+        {toolbar ? <div className="chart-primary-controls">{toolbar}</div> : null}
+        <button
+          type="button"
+          className="chart-latest-button"
+          aria-label="최신 봉 보기"
+          disabled={selectedKey === null}
+          onClick={() => setSelectedKey(null)}
+        >
+          최신 봉
+        </button>
+        <button
+          type="button"
+          className="indicator-settings-toggle"
+          aria-expanded={settingsExpanded}
+          aria-controls={settingsPanelId}
+          onClick={() => setSettingsExpanded(!settingsExpanded)}
+        >
+          보조지표{' '}
+          <span>{settings.sma.length + Number(settings.volume) + Number(settings.rsi)}개 사용</span>
+        </button>
+        <button
+          type="button"
+          className="chart-fit-button"
+          aria-label="화면 맞춤"
+          title="화면 맞춤"
+          onClick={() => chartRef.current?.timeScale().fitContent()}
+        >
+          <Maximize size={16} aria-hidden="true" />
+          <span>화면 맞춤</span>
+        </button>
+        <HelpPopover label="차트 조작·지표 안내">
+          <p>
+            {compact
+              ? '터치로 봉 선택 · 두 손가락으로 확대'
+              : '드래그로 이동 · 마우스 휠로 확대 · 범례에서 ← → 키로 봉 선택'}
+          </p>
+          <p className="indicator-note">
+            {settings.volume ? '아래 막대: 거래량. ' : ''}
+            {settings.rsi
+              ? `RSI(${settings.rsiPeriod})는 0–100 범위이며 점선은 30·70 기준입니다. `
+              : ''}
+            조회 기간의 데이터가 부족한 지표는 —로 표시합니다.
+          </p>
+          <p>
+            {minute
+              ? '1분봉은 한국 시간(KST)으로 표시합니다. '
+              : 'T 거래·변동일 · F 공시일 · N 뉴스·IR. 거래·변동일과 공시 발표일은 구분합니다. '}
+            현재가와 차트는 2초마다 갱신하며 장중 가격은 바뀔 수 있습니다.
+          </p>
+        </HelpPopover>
+        {settingsExpanded ? (
+          <div className="indicator-settings__body" id={settingsPanelId}>
             <fieldset>
-              <legend>이동평균선 · SMA</legend>
+              <legend>이동평균선</legend>
               <div className="indicator-options">
                 {smaPeriods.map((period) => (
                   <label key={period}>
@@ -406,13 +560,14 @@ export function CompanyChart({
                       }
                     />
                     <i style={{ background: smaColors[period] }} />
-                    {period}봉
+                    {period}
+                    {minute ? '분선' : '일선'}
                   </label>
                 ))}
               </div>
             </fieldset>
             <fieldset>
-              <legend>보조 패널</legend>
+              <legend>거래량·기술적 지표</legend>
               <div className="indicator-options">
                 <label>
                   <input
@@ -427,12 +582,13 @@ export function CompanyChart({
                 <label>
                   <input
                     type="checkbox"
+                    aria-label="RSI"
                     checked={settings.rsi}
                     onChange={(event) =>
                       setSettings((current) => ({ ...current, rsi: event.target.checked }))
                     }
                   />
-                  RSI
+                  RSI (상대강도지수)
                 </label>
                 <label className="rsi-period">
                   기간
@@ -463,14 +619,7 @@ export function CompanyChart({
               </button>
             </div>
           </div>
-        </details>
-        <button
-          type="button"
-          className="chart-fit-button"
-          onClick={() => chartRef.current?.timeScale().fitContent()}
-        >
-          차트 맞춤
-        </button>
+        ) : null}
       </div>
       <div
         className="candle-legend"
@@ -479,95 +628,68 @@ export function CompanyChart({
         tabIndex={0}
         onKeyDown={selectWithKeyboard}
       >
-        <div className="candle-legend__heading">
-          <strong>
-            {selected ? chartTimeLabel(chartTime(selected.time)) : '—'}
-            {minute ? ' KST' : ''}
-          </strong>
-          <span className="candle-selection">
-            {selectedKey === null ? '최신 봉' : '선택한 봉'}
-            {noTrades ? ' · 거래 없음' : ''}
-          </span>
-          <span className="candle-currency">
-            {timeline.currency === 'USD' ? '미국 달러 (USD)' : '원 (KRW)'}
-          </span>
-          <button
-            type="button"
-            onClick={() => setSelectedKey(null)}
-            disabled={selectedKey === null}
-          >
-            최신 봉 보기
-          </button>
-        </div>
-        <dl className="candle-values">
-          {(
-            [
-              ['시가', selected?.open],
-              ['고가', selected?.high],
-              ['저가', selected?.low],
-              ['종가', selected?.close],
-            ] as const
-          ).map(([label, value]) => (
-            <div key={label}>
-              <dt>{label}</dt>
-              <dd title={formatPrice(noTrades && label !== '종가' ? undefined : value)}>
-                {formatPrice(noTrades && label !== '종가' ? undefined : value)}
-              </dd>
-            </div>
-          ))}
-          <div>
-            <dt>거래량 (주)</dt>
-            <dd
-              title={
-                selected
-                  ? new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 6 }).format(
-                      selected.volume,
-                    )
-                  : '—'
-              }
-            >
-              {selected
-                ? new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 6 }).format(
-                    selected.volume,
-                  )
-                : '—'}
-            </dd>
+        <div
+          className="candle-legend__main legend-scroll"
+          role="group"
+          aria-label={compact ? '선택 시각과 거래량' : '선택 시각과 가격·거래량'}
+          tabIndex={0}
+        >
+          <div className="candle-context">
+            <strong className="candle-time">
+              {selected ? chartTimeLabel(chartTime(selected.time)) : '—'}
+              {minute ? ' KST' : ''}
+            </strong>
+            <span className="candle-selection">
+              {selectedKey === null ? '최신 봉' : '선택한 봉'}
+              {noTrades ? ' · 거래 없음' : ''}
+            </span>
+            <span className="candle-currency">{timeline.currency === 'USD' ? 'USD' : 'KRW'}</span>
           </div>
-        </dl>
-        <div className="indicator-legend">
+          {!compact ? candleValues : null}
+          {candleVolume}
+        </div>
+        {compact ? (
+          <div
+            className="candle-price-row legend-scroll"
+            role="group"
+            aria-label="시가·고가·저가·종가"
+            tabIndex={0}
+          >
+            {candleValues}
+          </div>
+        ) : null}
+        <div
+          className="indicator-legend legend-scroll"
+          role="group"
+          aria-label="이동평균 값"
+          tabIndex={0}
+        >
           {settings.sma.map((period) => (
             <span key={period}>
               <i style={{ background: smaColors[period] }} />
-              <span className="indicator-legend__name">SMA {period}</span>
-              <strong title={formatPrice(indicatorValue(indicators.sma.get(period)))}>
-                {formatPrice(indicatorValue(indicators.sma.get(period)))}
-              </strong>
+              <span className="indicator-legend__name">
+                {period}
+                {minute ? '분선' : '일선'}
+              </span>
+              <strong>{formatPrice(indicatorValue(indicators.sma.get(period)))}</strong>
             </span>
           ))}
-          {settings.rsi ? (
-            <span>
-              <i className="rsi-swatch" />
-              <span className="indicator-legend__name">RSI {settings.rsiPeriod}</span>
-              <strong title={indicatorValue(indicators.rsi)?.toFixed(2) ?? '—'}>
-                {indicatorValue(indicators.rsi)?.toFixed(2) ?? '—'}
-              </strong>
-            </span>
-          ) : null}
-          <small>봉 위에 마우스를 올리거나 범례에서 ← → 키로 확인</small>
+          {!settings.sma.length ? <span>이동평균 표시 꺼짐</span> : null}
         </div>
       </div>
-      <div
-        className="company-chart"
-        ref={containerRef}
-        aria-label={minute ? '기업 1분봉 차트, 한국 시간' : '기업 일봉과 공시 이벤트 차트'}
-      />
-      <p className="indicator-note">
-        {settings.volume ? '아래 막대: 거래량. ' : ''}
-        {settings.rsi
-          ? `RSI(${settings.rsiPeriod})는 0–100 범위이며 점선은 30·70 기준입니다. `
-          : ''}
-        지표는 조회된 봉으로 계산하며, 계산에 필요한 봉이 부족하면 —로 표시합니다.
-      </p>
+      <div className="chart-plot-wrap">
+        <div
+          className="company-chart"
+          ref={containerRef}
+          aria-label={minute ? '기업 1분봉 차트, 한국 시간' : '기업 일봉과 공시 이벤트 차트'}
+        />
+        {settings.rsi && rsiTop !== null ? (
+          <div className="rsi-pane-legend" style={{ top: rsiTop + 5 }}>
+            <span>RSI ({settings.rsiPeriod})</span>
+            <strong>{indicatorValue(indicators.rsi)?.toFixed(2) ?? '—'}</strong>
+          </div>
+        ) : null}
+      </div>
     </section>
   );
 }

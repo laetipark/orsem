@@ -8,6 +8,12 @@ import { NaverNewsSearchService, naverNewsSearchQuerySchema } from './naver-news
 export class NaverNewsSearchController {
   constructor(private readonly searchService: NaverNewsSearchService) {}
 
+  @Get('status')
+  @Header('Cache-Control', 'no-store')
+  status() {
+    return this.searchService.status();
+  }
+
   @Get()
   @Header('Cache-Control', 'no-store')
   @RateLimit(20)

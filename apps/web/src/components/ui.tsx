@@ -206,7 +206,7 @@ export function EmptyState({
   action,
 }: {
   title: string;
-  description: string;
+  description?: string;
   action?: ReactNode;
 }) {
   return (
@@ -215,7 +215,7 @@ export function EmptyState({
         <Inbox size={23} aria-hidden="true" />
       </span>
       <strong>{title}</strong>
-      <p>{description}</p>
+      {description ? <p>{description}</p> : null}
       {action}
     </div>
   );

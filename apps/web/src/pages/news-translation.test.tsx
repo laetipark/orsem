@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { CursorPage, EventDetail, EventSummary, SearchResults } from '../types';
@@ -8,6 +8,7 @@ import { fixtureRequest } from '../lib/fixtures';
 import { SearchPage } from './search-page';
 import { EventsPage } from './events-page';
 import { EventDetailPage } from './event-detail-page';
+import { mockMediaQuery } from '../test/media-query';
 
 const mocks = vi.hoisted(() => ({ events: vi.fn(), event: vi.fn(), search: vi.fn() }));
 vi.mock('../lib/api', () => ({ api: mocks }));
@@ -16,6 +17,7 @@ afterEach(() => {
   cleanup();
   for (const client of clients.splice(0)) client.clear();
   vi.clearAllMocks();
+  vi.restoreAllMocks();
 });
 
 async function news() {
@@ -66,25 +68,27 @@ it('검색 뉴스는 준비된 번역과 내부 상세 링크를 표시하고 �
   mocks.search.mockResolvedValue(result);
   const { container } = show('/search?q=Microsoft', '/search', <SearchPage />);
   expect(await screen.findByText(translated.translation!.title)).toBeVisible();
-  expect(screen.getByText(translated.title)).toBeVisible();
+  expect(screen.queryByText(translated.title)).not.toBeInTheDocument();
   expect(screen.getByText('Form 8-K')).toBeVisible();
   expect(screen.getAllByText('자동 번역')).toHaveLength(1);
   expect(container.querySelector('a button, a summary, a details')).toBeNull();
-  const originalLink = screen.getByText(translated.title).closest('a');
+  const originalLink = screen.getByText(translated.translation!.title).closest('a');
   expect(originalLink).toHaveAttribute('href', translated.url);
   expect(originalLink).not.toHaveAttribute('target');
 });
 
-it('이벤트 탐색 표와 모바일 카드가 한국어 번역과 원문을 함께 표시한다', async () => {
+it('이벤트 탐색은 현재 화면에 필요한 목록 하나에 번역만 표시한다', async () => {
   const event = await news();
   mocks.events.mockResolvedValue({
     items: [event],
     nextCursor: null,
   } satisfies CursorPage<EventSummary>);
   const { container } = show('/events', '/events', <EventsPage />);
-  expect(await screen.findAllByText(event.translation!.title)).toHaveLength(2);
-  expect(screen.getAllByText(event.title)).toHaveLength(2);
-  expect(screen.getAllByText('자동 번역')).toHaveLength(2);
+  expect(await screen.findAllByText(event.translation!.title)).toHaveLength(1);
+  expect(screen.queryByText(event.title)).not.toBeInTheDocument();
+  expect(screen.getAllByRole('table')).toHaveLength(1);
+  expect(container.querySelector('.mobile-events-list')).toBeNull();
+  expect(screen.getAllByText('자동 번역')).toHaveLength(1);
   expect(container.querySelector('a button, a summary, a details')).toBeNull();
 });
 
@@ -99,19 +103,62 @@ it('compact와 모바일 이벤트는 뉴스에만 번역을 적용한다', asyn
     </MemoryRouter>,
   );
   expect(screen.getByText(event.translation!.title)).toBeVisible();
-  expect(screen.getByText(event.title)).toBeVisible();
+  expect(screen.queryByText(event.title)).not.toBeInTheDocument();
   expect(screen.getByText('SEC 원문 설명')).toBeVisible();
   expect(screen.getAllByText('자동 번역')).toHaveLength(1);
 });
 
-it('상세 제목과 출처에서 번역 원문을 펼칠 수 있고 권리 안내를 보존한다', async () => {
+it('상세 언어 전환은 제목과 출처를 함께 바꾸고 권리 안내를 보존한다', async () => {
   const event = await news();
   mocks.event.mockResolvedValue(event);
   const { container } = show(`/events/${event.id}`, '/events/:id', <EventDetailPage />);
   expect(await screen.findByRole('heading', { name: event.translation!.title })).toBeVisible();
-  expect(screen.getAllByText('원문 보기')).toHaveLength(2);
+  expect(screen.getByRole('button', { name: '원문' })).toBeVisible();
   const evidence = container.querySelector('.evidence-item') as HTMLElement;
   expect(within(evidence).getByText(event.translation!.title)).toBeVisible();
+  expect(within(evidence).queryByText(event.evidence[0]!.excerpt!)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '원문' }));
+  expect(screen.getByRole('heading', { name: event.title })).toBeVisible();
   expect(within(evidence).getByText(event.evidence[0]!.excerpt!)).toBeVisible();
+  expect(within(evidence).queryByText(event.translation!.title)).not.toBeInTheDocument();
   expect(within(evidence).getByText(event.sourceName)).toBeVisible();
+});
+
+it('compact event cards replace the table when the viewport crosses 900px without reloading data', async () => {
+  const event = await news();
+  const { resize, listenerCount } = mockMediaQuery(true);
+  mocks.events.mockResolvedValue({ items: [event], nextCursor: null });
+  const { container, unmount } = show('/events', '/events', <EventsPage />);
+  expect(await screen.findByText(event.translation!.title)).toBeVisible();
+  expect(screen.queryByRole('table')).not.toBeInTheDocument();
+  expect(container.querySelectorAll('.event-mobile-card')).toHaveLength(1);
+  expect(screen.getByText('게시 시각')).toBeVisible();
+  act(() => resize(false));
+  expect(screen.getByRole('table')).toHaveClass('data-table--events');
+  expect(container.querySelector('.event-mobile-card')).toBeNull();
+  expect(screen.getAllByText(event.translation!.title)).toHaveLength(1);
+  expect(mocks.events).toHaveBeenCalledTimes(1);
+  unmount();
+  expect(listenerCount()).toBe(0);
+});
+
+it('does not mix an untranslated evidence title into the translated NEWS view', async () => {
+  const event = await news();
+  const evidence = {
+    ...event.evidence[0]!,
+    title: 'Untranslated evidence',
+    description: 'English evidence summary',
+    translation: null,
+  };
+  mocks.event.mockResolvedValue({ ...event, evidence: [evidence] });
+  show(`/events/${event.id}`, '/events/:id', <EventDetailPage />);
+  expect(await screen.findByRole('heading', { name: event.translation!.title })).toBeVisible();
+  expect(screen.queryByText(evidence.title)).not.toBeInTheDocument();
+  expect(screen.queryByText(evidence.description)).not.toBeInTheDocument();
+  expect(
+    screen.getByText('이 출처의 번역은 제공되지 않습니다. 원문에서 확인하세요.'),
+  ).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: '원문' }));
+  expect(screen.getByText(evidence.title)).toBeVisible();
+  expect(screen.getByText(evidence.description)).toBeVisible();
 });

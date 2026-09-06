@@ -7,18 +7,18 @@ import {
   LogOut,
   Moon,
   Newspaper,
-  Search,
   ShieldCheck,
   Star,
   Sun,
 } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Suspense, useEffect, useRef, useState, type FormEvent } from 'react';
+import { Suspense, useEffect, useRef } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate, useNavigationType } from 'react-router-dom';
 import { disconnectPushOnLogout } from '../lib/web-push';
+import { clearNewsEditDrafts } from '../lib/news-edit-drafts';
 import { api, isFixtureMode } from '../lib/api';
 import { BrandLogo } from './brand-logo';
-import { parseRegion } from './region-tabs';
+import { HeaderSearch } from './search-autocomplete';
 import { useTheme } from '../theme';
 import { Badge, Button, LoadingState, cn } from './ui';
 import type { Session } from '../types';
@@ -45,7 +45,7 @@ const routeTitles: Array<[RegExp, string]> = [
   [/^\/news$/, '시장 뉴스'],
   [/^\/events\/[^/]+$/, '이벤트 근거'],
   [/^\/events/, '이벤트 탐색'],
-  [/^\/companies\//, '기업 관측'],
+  [/^\/companies\//, '종목 정보'],
   [/^\/watchlist/, '관심기업'],
   [/^\/reviews/, '검토함'],
   [/^\/operations/, '수집 운영'],
@@ -66,78 +66,13 @@ export function ThemeButton() {
   );
 }
 
-function HeaderSearch() {
-  const location = useLocation();
-  const navigate = useNavigate();
-  const [input, setInput] = useState(() => new URLSearchParams(location.search).get('q') ?? '');
-  const inputRef = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    if (location.pathname === '/search')
-      setInput(new URLSearchParams(location.search).get('q') ?? '');
-  }, [location.pathname, location.search]);
-  useEffect(() => {
-    const focusSearch = (event: KeyboardEvent) => {
-      const target = event.target;
-      if (
-        event.key !== '/' ||
-        event.ctrlKey ||
-        event.metaKey ||
-        event.altKey ||
-        (target instanceof HTMLElement &&
-          (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)))
-      )
-        return;
-      event.preventDefault();
-      inputRef.current?.focus();
-      inputRef.current?.select();
-    };
-    window.addEventListener('keydown', focusSearch);
-    return () => window.removeEventListener('keydown', focusSearch);
-  }, []);
-  function submit(event: FormEvent) {
-    event.preventDefault();
-    const query = input.trim();
-    if (!query) {
-      inputRef.current?.focus();
-      return;
-    }
-    const params = new URLSearchParams({ q: query });
-    const region = parseRegion(new URLSearchParams(location.search).get('region'));
-    if (region !== 'all') params.set('region', region);
-    void navigate(`/search?${params}`);
-    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
-  }
-  return (
-    <form
-      className="header-search"
-      role="search"
-      aria-label="종목·뉴스·공시 통합 검색"
-      onSubmit={submit}
-    >
-      <Search size={18} aria-hidden="true" />
-      <input
-        ref={inputRef}
-        type="search"
-        aria-label="종목·뉴스·공시 검색어"
-        placeholder="종목·뉴스·공시 검색"
-        value={input}
-        onChange={(event) => setInput(event.target.value)}
-        maxLength={120}
-        autoComplete="off"
-      />
-      <button type="submit" aria-label="통합 검색 실행">
-        검색
-      </button>
-    </form>
-  );
-}
-
 export function AppShell({ session }: { session: Session }) {
   const location = useLocation();
   const navigate = useNavigate();
   const navigationType = useNavigationType();
   const previousPathname = useRef(location.pathname);
   const isAdmin = session.user?.role === 'ADMIN';
+  const isCompanyPage = /^\/companies\/[^/]+\/?$/.test(location.pathname);
   const queryClient = useQueryClient();
   const title = routeTitles.find(([pattern]) => pattern.test(location.pathname))?.[1] ?? 'ORSEM';
   const logout = useMutation({
@@ -146,6 +81,7 @@ export function AppShell({ session }: { session: Session }) {
       return api.logout();
     },
     onSuccess: async (nextSession) => {
+      clearNewsEditDrafts();
       await queryClient.cancelQueries();
       queryClient.removeQueries({ predicate: (query) => query.queryKey[0] !== 'session' });
       queryClient.setQueryData(['session'], nextSession);
@@ -159,7 +95,7 @@ export function AppShell({ session }: { session: Session }) {
     previousPathname.current = location.pathname;
   }, [location.pathname, navigationType]);
   return (
-    <div className="app-shell">
+    <div className={cn('app-shell', isCompanyPage && 'app-shell--company')}>
       <a className="skip-link" href="#main-content">
         본문으로 건너뛰기
       </a>
@@ -206,17 +142,25 @@ export function AppShell({ session }: { session: Session }) {
           </div>
         </div>
       </header>
-      <main id="main-content" className="main-content" tabIndex={-1}>
-        <div className="workspace-heading">
-          <h1>{title}</h1>
-          <div>
-            {isFixtureMode ? <Badge tone="orange">개발용 모의 데이터</Badge> : null}
-            <span className="workspace-access">
-              <ShieldCheck size={14} aria-hidden="true" />
-              {isAdmin ? '개인 관측' : '조회 전용'}
-            </span>
+      <main
+        id="main-content"
+        className={cn('main-content', isCompanyPage && 'main-content--company')}
+        tabIndex={-1}
+      >
+        {!isCompanyPage ? (
+          <div className="workspace-heading">
+            <h1>{title}</h1>
+            <div>
+              {isFixtureMode ? <Badge tone="orange">개발용 모의 데이터</Badge> : null}
+              <span className="workspace-access">
+                <ShieldCheck size={14} aria-hidden="true" />
+                {isAdmin ? '관리자' : '회원'}
+              </span>
+            </div>
           </div>
-        </div>
+        ) : isFixtureMode ? (
+          <Badge tone="orange">개발용 모의 데이터</Badge>
+        ) : null}
         {logout.isError ? (
           <p className="form-error" role="alert">
             {logout.error.message || '로그아웃하지 못했습니다. 다시 시도해 주세요.'}

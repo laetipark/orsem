@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { clearNewsEditDrafts } from '../lib/news-edit-drafts';
 import { AtSign, KeyRound, LockKeyhole } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -30,6 +31,7 @@ export function AdminLoginPage({ session }: { session: Session }) {
       });
     },
     onSuccess: async (nextSession) => {
+      clearNewsEditDrafts();
       await queryClient.cancelQueries();
       queryClient.removeQueries({ predicate: (query) => query.queryKey[0] !== 'session' });
       queryClient.setQueryData(['session'], nextSession);

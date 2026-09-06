@@ -1,10 +1,12 @@
+import { manualContentSchema, storedJson } from './manual-news-translation';
 import {
   NewsContentState,
   RightsMode,
   newsArticleContentDetailSchema,
   newsContentBlockSchema,
-  newsContentTranslationSchema,
+  newsContentOriginalSchema,
   type NewsArticleContentDetail,
+  type NewsContentBlock,
   type NewsContentTranslation,
 } from '@orsem/contracts';
 import { z } from 'zod';
@@ -18,22 +20,26 @@ export interface NewsContentRecord {
   fetchedAt: Date | null;
   rightsPolicyJson: unknown;
   translationJson: unknown;
+  manualTranslationJson?: unknown;
+  manualRevisionVerified?: boolean;
 }
 
-const storedContentTranslationSchema = z.object({
+export const storedTranslationMetadataSchema = z.object({
   version: z.literal(1),
   status: z.literal('COMPLETED'),
   inputHash: z.string().regex(/^[a-f0-9]{64}$/u),
-  provider: z.literal('LOCAL'),
+  provider: z.enum(['LOCAL', 'AZURE']),
   model: z.string().trim().min(1),
   sourceLanguage: z.string().trim().min(1),
   targetLanguage: z.literal('ko'),
-  blocks: z.array(newsContentBlockSchema).min(1).max(2_000),
   attemptedAt: z.string().datetime({ offset: true }),
   translatedAt: z.string().datetime({ offset: true }),
   attempts: z.number().int().positive(),
   nextAttemptAt: z.string().datetime({ offset: true }).nullable(),
 });
+const originalMetadataSchema = newsContentOriginalSchema.omit({ blocks: true });
+const sourceIdSchema = newsArticleContentDetailSchema.shape.sourceItemId;
+const contentStates = new Set<string>(Object.values(NewsContentState));
 
 function jsonValue(value: unknown): unknown {
   if (typeof value !== 'string') return value;
@@ -68,8 +74,22 @@ function contentPolicyAllows(
   );
 }
 
-export function publicContentTranslation(
+/** Validate with the public block schema; retain sanitized copies only for article details. */
+function readBlocks(value: unknown, materialize: boolean): NewsContentBlock[] | null {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 2_000) return null;
+  const blocks: NewsContentBlock[] = [];
+  for (const block of value) {
+    const parsed = newsContentBlockSchema.safeParse(block);
+    if (!parsed.success) return null;
+    if (materialize) blocks.push(parsed.data);
+  }
+  // The original array is used internally only for structure comparison, never returned publicly.
+  return materialize ? blocks : (value as NewsContentBlock[]);
+}
+
+function readTranslation(
   content: NewsContentRecord,
+  materialize: boolean,
   sourceRightsMode?: RightsMode,
 ): NewsContentTranslation | null {
   if (
@@ -78,25 +98,35 @@ export function publicContentTranslation(
     !contentPolicyAllows(content, true, sourceRightsMode)
   )
     return null;
-  const parsed = storedContentTranslationSchema.safeParse(jsonValue(content.translationJson));
+  const value = jsonValue(content.translationJson);
+  const parsed = storedTranslationMetadataSchema.safeParse(value);
   if (
     !parsed.success ||
     parsed.data.inputHash !== content.contentHash ||
     parsed.data.sourceLanguage !== content.language
   )
     return null;
-  return newsContentTranslationSchema.parse({
+  const blocks = readBlocks((value as Record<string, unknown>).blocks, materialize);
+  if (!blocks) return null;
+  return {
     language: parsed.data.targetLanguage,
-    blocks: parsed.data.blocks,
+    blocks,
     translatedAt: parsed.data.translatedAt,
     provider: parsed.data.provider,
     model: parsed.data.model,
-  });
+  };
+}
+
+export function publicContentTranslation(
+  content: NewsContentRecord,
+  sourceRightsMode?: RightsMode,
+): NewsContentTranslation | null {
+  return readTranslation(content, true, sourceRightsMode);
 }
 
 function translationStructureMatchesOriginal(
-  original: NewsArticleContentDetail['original']['blocks'],
-  translated: NewsContentTranslation['blocks'],
+  original: NewsContentBlock[],
+  translated: NewsContentBlock[],
 ): boolean {
   if (original.length !== translated.length) return false;
   return original.every((block, index) => {
@@ -113,7 +143,11 @@ function translationStructureMatchesOriginal(
   });
 }
 
-export function contentSummary(content?: NewsContentRecord | null, sourceRightsMode?: RightsMode) {
+export function contentSummary(
+  content?: NewsContentRecord | null,
+  sourceRightsMode?: RightsMode,
+  validatedContent?: NewsArticleContentDetail | null,
+) {
   if (!content || !contentPolicyAllows(content, false, sourceRightsMode)) {
     return {
       contentState: NewsContentState.UNAVAILABLE,
@@ -122,19 +156,25 @@ export function contentSummary(content?: NewsContentRecord | null, sourceRightsM
       translated: false,
     } as const;
   }
-  const state = Object.values(NewsContentState).includes(content.status as NewsContentState)
+  const state = contentStates.has(content.status)
     ? (content.status as NewsContentState)
     : NewsContentState.FAILED;
   return {
     contentState: state,
     contentSourceId: content.sourceItemId,
     contentLanguage: content.language,
-    translated: Boolean(publicNewsContent(content, sourceRightsMode)?.translation),
+    translated: Boolean(
+      (validatedContent === undefined
+        ? readNewsContent(content, false, sourceRightsMode)
+        : validatedContent
+      )?.translation,
+    ),
   };
 }
 
-export function publicNewsContent(
-  content?: NewsContentRecord | null,
+function readNewsContent(
+  content: NewsContentRecord | null | undefined,
+  materialize: boolean,
   sourceRightsMode?: RightsMode,
 ): NewsArticleContentDetail | null {
   if (
@@ -145,25 +185,62 @@ export function publicNewsContent(
     !content.fetchedAt
   )
     return null;
-  const blocks = z
-    .array(newsContentBlockSchema)
-    .min(1)
-    .max(2_000)
-    .safeParse(jsonValue(content.blocksJson));
-  if (!blocks.success) return null;
-  const translation = publicContentTranslation(content, sourceRightsMode);
+  const blocks = readBlocks(jsonValue(content.blocksJson), materialize);
+  if (!blocks) return null;
+  if (content.manualTranslationJson != null) {
+    const manual = manualContentSchema.safeParse(storedJson(content.manualTranslationJson));
+    if (
+      !content.manualRevisionVerified ||
+      !manual.success ||
+      manual.data.contentHash !== content.contentHash
+    )
+      return null;
+    const originalTranslation = storedTranslationMetadataSchema.safeParse(
+      storedJson(content.translationJson),
+    );
+    if (!originalTranslation.success) return null;
+    return {
+      sourceItemId: sourceIdSchema.parse(content.sourceItemId),
+      original: {
+        ...originalMetadataSchema.parse({
+          language: content.language,
+          fetchedAt: content.fetchedAt.toISOString(),
+        }),
+        blocks,
+      },
+      translation: {
+        language: 'ko',
+        blocks: manual.data.blocks,
+        translatedAt: manual.data.editedAt,
+        provider: originalTranslation.data.provider,
+        model: originalTranslation.data.model,
+        format: 'MARKDOWN',
+        editedAt: manual.data.editedAt,
+      },
+    };
+  }
+  const translation = readTranslation(content, materialize, sourceRightsMode);
   if (
     content.language === 'en' &&
-    (!translation || !translationStructureMatchesOriginal(blocks.data, translation.blocks))
+    (!translation || !translationStructureMatchesOriginal(blocks, translation.blocks))
   )
     return null;
-  return newsArticleContentDetailSchema.parse({
-    sourceItemId: content.sourceItemId,
+  return {
+    sourceItemId: sourceIdSchema.parse(content.sourceItemId),
     original: {
-      language: content.language,
-      blocks: blocks.data,
-      fetchedAt: content.fetchedAt.toISOString(),
+      ...originalMetadataSchema.parse({
+        language: content.language,
+        fetchedAt: content.fetchedAt.toISOString(),
+      }),
+      blocks,
     },
     translation,
-  });
+  };
+}
+
+export function publicNewsContent(
+  content?: NewsContentRecord | null,
+  sourceRightsMode?: RightsMode,
+): NewsArticleContentDetail | null {
+  return readNewsContent(content, true, sourceRightsMode);
 }

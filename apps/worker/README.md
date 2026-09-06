@@ -22,12 +22,13 @@ Nest 애플리케이션 컨텍스트에서 실행되는 worker입니다. OpenDAR
 | OpenDART / SEC        | `OFFICIAL_PUBLIC_DATA` | API 키 또는 식별 가능한 User-Agent                                       |
 | Samsung Global IR     | `PRIVATE_DISPLAY_ONLY` | 검토된 정확한 Global RSS와 로그인 개인 화면                              |
 | Federal Reserve / BLS | `OFFICIAL_PUBLIC_DATA` | 검토된 공식 RSS와 공식 기사 호스트, 텍스트 본문만                        |
+| GDELT                | `STORE_METADATA_ONLY` | 제목·출처·언어·원문 링크, 본문·이미지·자동 번역 없음                     |
 | Alpaca 자산 마스터    | `PRIVATE_DISPLAY_ONLY` | Alpaca 자격 증명, 기업 식별 정보만 제공                                  |
 | Toss Securities       | `PRIVATE_DISPLAY_ONLY` | `TOSS_CREDENTIALS_FILE` 또는 주입한 클라이언트 자격 증명, 허용된 서버 IP |
 
-IR과 뉴스 경로는 검토된 콘텐츠 프로필과 정확히 일치해야 하며 HTTPS를 사용해야 합니다. 리디렉트와 사설 주소로의 해석을 거절하고 발견한 링크도 프로필의 공식 호스트로 제한합니다.
+본문을 제공하는 IR과 뉴스 경로는 검토된 콘텐츠 프로필과 정확히 일치해야 하며 HTTPS를 사용해야 합니다. 리디렉트와 사설 주소로의 해석을 거절하고 발견한 본문 링크도 프로필의 공식 호스트로 제한합니다. GDELT의 외부 기사 링크는 별도 메타데이터 전용 정책과 공개 URL 검사를 적용합니다.
 
-정기 발견 작업은 소스 계약을 따릅니다. SEC P1/P2는 기존 커넥터 큐에서 10분마다 조회합니다. Samsung Global, Federal Reserve, BLS만 독립 `orsem-market-news` 큐에서 15분마다 조회합니다. 이투데이·Microsoft IR·GDELT와 임의 IR URL은 수집하지 않습니다.
+정기 발견 작업은 소스 계약을 따릅니다. SEC P1/P2와 승인 소유자의 개인 그룹 미국 종목은 기존 커넥터 큐에서 10분마다 중복 CIK를 합쳐 조회합니다. Samsung Global, Federal Reserve, BLS는 독립 `orsem-market-news` 큐에서 15분마다 조회합니다. GDELT는 같은 큐의 별도 30분 일정으로 제목과 원문 링크만 수집합니다. 이투데이·Microsoft IR과 임의 IR URL은 수집하지 않습니다.
 
 NAVER는 API의 사용자 검색 화면만 사용합니다. 워커는 NAVER 반복 일정과 OpenDART P3 트리거를 만들지 않으며 남아 있는 이전 큐·outbox 작업은 요청 없이 완료합니다. 상태 점검에서도 NAVER 요청을 보내지 않습니다.
 
@@ -45,7 +46,7 @@ KRX/Alpaca EOD 작업은 종료되었으며 이전 작업이 큐에 남아 있�
 
 `NEWS_TRANSLATION_ENABLED=true`이면 허용된 영문 뉴스 제목과 전문을 로컬 Ollama로 번역합니다. 공시 AI 분류와 독립적인 기능이며 번역도 별도 큐에서 순차 처리합니다. 기본 주기는 1분, 처리 상한은 3건, 요청 제한 시간은 120초입니다. 원문 제목·본문·시각·해시를 덮어쓰지 않고 완료된 한국어 번역을 별도로 저장합니다.
 
-`sourcePolicyJson`의 본문 저장·표시·AI 권한이 모두 `true`인 출처만 처리합니다. NAVER·GDELT·이투데이·Microsoft IR, DART·SEC 공시와 `STORE_METADATA_ONLY`·`LINK_ONLY`·`NO_REDISTRIBUTION`은 제외합니다. 외부 유료 API 대체 호출은 없습니다. 영문 제목과 전문 번역이 모두 현재 해시와 일치하기 전에는 `/news`에 공개하지 않습니다. 설정과 실패 시 동작은 [뉴스 번역 안내](../../docs/NEWS_TRANSLATION.md)를 참고하세요.
+`sourcePolicyJson`의 본문 저장·표시·AI 권한이 모두 `true`인 출처만 번역합니다. NAVER·GDELT·이투데이·Microsoft IR, DART·SEC 공시와 `STORE_METADATA_ONLY`·`LINK_ONLY`·`NO_REDISTRIBUTION`은 번역에서 제외합니다. 외부 유료 API 대체 호출은 없습니다. 본문을 제공하는 영문 기사는 제목과 전문 번역이 모두 현재 해시와 일치하기 전에는 `/news`에 공개하지 않습니다. GDELT 외부 링크 카드는 별도 메타데이터 표시 경로를 사용합니다. 설정과 실패 시 동작은 [뉴스 번역 안내](../../docs/NEWS_TRANSLATION.md)를 참고하세요.
 
 ## 환경 설정
 

@@ -2,11 +2,11 @@ import 'reflect-metadata';
 import { RightsMode, type NewsContentBlock } from '@orsem/contracts';
 import { NewsArticleContentEntity, NewsItemEntity, SourceItemEntity } from '@orsem/database';
 import type { DataSource } from 'typeorm';
+import { LocalNewsTranslationClient } from '../src/ai/local-news-translation.client';
 import {
-  LocalNewsTranslationClient,
   NewsContentTranslationError,
   validateNewsContentTranslation,
-} from '../src/ai/local-news-translation.client';
+} from '../src/ai/news-translation-validation';
 import {
   contentChunks,
   contentTranslationFailureCode,
@@ -273,7 +273,7 @@ function translationHarness(blocks: NewsContentBlock[], client: LocalNewsTransla
     service: new NewsTranslationService(
       dataSource,
       loadWorkerConfig({ NEWS_TRANSLATION_ENABLED: 'true', NEWS_TRANSLATION_BATCH_SIZE: '3' }),
-      client,
+      Object.assign(client, { provider: 'LOCAL' }),
     ),
     finalSet,
     contentSelection,

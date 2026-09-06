@@ -24,6 +24,7 @@ import {
 import { DisclosureFacts } from '../components/disclosure-facts';
 import { ObservationDisclaimer } from '../components/disclaimer';
 import { TranslatedText } from '../components/translated-text';
+import { ArticleLanguageSwitch, useArticleLanguage } from '../components/article-language';
 import {
   Badge,
   Card,
@@ -43,9 +44,10 @@ const classificationLabels = {
 
 export function EventDetailPage() {
   const { id = '' } = useParams();
+  const [language, setLanguage] = useArticleLanguage(id);
   const event = useQuery({
     queryKey: ['event', id],
-    queryFn: () => api.event(id),
+    queryFn: ({ signal }) => api.event(id, signal),
     enabled: Boolean(id),
   });
 
@@ -53,6 +55,11 @@ export function EventDetailPage() {
   if (event.isError)
     return <ErrorState message={event.error.message} onRetry={() => void event.refetch()} />;
   const data = event.data;
+  const hasTranslation =
+    data.detailType === 'NEWS' &&
+    data.translation?.language === 'ko' &&
+    Boolean(data.translation.title.trim());
+  const showTranslation = hasTranslation && language === 'translation';
 
   return (
     <div className="page-stack detail-page">
@@ -78,10 +85,12 @@ export function EventDetailPage() {
             <TranslatedText
               title={data.title}
               description={data.summary}
-              translation={data.detailType === 'NEWS' ? data.translation : null}
+              translation={showTranslation ? data.translation : null}
               heading="h2"
-              original="disclosure"
             />
+            {hasTranslation ? (
+              <ArticleLanguageSwitch language={language} onChange={setLanguage} />
+            ) : null}
           </div>
           <a
             className="button button--primary button--md"
@@ -312,13 +321,17 @@ export function EventDetailPage() {
                     {evidence.isOfficial ? <Badge tone="teal">공식</Badge> : <Badge>보조</Badge>}
                   </div>
                   <strong>{evidence.sourceName}</strong>
-                  <TranslatedText
-                    title={evidence.title}
-                    description={evidence.description}
-                    translation={data.detailType === 'NEWS' ? evidence.translation : null}
-                    original="disclosure"
-                  />
-                  <p>{evidence.excerpt}</p>
+                  {!showTranslation ||
+                  (evidence.translation?.language === 'ko' && evidence.translation.title.trim()) ? (
+                    <TranslatedText
+                      title={evidence.title}
+                      description={evidence.description}
+                      translation={showTranslation ? evidence.translation : null}
+                    />
+                  ) : (
+                    <p>이 출처의 번역은 제공되지 않습니다. 원문에서 확인하세요.</p>
+                  )}
+                  {!showTranslation ? <p>{evidence.excerpt}</p> : null}
                   <span>
                     {evidence.publishedAt ? `게시 ${formatKst(evidence.publishedAt)} · ` : ''}감지{' '}
                     {formatKst(evidence.firstObservedAt)}

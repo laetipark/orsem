@@ -53,15 +53,17 @@ test('news RSS is off by default and accepts only the approved feed identifiers'
   }
 });
 
-test('GDELT market search defaults to no domains and rejects publishers without approved rights', () => {
+test('GDELT config parses domain syntax without granting publisher approval', () => {
   assert.deepEqual(loadAppConfig({ NODE_ENV: 'test' }).gdeltNewsDomains, []);
   assert.deepEqual(
     loadAppConfig({ NODE_ENV: 'test', GDELT_NEWS_DOMAINS: ' , ' }).gdeltNewsDomains,
     [],
   );
-  assert.throws(() =>
-    loadAppConfig({ NODE_ENV: 'test', GDELT_NEWS_DOMAINS: 'unapproved.example' }),
+  assert.deepEqual(
+    loadAppConfig({ NODE_ENV: 'test', GDELT_NEWS_DOMAINS: 'unapproved.example' }).gdeltNewsDomains,
+    ['unapproved.example'],
   );
+  assert.throws(() => loadAppConfig({ NODE_ENV: 'test', GDELT_NEWS_DOMAINS: 'localhost' }));
 });
 
 test('Kakao external credentials are optional, overrideable and isolated from malformed files', () => {

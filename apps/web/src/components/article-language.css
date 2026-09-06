@@ -1,0 +1,31 @@
+.article-language {
+  display: flex;
+  gap: 4px;
+  width: fit-content;
+  max-width: 100%;
+  margin-block: 12px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-2);
+}
+.article-language button {
+  min-height: 40px;
+  padding: 8px 20px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.article-language button[aria-pressed='true'] {
+  background: var(--teal-soft);
+  color: var(--teal);
+}
+.article-language button:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}

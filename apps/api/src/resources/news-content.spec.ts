@@ -98,3 +98,87 @@ test('목록 SQL은 본문과 영문 제목 번역을 모두 요구하고 그룹
   assert.match(available, /JSON_LENGTH\(content\.blocks_json\)/u);
   assert.match(representativeNewsSql({}), /duplicate_content/u);
 });
+
+test('summary validation and detail materialization agree across malformed blocks and translation metadata', () => {
+  const translated = content.translationJson as Record<string, unknown>;
+  const cases: NewsContentRecord[] = [
+    { ...content, blocksJson: [{ type: 'PARAGRAPH', text: '   ' }] },
+    { ...content, blocksJson: [{ type: 'HEADING', level: 1, text: 'Invalid heading' }] },
+    { ...content, blocksJson: Array(2_001).fill({ type: 'PARAGRAPH', text: 'Too many' }) },
+    { ...content, blocksJson: '{broken' },
+    { ...content, translationJson: { ...translated, status: 'PROCESSING' } },
+    { ...content, translationJson: { ...translated, sourceLanguage: 'ko' } },
+    { ...content, translationJson: { ...translated, attempts: 0 } },
+    { ...content, translationJson: { ...translated, translatedAt: 'not-an-instant' } },
+    {
+      ...content,
+      translationJson: { ...translated, blocks: [{ type: 'QUOTE', text: '다른 구조' }] },
+    },
+    {
+      ...content,
+      translationJson: { ...translated, blocks: [{ type: 'PARAGRAPH', text: 'x'.repeat(20_001) }] },
+    },
+    {
+      ...content,
+      blocksJson: [{ type: 'HEADING', level: 2, text: 'Heading' }],
+      translationJson: { ...translated, blocks: [{ type: 'HEADING', level: 3, text: '제목' }] },
+    },
+    {
+      ...content,
+      blocksJson: [{ type: 'LIST', ordered: false, items: ['One'] }],
+      translationJson: {
+        ...translated,
+        blocks: [{ type: 'LIST', ordered: true, items: ['하나'] }],
+      },
+    },
+    { ...content, rightsPolicyJson: { ...(content.rightsPolicyJson as object), aiAllowed: false } },
+  ];
+  for (const candidate of cases) {
+    assert.equal(contentSummary(candidate).translated, false);
+    assert.equal(publicNewsContent(candidate), null);
+  }
+});
+
+test('details sanitize and detach original and translated blocks without changing stored source data', () => {
+  const original = [
+    { type: 'HEADING', level: 2, text: '  Heading  ', private: 'internal' },
+    { type: 'LIST', ordered: false, items: [' One ', ' Two '], raw: 'internal' },
+  ];
+  const translated = [
+    { type: 'HEADING', level: 2, text: '  제목  ', private: 'internal' },
+    { type: 'LIST', ordered: false, items: [' 하나 ', ' 둘 '], raw: 'internal' },
+  ];
+  const candidate = {
+    ...content,
+    blocksJson: original,
+    translationJson: {
+      ...(content.translationJson as object),
+      blocks: translated,
+      private: 'internal',
+    },
+  };
+  const snapshot = JSON.stringify(candidate);
+  assert.equal(contentSummary(candidate).translated, true);
+  const detail = publicNewsContent(candidate)!;
+  assert.deepEqual(detail.original.blocks, [
+    { type: 'HEADING', level: 2, text: 'Heading' },
+    { type: 'LIST', ordered: false, items: ['One', 'Two'] },
+  ]);
+  assert.deepEqual(detail.translation!.blocks, [
+    { type: 'HEADING', level: 2, text: '제목' },
+    { type: 'LIST', ordered: false, items: ['하나', '둘'] },
+  ]);
+  assert.notEqual(detail.original.blocks, original);
+  assert.notEqual(detail.translation!.blocks, translated);
+  const list = detail.original.blocks[1]!;
+  if (list.type === 'LIST') list.items[0] = 'Changed only in response';
+  assert.equal(JSON.stringify(candidate), snapshot);
+  assert.equal(
+    contentSummary({
+      ...candidate,
+      blocksJson: JSON.stringify(original),
+      translationJson: JSON.stringify(candidate.translationJson),
+    }).translated,
+    true,
+  );
+});

@@ -20,6 +20,26 @@
 .connector-freshness__intro p {
   margin: 0;
 }
+.connector-freshness__groups {
+  display: grid;
+  gap: 24px;
+}
+.connector-freshness__group {
+  min-width: 0;
+}
+.connector-freshness__group-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  color: var(--text);
+  font-size: 15px;
+}
+.connector-freshness__group-title span {
+  color: var(--subtle);
+  font-size: 12px;
+  font-weight: 400;
+}
 .connector-freshness__grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -51,7 +71,7 @@
   color: var(--subtle);
   font-size: 11px;
 }
-.connector-source h3 {
+.connector-source h4 {
   margin: 5px 0 0;
   color: var(--text);
   font-size: 15px;
@@ -107,4 +127,11 @@
   .connector-source {
     padding: 16px;
   }
+}
+
+.connector-source__message {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
 }

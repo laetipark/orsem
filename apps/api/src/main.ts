@@ -1,3 +1,4 @@
+import { json } from 'express';
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
@@ -15,10 +16,12 @@ async function bootstrap(): Promise<void> {
   app.getHttpAdapter().getInstance().set('trust proxy', 1);
   app.use(helmet({ contentSecurityPolicy: false }));
   app.use(sessions.middleware(store));
+  // The bounded Markdown editor accepts up to 100k characters, including Korean text.
+  app.use('/api/v1/news', json({ limit: '512kb' }));
   app.enableCors({
     origin: config.webOrigin,
     credentials: true,
-    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   });
   app.setGlobalPrefix('api/v1');
   app.enableShutdownHooks();

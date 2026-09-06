@@ -3,6 +3,7 @@ import type {
   ProxySolicitation,
   TenderOffer,
   LargeHolding,
+  NewsContentBlock,
 } from '@orsem/contracts';
 export type Region = 'all' | 'kr' | 'us';
 export type NewsSourceKind =
@@ -16,6 +17,7 @@ export type DisclosureType = 'D001' | 'D002' | 'D003' | 'D004' | 'D005' | 'NEWS'
 export type Priority = 'P1' | 'P2' | 'P3' | 'P4';
 export type Direction = 'INCREASE' | 'DECREASE' | 'NEUTRAL' | 'UNKNOWN';
 export type { TransactionNature } from '@orsem/contracts';
+export type { NewsTranslationEdit, NewsTranslationEditInput } from '@orsem/contracts';
 export type RightsMode =
   | 'OFFICIAL_PUBLIC_DATA'
   | 'PRIVATE_DISPLAY_ONLY'
@@ -51,12 +53,82 @@ export interface NaverNewsSearchResult {
   items: NaverNewsSearchItem[];
 }
 
+export interface NaverNewsStatus {
+  configured: boolean;
+  automaticAllowed: boolean;
+  mode: 'ON_DEMAND';
+  freeUntil: string | null;
+  dailyLimit: number;
+  monthlyLimit: number;
+  remainingToday: number | null;
+  remainingMonth: number | null;
+  reason: string | null;
+}
+
+export interface WatchlistGroup {
+  id: string;
+  name: string;
+  kind: 'PERSONAL' | 'ROOM' | 'LEGACY';
+  roomId?: string | null;
+  revision?: number;
+  canManageGroups?: boolean;
+  canManageStocks?: boolean;
+  canManageMembers?: boolean;
+  isShared: boolean;
+  isFollowing: boolean;
+  canEdit: boolean;
+  itemCount: number;
+  ownerLabel: string;
+  updatedAt: string;
+}
+
+export interface WatchlistGroupItem {
+  company: Pick<CompanySummary, 'id' | 'nameKo' | 'nameEn' | 'market' | 'stockCode' | 'ticker'>;
+  displayPrice: {
+    price: string | null;
+    currency: 'KRW' | 'USD' | null;
+    status: CompanyLivePrice['status'];
+    basis: 'LIVE' | 'STALE' | 'CLOSE' | 'NONE';
+    source: string | null;
+    sessionDate: string | null;
+    providerAt: string | null;
+    referenceClose: number | null;
+    referenceDate: string | null;
+    change: number | null;
+    changePercent: number | null;
+  };
+  sparkline: Array<{ sessionDate: string; close: number }>;
+  recentActivity: {
+    filingCount: number;
+    eventCount: number;
+    items: Array<{
+      id: string;
+      kind: 'FILING' | 'EVENT';
+      title: string;
+      date: string;
+      eventDate?: string | null;
+      url: string;
+    }>;
+  };
+}
+
+export interface WatchlistGroupPage {
+  group: WatchlistGroup;
+  items: WatchlistGroupItem[];
+  total: number;
+  nextOffset: number | null;
+  asOf: string;
+  windowStartDate: string;
+  windowEndDate: string;
+}
+
 export interface NewsTranslation {
   language: 'ko';
   title: string;
   description: string | null;
   translatedAt: string;
-  provider: 'LOCAL';
+  provider: 'LOCAL' | 'AZURE';
+  editedAt?: string;
   model: string;
 }
 
@@ -87,13 +159,13 @@ export interface SourceItem {
   contentSourceId: string | null;
   contentLanguage: string | null;
   translated: boolean;
+  displayMode?: 'INTERNAL_CONTENT' | 'EXTERNAL_LINK';
+  relatedCompanies?: Array<
+    Pick<CompanySummary, 'id' | 'market' | 'stockCode' | 'ticker' | 'nameKo' | 'nameEn'>
+  >;
 }
 
-export type NewsContentBlock =
-  | { type: 'PARAGRAPH'; text: string }
-  | { type: 'HEADING'; level: 2 | 3 | 4 | 5 | 6; text: string }
-  | { type: 'LIST'; ordered: boolean; items: string[] }
-  | { type: 'QUOTE'; text: string };
+export type { NewsContentBlock } from '@orsem/contracts';
 
 export interface NewsDetail extends SourceItem {
   content: {
@@ -107,8 +179,10 @@ export interface NewsDetail extends SourceItem {
       language: 'ko';
       blocks: NewsContentBlock[];
       translatedAt: string;
-      provider: 'LOCAL';
+      provider: 'LOCAL' | 'AZURE';
       model: string;
+      format?: 'MARKDOWN';
+      editedAt?: string;
     } | null;
   } | null;
 }
@@ -238,11 +312,16 @@ export interface SourceFreshness {
   lagSeconds: number | null;
   rightsMode: RightsMode;
   message: string | null;
+  httpStatus?: number | null;
+  requestAttempted?: boolean | null;
+  lastAttemptAt?: string | null;
+  nextRetryAt?: string | null;
 }
 
 export interface DashboardData {
   asOf: string;
   todayCounts: Record<'D001' | 'D002' | 'D005', number> & Partial<Record<'D003' | 'D004', number>>;
+  totalCounts?: Record<'D001' | 'D002' | 'D003' | 'D004' | 'D005', number>;
   priorities: {
     P1: EventSummary[];
     P2: EventSummary[];
@@ -349,7 +428,15 @@ export interface CompanyTimeline {
   latestCloseAt: string | null;
 }
 
+export interface CompanyFallbackClose {
+  price: string;
+  currency: 'KRW';
+  sessionDate: string;
+  source: 'TOSS_KR';
+}
+
 export interface CompanyLivePrice {
+  displayPrice?: WatchlistGroupItem['displayPrice'];
   companyId: string;
   provider: 'toss';
   status: 'NOT_CONFIGURED' | 'WAITING' | 'LIVE' | 'STALE' | 'UNAVAILABLE';
@@ -363,6 +450,7 @@ export interface CompanyLivePrice {
     rightsMode: RightsMode;
     lossy: true;
   } | null;
+  fallbackClose?: CompanyFallbackClose | null;
   asOf: string;
 }
 
@@ -482,6 +570,7 @@ export interface WatchlistQuote {
   companyId: string;
   status: CompanyLivePrice['status'];
   quote: CompanyLivePrice['quote'];
+  fallbackClose?: CompanyFallbackClose | null;
   previousClose: number | null;
   change: number | null;
   changePercent: number | null;

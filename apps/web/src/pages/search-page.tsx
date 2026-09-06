@@ -97,7 +97,7 @@ export function SearchPage() {
   const limit = params.get('limit') === '10' ? 10 : 5;
   const result = useQuery({
     queryKey: ['search', query, limit, region],
-    queryFn: () => api.search(query, limit, region),
+    queryFn: ({ signal }) => api.search(query, limit, region, signal),
     enabled: query.length > 0 && query.length <= 120,
   });
   const changeGroup = (value: Group | 'all') =>

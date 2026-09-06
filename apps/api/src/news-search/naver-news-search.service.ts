@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { z } from 'zod';
 import { APP_CONFIG, type AppConfig } from '../config/app-config';
+import { NaverNewsBudgetService } from './naver-news-budget.service';
 
 export const NAVER_NEWS_FETCH = Symbol('NAVER_NEWS_FETCH');
 
@@ -50,12 +51,34 @@ export class NaverNewsSearchService {
     @Optional()
     @Inject(NAVER_NEWS_FETCH)
     private readonly fetchImpl: typeof fetch = fetch,
+    @Optional() private readonly budget?: NaverNewsBudgetService,
   ) {}
+
+  status() {
+    if (this.budget) return this.budget.status();
+    return Promise.resolve({
+      configured: Boolean(this.config.naverClientId && this.config.naverClientSecret),
+      automaticAllowed: false,
+      mode: 'ON_DEMAND' as const,
+      freeUntil: null,
+      dailyLimit: this.config.naverNewsDailyLimit,
+      monthlyLimit: this.config.naverNewsMonthlyLimit,
+      remainingToday: null,
+      remainingMonth: null,
+      reason: '뉴스 검색 사용량 확인이 필요합니다.',
+    });
+  }
 
   async search(input: z.infer<typeof naverNewsSearchQuerySchema>): Promise<NaverNewsSearchResult> {
     const { naverClientId, naverClientSecret, naverApiProvider } = this.config;
     if (!naverClientId || !naverClientSecret) {
       throw new ServiceUnavailableException('네이버 뉴스 검색이 아직 설정되지 않았습니다.');
+    }
+    if (this.budget) await this.budget.reserve();
+    else if (this.config.nodeEnv === 'production') {
+      throw new ServiceUnavailableException(
+        '뉴스 검색 사용량을 확인하지 못해 요청을 중단했습니다.',
+      );
     }
     const cloud = naverApiProvider === 'ncloud';
     const url = new URL(
@@ -87,17 +110,52 @@ export class NaverNewsSearchService {
         redirect: 'error',
         cache: 'no-store',
       });
-      if (response.status === 401 || response.status === 403) {
-        throw new ServiceUnavailableException('네이버 뉴스 검색의 인증 설정을 확인해 주세요.');
+      if (response.status === 401) {
+        await response.body?.cancel();
+        throw new ServiceUnavailableException({
+          code: 'NAVER_AUTH_INVALID',
+          message: '네이버 뉴스 검색 인증 키를 확인해 주세요.',
+        });
+      }
+      if (response.status === 403) {
+        await response.body?.cancel();
+        throw new ServiceUnavailableException({
+          code: 'NAVER_ACCESS_DENIED',
+          message: '네이버 뉴스 검색 API의 이용 권한을 확인해 주세요.',
+        });
       }
       if (response.status === 429) {
+        await response.body?.cancel();
         throw new HttpException(
           '네이버 뉴스 검색 한도에 도달했습니다. 잠시 후 다시 검색해 주세요.',
           HttpStatus.TOO_MANY_REQUESTS,
         );
       }
-      if (!response.ok) throw new BadGatewayException('네이버 뉴스 검색에 연결하지 못했습니다.');
-      const parsed = providerResponseSchema.safeParse(await response.json());
+      if (!response.ok) {
+        await response.body?.cancel();
+        throw new BadGatewayException('네이버 뉴스 검색에 연결하지 못했습니다.');
+      }
+      const reader = response.body?.getReader();
+      if (!reader) throw new BadGatewayException('네이버 뉴스 검색 응답이 비어 있습니다.');
+      const chunks: Uint8Array[] = [];
+      let bytes = 0;
+      try {
+        while (true) {
+          const part = await reader.read();
+          if (part.done) break;
+          bytes += part.value.byteLength;
+          if (bytes > 2 * 1024 * 1024) {
+            await reader.cancel();
+            throw new BadGatewayException('네이버 뉴스 검색 응답 크기를 확인할 수 없습니다.');
+          }
+          chunks.push(part.value);
+        }
+      } finally {
+        reader.releaseLock();
+      }
+      const parsed = providerResponseSchema.safeParse(
+        JSON.parse(Buffer.concat(chunks).toString('utf8')),
+      );
       if (!parsed.success) {
         throw new BadGatewayException('네이버 뉴스 검색 응답을 확인할 수 없습니다.');
       }

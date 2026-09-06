@@ -17,6 +17,37 @@ export class WorkerQueueService implements OnApplicationShutdown {
 
   constructor(@Inject(APP_CONFIG) private readonly config: AppConfig) {}
 
+  async requestGroupTossCandles(companyIds: readonly string[]): Promise<void> {
+    if (this.config.fixtureMode || !this.config.tossClientId || !this.config.tossClientSecret)
+      return;
+    const ids = [...new Set(companyIds)];
+    if (ids.length > 21) throw new Error('A visible group page cannot exceed 21 companies.');
+    if (!ids.length) return;
+    await this.marketDataWorkerQueue().addBulk(
+      ids.map((companyId) => {
+        const dedupeId = `toss-view-${companyId}-1d`;
+        return {
+          name: WorkerJobName.INGEST_TOSS_CANDLES,
+          data: {
+            companyIds: [companyId],
+            interval: '1d',
+            reason: 'VIEW',
+            lookbackDays: 60,
+            maxPages: 1,
+          },
+          opts: {
+            jobId: dedupeId,
+            deduplication: { id: dedupeId, ttl: 60_000 },
+            attempts: 2,
+            backoff: { type: 'exponential', delay: 30_000 },
+            removeOnComplete: true,
+            removeOnFail: true,
+          },
+        };
+      }),
+    );
+  }
+
   async requestTossCandles(companyId: string, interval: '1d' | '1m'): Promise<void> {
     if (this.config.fixtureMode || !this.config.tossClientId || !this.config.tossClientSecret)
       return;

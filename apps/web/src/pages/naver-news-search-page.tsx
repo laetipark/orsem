@@ -1,9 +1,11 @@
-import { ArrowLeft, ArrowUpRight, Search } from 'lucide-react';
-import { type FormEvent, type ReactNode, useEffect, useRef, useState } from 'react';
+import { ArrowLeft, Search } from 'lucide-react';
+import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
-import { formatKst } from '../lib/format';
-import type { NaverNewsSearchResult } from '../types';
+import { naverBudgetAvailable } from '../lib/naver-news';
+import { NaverNewsResults } from '../components/naver-news-results';
+export { NaverHighlightedText } from '../components/naver-news-results';
+import type { NaverNewsSearchResult, NaverNewsStatus } from '../types';
 import {
   Button,
   Card,
@@ -15,45 +17,6 @@ import {
 } from '../components/ui';
 import './naver-news-search-page.css';
 
-function decodeEntities(value: string): string {
-  return value
-    .replace(/&quot;/giu, '"')
-    .replace(/&apos;|&#39;/giu, "'")
-    .replace(/&lt;/giu, '<')
-    .replace(/&gt;/giu, '>')
-    .replace(/&amp;/giu, '&')
-    .replace(/&nbsp;/giu, '\u00a0');
-}
-
-export function NaverHighlightedText({ value }: { value: string }) {
-  let bold = false;
-  const parts: ReactNode[] = [];
-  for (const [index, part] of value.split(/(<\/?b>)/giu).entries()) {
-    if (/^<b>$/iu.test(part)) {
-      bold = true;
-      continue;
-    }
-    if (/^<\/b>$/iu.test(part)) {
-      bold = false;
-      continue;
-    }
-    const text = decodeEntities(part);
-    parts.push(bold ? <mark key={index}>{text}</mark> : text);
-  }
-  return <>{parts}</>;
-}
-
-function safeLink(value: string): string | null {
-  try {
-    const url = new URL(value);
-    return ['https:', 'http:'].includes(url.protocol) && !url.username && !url.password
-      ? url.href
-      : null;
-  } catch {
-    return null;
-  }
-}
-
 export function NaverNewsSearchPage() {
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<'date' | 'sim'>('date');
@@ -63,7 +26,31 @@ export function NaverNewsSearchPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const request = useRef<AbortController | null>(null);
-  useEffect(() => () => request.current?.abort(), []);
+  const statusRequest = useRef<AbortController | null>(null);
+  const [status, setStatus] = useState<NaverNewsStatus | null>(null);
+  const [statusError, setStatusError] = useState(false);
+  const refreshStatus = useCallback(async () => {
+    statusRequest.current?.abort();
+    const controller = new AbortController();
+    statusRequest.current = controller;
+    setStatusError(false);
+    try {
+      const latest = await api.naverNewsStatus(controller.signal);
+      if (!controller.signal.aborted) setStatus(latest);
+    } catch {
+      if (!controller.signal.aborted) {
+        setStatus(null);
+        setStatusError(true);
+      }
+    }
+  }, []);
+  useEffect(() => {
+    void refreshStatus();
+    return () => {
+      request.current?.abort();
+      statusRequest.current?.abort();
+    };
+  }, [refreshStatus]);
 
   const search = async (q: string, start: number, selectedSort: 'date' | 'sim') => {
     request.current?.abort();
@@ -73,6 +60,13 @@ export function NaverNewsSearchPage() {
     setError(null);
     setLoading(true);
     try {
+      const latest = await api.naverNewsStatus(controller.signal);
+      if (controller.signal.aborted) return;
+      setStatus(latest);
+      if (!naverBudgetAvailable(latest)) {
+        setError(latest.reason ?? '무료 검색 이용 조건을 확인해야 합니다.');
+        return;
+      }
       const next = await api.naverNewsSearch(q, start, selectedSort, controller.signal);
       if (!controller.signal.aborted) setResult(next);
     } catch (cause) {
@@ -98,7 +92,7 @@ export function NaverNewsSearchPage() {
           <Link className="text-link" to="/news">
             <ArrowLeft size={14} /> 수집 뉴스로 돌아가기
           </Link>
-          <p>네이버 결과는 이 화면에서만 보여주며 수집 목록·저장·AI 처리에 사용하지 않습니다.</p>
+          <p>네이버가 제공한 검색 결과를 원래 순서로 보여줍니다.</p>
         </div>
       </div>
       <Card>
@@ -127,43 +121,27 @@ export function NaverNewsSearchPage() {
               <option value="date">최신순</option>
               <option value="sim">정확도순</option>
             </select>
-            <Button type="submit" disabled={loading}>
+            <Button type="submit" disabled={loading || !status || !naverBudgetAvailable(status)}>
               검색
             </Button>
           </form>
+          {!status || !naverBudgetAvailable(status) ? (
+            <p role="status">
+              {status?.reason ??
+                (statusError
+                  ? '검색 연결 상태를 확인하지 못했습니다.'
+                  : '무료 검색 이용 조건을 확인 중입니다.')}{' '}
+              <button type="button" className="text-link" onClick={() => void refreshStatus()}>
+                상태 다시 확인
+              </button>
+            </p>
+          ) : null}
         </CardContent>
         {loading ? <LoadingState label="네이버 뉴스를 검색하는 중입니다." /> : null}
         {error ? (
           <ErrorState message={error} onRetry={() => void search(activeQuery, 1, activeSort)} />
         ) : null}
-        {result?.items.length ? (
-          <ul className="naver-search__results">
-            {result.items.map((item, index) => {
-              const link = safeLink(item.originallink) ?? safeLink(item.link);
-              return (
-                <li key={`${item.link}:${index}`}>
-                  <div>
-                    <strong>
-                      <NaverHighlightedText value={item.title} />
-                    </strong>
-                    {item.description ? (
-                      <p>
-                        <NaverHighlightedText value={item.description} />
-                      </p>
-                    ) : null}
-                    <time>{formatKst(item.pubDate)}</time>
-                  </div>
-                  {link ? (
-                    <a href={link} target="_blank" rel="noopener noreferrer">
-                      원문 <ArrowUpRight size={14} />
-                      <span className="sr-only">새 창에서 보기</span>
-                    </a>
-                  ) : null}
-                </li>
-              );
-            })}
-          </ul>
-        ) : null}
+        {result?.items.length ? <NaverNewsResults result={result} /> : null}
         {result && !result.items.length ? (
           <EmptyState title="검색 결과가 없습니다" description="다른 검색어로 확인해 보세요." />
         ) : null}
@@ -171,7 +149,7 @@ export function NaverNewsSearchPage() {
           <div className="naver-search__pagination">
             <Button
               variant="secondary"
-              disabled={result.start <= 1 || loading}
+              disabled={result.start <= 1 || loading || !status || !naverBudgetAvailable(status)}
               onClick={() => void search(activeQuery, Math.max(1, result.start - 20), activeSort)}
             >
               이전
@@ -183,7 +161,13 @@ export function NaverNewsSearchPage() {
             </span>
             <Button
               variant="secondary"
-              disabled={result.start + result.display > Math.min(result.total, 1000) || loading}
+              disabled={
+                !result.items.length ||
+                result.start + result.display > Math.min(result.total, 1000) ||
+                loading ||
+                !status ||
+                !naverBudgetAvailable(status)
+              }
               onClick={() => void search(activeQuery, result.start + 20, activeSort)}
             >
               다음

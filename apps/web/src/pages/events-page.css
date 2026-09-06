@@ -1,0 +1,5 @@
+@media (max-width: 620px) {
+  .events-page .filter-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

@@ -4,6 +4,7 @@ import type { ColumnDef } from '@tanstack/react-table';
 import { ArrowLeft, ArrowRight, FilterX, Search } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api, type EventFilters } from '../lib/api';
+import { COMPACT_LAYOUT_QUERY, useMediaQuery } from '../lib/use-media-query';
 import { formatDate, formatKst } from '../lib/format';
 import { disclosureLabels, priorityLabels } from '../lib/domain-labels';
 import type { EventSummary } from '../types';
@@ -33,6 +34,7 @@ import {
   LoadingState,
   Select,
 } from '../components/ui';
+import './events-page.css';
 
 function filtersFromSearch(params: URLSearchParams): EventFilters {
   return {
@@ -47,6 +49,7 @@ function filtersFromSearch(params: URLSearchParams): EventFilters {
 }
 
 export function EventsPage() {
+  const isCompact = useMediaQuery(COMPACT_LAYOUT_QUERY);
   const [searchParams, setSearchParams] = useSearchParams();
   const filters = filtersFromSearch(searchParams);
   const [queryInput, setQueryInput] = useState(filters.q ?? '');
@@ -54,7 +57,7 @@ export function EventsPage() {
   const cursorHistory = useRef(new Map<string, string | null>());
   const events = useQuery({
     queryKey: ['events', filters],
-    queryFn: () => api.events(filters),
+    queryFn: ({ signal }) => api.events(filters, signal),
   });
 
   function updateFilter(key: string, value: string) {
@@ -197,7 +200,7 @@ export function EventsPage() {
   );
 
   return (
-    <div className="page-stack">
+    <div className="page-stack events-page">
       <div className="page-lead">
         <div>
           <p>공시 유형과 사건 성격을 구분합니다. SEC는 공시 접수 메타데이터를 표시합니다.</p>
@@ -268,23 +271,27 @@ export function EventsPage() {
       ) : null}
       {events.data ? (
         <>
-          <div className="desktop-events-table">
-            <DataTable
-              data={events.data.items}
-              columns={columns}
-              emptyMessage="조건에 맞는 이벤트가 없습니다."
-            />
-          </div>
-          <div className="mobile-events-list">
-            {events.data.items.length ? (
-              events.data.items.map((event) => <EventMobileCard key={event.id} event={event} />)
-            ) : (
-              <EmptyState
-                title="조건에 맞는 이벤트가 없습니다"
-                description="검색어나 공시 유형 필터를 조정해 보세요."
+          {!isCompact ? (
+            <div className="desktop-events-table">
+              <DataTable
+                variant="events"
+                data={events.data.items}
+                columns={columns}
+                emptyMessage="조건에 맞는 이벤트가 없습니다."
               />
-            )}
-          </div>
+            </div>
+          ) : (
+            <div className="mobile-events-list">
+              {events.data.items.length ? (
+                events.data.items.map((event) => <EventMobileCard key={event.id} event={event} />)
+              ) : (
+                <EmptyState
+                  title="조건에 맞는 이벤트가 없습니다"
+                  description="검색어나 공시 유형 필터를 조정해 보세요."
+                />
+              )}
+            </div>
+          )}
           <div className="cursor-pagination">
             <Button variant="secondary" size="sm" onClick={previousPage} disabled={!filters.cursor}>
               <ArrowLeft size={15} /> 이전

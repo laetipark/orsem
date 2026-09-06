@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { App } from './app';
@@ -110,6 +110,7 @@ afterEach(() => {
 it('logs out through the mounted App without losing its session subscription', async () => {
   const client = show();
   client.setQueryData(['operation-runs'], { private: true });
+  sessionStorage.setItem('orsem-news-edit-v1:admin:article', 'private draft');
   expect(await screen.findByText('관측 대시보드')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: '로그아웃' }));
   expect(await screen.findByRole('button', { name: '카카오 로그인' })).toBeInTheDocument();
@@ -117,6 +118,7 @@ it('logs out through the mounted App without losing its session subscription', a
   expect(screen.queryByText('관측 대시보드')).not.toBeInTheDocument();
   await waitFor(() => expect(client.getQueryData(['session'])).toEqual(anonymous));
   expect(client.getQueryData(['operation-runs'])).toBeUndefined();
+  expect(sessionStorage.getItem('orsem-news-edit-v1:admin:article')).toBeNull();
   client.clear();
 });
 
@@ -260,11 +262,17 @@ it('searches from the header and keeps administrator links in the footer', async
   expect(
     within(screen.getByRole('contentinfo')).getByRole('link', { name: '운영' }),
   ).toHaveAttribute('href', '/operations');
-  fireEvent.change(screen.getByRole('searchbox', { name: '종목·뉴스·공시 검색어' }), {
+  fireEvent.change(screen.getByRole('combobox', { name: '종목·뉴스·공시 검색어' }), {
     target: { value: ' AAPL ' },
   });
   fireEvent.click(screen.getByRole('button', { name: '통합 검색 실행' }));
+  // Wait for the real lazy route import, independently of the UI assertion timeout.
+  await act(async () => {
+    await vi.dynamicImportSettled();
+  });
   expect(await screen.findByRole('heading', { name: '‘AAPL’ 검색 결과' })).toBeInTheDocument();
-  await waitFor(() => expect(mocks.search).toHaveBeenCalledWith('AAPL', 5, 'all'));
+  await waitFor(() =>
+    expect(mocks.search).toHaveBeenCalledWith('AAPL', 5, 'all', expect.any(AbortSignal)),
+  );
   client.clear();
 });

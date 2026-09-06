@@ -1,3 +1,9 @@
+import { companyMembershipFixture } from './company-membership-fixtures';
+import {
+  newsBlocksToMarkdown,
+  parseNewsMarkdown,
+  newsTranslationEditInputSchema,
+} from '@orsem/contracts';
 import {
   marketFixtures,
   marketFixtureTime,
@@ -26,6 +32,7 @@ import type {
   NotificationPreferences,
   NaverNewsSearchResult,
   NewsDetail,
+  NewsTranslationEdit,
   SourceItem,
 } from '../types';
 
@@ -1116,6 +1123,7 @@ function dashboard(): DashboardData {
   return {
     asOf: now,
     todayCounts: { D001: 6, D002: 23, D003: 0, D004: 0, D005: 2 },
+    totalCounts: { D001: 126, D002: 245, D003: 8, D004: 3, D005: 18 },
     priorities: {
       P1: eventSeeds.filter((event) => event.priority === 'P1').slice(0, 3),
       P2: eventSeeds.filter((event) => event.priority === 'P2').slice(0, 3),
@@ -1195,6 +1203,64 @@ function pageNews(url: URL): CursorPage<SourceItem> {
   };
 }
 
+const fixtureManualTranslations = new Map<
+  string,
+  { markdown: string; revision: number; editedAt: string }
+>();
+
+function fixtureNewsTranslationEdit(id: string, init?: RequestInit): NewsTranslationEdit {
+  if (!fixtureAuthenticated || fixtureSession.user?.role !== 'ADMIN')
+    throw Object.assign(new Error('관리자만 번역을 수정할 수 있습니다.'), { statusCode: 403 });
+  const detail = fixtureNewsDetail(id);
+  if (
+    detail.content?.original.language !== 'en' ||
+    !detail.content.translation ||
+    !detail.translation
+  )
+    throw Object.assign(new Error('수정할 번역 본문이 없습니다.'), { statusCode: 404 });
+  const previous = fixtureManualTranslations.get(detail.id);
+  const revision = (previous?.revision ?? 0).toString(16).padStart(64, '0');
+  if (init?.method?.toUpperCase() === 'PATCH') {
+    const payload = newsTranslationEditInputSchema.parse(JSON.parse(String(init.body ?? '{}')));
+    if (payload.revision !== revision)
+      throw Object.assign(new Error('다른 변경이 있습니다. 최신 번역을 확인해 주세요.'), {
+        statusCode: 409,
+      });
+    parseNewsMarkdown(payload.markdown);
+    const editedAt = new Date().toISOString();
+    const item = fixtureNewsSeeds.find((seed) => seed.item.id === detail.id)!.item;
+    item.translation = {
+      ...item.translation!,
+      title: payload.title,
+      description: payload.description,
+      editedAt,
+    };
+    fixtureManualTranslations.set(detail.id, {
+      markdown: payload.markdown,
+      revision: (previous?.revision ?? 0) + 1,
+      editedAt,
+    });
+    return fixtureNewsTranslationEdit(detail.id);
+  }
+  return {
+    sourceItemId: detail.id,
+    revision,
+    original: {
+      title: detail.title,
+      description: detail.description ?? null,
+      language: detail.content.original.language,
+      markdown: newsBlocksToMarkdown(detail.content.original.blocks),
+    },
+    translation: {
+      title: detail.translation.title,
+      description: detail.translation.description,
+      markdown: previous?.markdown ?? newsBlocksToMarkdown(detail.content.translation.blocks),
+    },
+    editedAt: previous?.editedAt ?? null,
+    editedByAdminId: previous ? fixtureSession.user!.id : null,
+  };
+}
+
 function fixtureNewsDetail(id: string): NewsDetail {
   const item = fixtureNewsSeeds.find(
     (seed) => seed.item.id === id || seed.item.articleId === id,
@@ -1202,6 +1268,7 @@ function fixtureNewsDetail(id: string): NewsDetail {
   if (!item || item.contentState !== 'AVAILABLE' || !item.contentSourceId) {
     throw new Error('해당 뉴스 본문을 찾을 수 없습니다.');
   }
+  const manual = fixtureManualTranslations.get(item.id);
   const originalText = item.description || item.title;
   const translatedText = item.translation?.description || item.translation?.title;
   return {
@@ -1217,7 +1284,10 @@ function fixtureNewsDetail(id: string): NewsDetail {
         item.translated && item.translation && translatedText
           ? {
               language: 'ko',
-              blocks: [{ type: 'PARAGRAPH', text: translatedText }],
+              blocks: manual
+                ? parseNewsMarkdown(manual.markdown)
+                : [{ type: 'PARAGRAPH', text: translatedText }],
+              ...(manual ? { format: 'MARKDOWN' as const, editedAt: manual.editedAt } : {}),
               translatedAt: item.translation.translatedAt,
               provider: 'LOCAL',
               model: item.translation.model,
@@ -1337,6 +1407,19 @@ export async function fixtureRequest<T>(path: string, init?: RequestInit): Promi
   const url = new URL(path, 'http://fixture.local');
   const pathname = url.pathname.replace(/^\/api\/v1/, '');
   const method = init?.method?.toUpperCase() ?? 'GET';
+
+  const membershipMatch = pathname.match(/^\/watchlist-groups\/company-memberships\/([^/]+)$/);
+  if (membershipMatch) {
+    const companyId = decodeURIComponent(membershipMatch[1]!);
+    const input =
+      method === 'PUT'
+        ? (JSON.parse(
+            String(init?.body ?? '{}'),
+          ) as import('@orsem/contracts').SaveCompanyWatchlistMemberships)
+        : undefined;
+    const result = companyMembershipFixture(companyId, input);
+    return (method === 'PUT' ? undefined : result) as T;
+  }
 
   if (pathname === '/notifications/settings' && method === 'GET')
     return { ...fixtureNotificationSettings } as T;
@@ -1509,8 +1592,23 @@ export async function fixtureRequest<T>(path: string, init?: RequestInit): Promi
   }
   if (pathname === '/dashboard') return dashboard() as T;
   if (pathname === '/news' && method === 'GET') return pageNews(url) as T;
+  const newsEditMatch = pathname.match(/^\/news\/([^/]+)\/translation-edit$/u);
+  if (newsEditMatch && ['GET', 'PATCH'].includes(method))
+    return fixtureNewsTranslationEdit(decodeURIComponent(newsEditMatch[1] ?? ''), init) as T;
   const newsMatch = pathname.match(/^\/news\/([^/]+)$/u);
   if (newsMatch && method === 'GET') return fixtureNewsDetail(newsMatch[1] ?? '') as T;
+  if (pathname === '/news-search/naver/status' && method === 'GET')
+    return {
+      configured: true,
+      automaticAllowed: true,
+      mode: 'ON_DEMAND',
+      freeUntil: '2099-12-31T00:00:00Z',
+      dailyLimit: 100,
+      monthlyLimit: 2000,
+      remainingToday: 100,
+      remainingMonth: 2000,
+      reason: null,
+    } as T;
   if (pathname === '/news-search/naver' && method === 'GET')
     return fixtureNaverNewsSearch(init) as T;
   if (pathname === '/events') return pageEvents(url) as T;

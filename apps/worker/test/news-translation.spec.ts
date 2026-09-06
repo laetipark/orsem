@@ -6,8 +6,8 @@ import {
   LocalNewsTranslationClient,
   assertLocalModel,
   assertLocalOllamaUrl,
-  validateNewsTranslation,
 } from '../src/ai/local-news-translation.client';
+import { validateNewsTranslation } from '../src/ai/news-translation-validation';
 import {
   NewsTranslationService,
   looksLikeEnglishNews,
@@ -301,6 +301,7 @@ describe('news translation retry and persistence', () => {
     } as unknown as DataSource;
     const client = {
       model: config.newsTranslationModel,
+      provider: 'LOCAL',
       translate: jest.fn().mockResolvedValue({
         title: 'NVIDIA(NVDA) 매출 성장 발표',
         description: '매출은 12% 증가하여 105억 달러에 도달했습니다.',
@@ -384,7 +385,9 @@ describe('news translation retry and persistence', () => {
     const test = harness(row);
     test.client.translate.mockRejectedValue(new Error('secret raw response'));
     expect(await test.service.translateBatch()).toMatchObject({ failed: 1 });
-    const saved = test.query.set!.mock.calls[0]![0].translationJson as Record<string, unknown>;
+    const saved = test.query.set!.mock.calls.find(
+      ([value]) => value.translationJson.status === 'FAILED',
+    )![0].translationJson as Record<string, unknown>;
     expect(saved.attempts).toBe(3);
     expect(Date.parse(saved.nextAttemptAt as string) - Date.now()).toBeGreaterThan(
       23 * 60 * 60_000,

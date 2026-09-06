@@ -1,3 +1,7 @@
+import { AddWatchlistRooms1788408000000 } from './migrations/1788408000000-AddWatchlistRooms';
+import { AddManualNewsTranslations1788405000000 } from './migrations/1788405000000-AddManualNewsTranslations';
+import { AddWatchlistGroups1788406000000 } from './migrations/1788406000000-AddWatchlistGroups';
+import { AddNewsCompanyRelevance1788407000000 } from './migrations/1788407000000-AddNewsCompanyRelevance';
 import 'reflect-metadata';
 import { DataSource, type DataSourceOptions } from 'typeorm';
 import { config as loadEnv } from 'dotenv';
@@ -56,6 +60,10 @@ export function createTypeOrmOptions(databaseUrl: string): DataSourceOptions {
       AddDisclosureDomains1788402000000,
       AddNewsArticleContents1788403000000,
       MergeSamsungNewsSources1788404000000,
+      AddManualNewsTranslations1788405000000,
+      AddWatchlistGroups1788406000000,
+      AddNewsCompanyRelevance1788407000000,
+      AddWatchlistRooms1788408000000,
     ],
     migrationsTableName: 'typeorm_migrations',
   };

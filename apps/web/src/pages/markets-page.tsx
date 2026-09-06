@@ -49,7 +49,7 @@ export function MarketDetailPage() {
   // One shared year of daily observations supports range changes without fabricating history.
   const history = useQuery({
     queryKey: ['market-history', id, '1y'],
-    queryFn: () => api.marketHistory(id, '1y'),
+    queryFn: ({ signal }) => api.marketHistory(id, '1y', signal),
     enabled: Boolean(item && item.displayKind === 'NATIVE'),
     staleTime: 60_000,
   });

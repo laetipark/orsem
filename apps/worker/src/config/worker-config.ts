@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { APPROVED_GDELT_DOMAINS, APPROVED_GDELT_SOURCE_POLICIES } from '@orsem/contracts';
+import { isGdeltDomainFilter } from '@orsem/contracts';
 import { readFileSync } from 'node:fs';
 import { loadWebPushConfig, type WebPushConfig } from '@orsem/database';
 import { DisclosureDetailType } from '@orsem/contracts';
@@ -145,6 +145,14 @@ const workerConfigSchema = z
     naverClientId: optionalTrimmed,
     naverClientSecret: optionalTrimmed,
     secUserAgent,
+    secBackfillMaxRequests: z.coerce.number().int().min(2).max(10).default(4),
+    secForm4Enabled: z
+      .enum(['true', 'false'])
+      .default('true')
+      .transform((v) => v === 'true'),
+    gdeltOverlapMinutes: z.coerce.number().int().min(5).max(15).default(10),
+    gdeltMaxSplitDepth: z.coerce.number().int().min(0).max(8).default(4),
+    alpacaNewsEnabled: booleanFromEnv,
     alpacaApiKey: optionalTrimmed,
     alpacaApiSecret: optionalTrimmed,
     alpacaTradingBaseUrl,
@@ -160,16 +168,7 @@ const workerConfigSchema = z
             .filter(Boolean),
         ),
       ])
-      .refine(
-        (domains) =>
-          domains.every(
-            (domain) =>
-              APPROVED_GDELT_DOMAINS.includes(domain) &&
-              APPROVED_GDELT_SOURCE_POLICIES[domain]?.metadataStorageAllowed === true &&
-              APPROVED_GDELT_SOURCE_POLICIES[domain]?.displayAllowed === true,
-          ),
-        'GDELT domains require a reviewed source policy.',
-      )
+      .refine((domains) => domains.every(isGdeltDomainFilter), 'Invalid GDELT domain filter.')
       .transform((domains) => Object.freeze(domains)),
     irFeedUrls: registeredIrFeedUrls,
     newsRssFeeds: z
@@ -256,6 +255,11 @@ export function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerCo
     naverClientId: env.NAVER_CLIENT_ID,
     naverClientSecret: env.NAVER_CLIENT_SECRET,
     secUserAgent: env.SEC_USER_AGENT,
+    secBackfillMaxRequests: env.SEC_BACKFILL_MAX_REQUESTS || undefined,
+    secForm4Enabled: env.SEC_FORM4_ENABLED || undefined,
+    gdeltOverlapMinutes: env.GDELT_OVERLAP_MINUTES || undefined,
+    gdeltMaxSplitDepth: env.GDELT_MAX_SPLIT_DEPTH || undefined,
+    alpacaNewsEnabled: env.ALPACA_NEWS_ENABLED,
     alpacaApiKey: env.ALPACA_API_KEY,
     alpacaApiSecret: env.ALPACA_API_SECRET,
     alpacaTradingBaseUrl: env.ALPACA_TRADING_BASE_URL,

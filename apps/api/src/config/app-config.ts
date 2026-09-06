@@ -3,7 +3,7 @@ import { DisclosureDetailType, DEFAULT_NOTIFICATION_FILING_TYPES } from '@orsem/
 import { isAbsolute, relative } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { loadWebPushConfig, type WebPushConfig } from '@orsem/database';
-import { APPROVED_GDELT_DOMAINS, NEWS_RSS_FEED_IDS } from '@orsem/contracts';
+import { isGdeltDomainFilter, NEWS_RSS_FEED_IDS } from '@orsem/contracts';
 
 const DEVELOPMENT_DATABASE_URL = 'mysql://orsem:change-me@127.0.0.1:3306/orsem';
 
@@ -105,10 +105,26 @@ const schema = z
     naverApiProvider: z.enum(['developers', 'ncloud']).default('developers'),
     naverClientId: optionalString,
     naverClientSecret: optionalString,
+    naverNewsFreeUntil: optionalString.refine(
+      (value) =>
+        !value ||
+        (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value) &&
+          Number.isFinite(Date.parse(value))),
+      { message: 'NAVER_NEWS_FREE_UNTIL must be an ISO instant' },
+    ),
+    naverNewsFreeMonth: optionalString.refine(
+      (value) => !value || /^\d{4}-(?:0[1-9]|1[0-2])$/.test(value),
+      {
+        message: 'NAVER_NEWS_FREE_MONTH must be YYYY-MM in KST',
+      },
+    ),
+    naverNewsFreeRequests: z.coerce.number().int().min(0).max(775000).default(0),
+    naverNewsDailyLimit: z.coerce.number().int().min(1).max(1000).default(1000),
+    naverNewsMonthlyLimit: z.coerce.number().int().min(1).max(30000).default(30000),
     secUserAgent: optionalSecUserAgent,
     alpacaApiKey: optionalString,
     alpacaApiSecret: optionalString,
-    // 승인된 게시자 정책이 없으므로 환경 누락만으로 GDELT를 활성화하지 않습니다.
+    // The explicit flag enables dataset metadata only, never publisher full text.
     gdeltEnabled: booleanFromEnv.default(false),
     gdeltNewsDomains: z.preprocess(
       (value) =>
@@ -123,8 +139,8 @@ const schema = z
             ]
           : (value ?? []),
       z.array(
-        z.string().refine((domain) => APPROVED_GDELT_DOMAINS.includes(domain), {
-          message: 'GDELT news domains require an approved publisher policy',
+        z.string().refine(isGdeltDomainFilter, {
+          message: 'Invalid GDELT domain filter',
         }),
       ),
     ),
@@ -260,6 +276,11 @@ export function loadAppConfig(environment: NodeJS.ProcessEnv = process.env): App
     naverApiProvider: environment.NAVER_API_PROVIDER,
     naverClientId: environment.NAVER_CLIENT_ID,
     naverClientSecret: environment.NAVER_CLIENT_SECRET,
+    naverNewsFreeUntil: environment.NAVER_NEWS_FREE_UNTIL,
+    naverNewsFreeMonth: environment.NAVER_NEWS_FREE_MONTH,
+    naverNewsFreeRequests: environment.NAVER_NEWS_FREE_REQUESTS,
+    naverNewsDailyLimit: environment.NAVER_NEWS_DAILY_LIMIT,
+    naverNewsMonthlyLimit: environment.NAVER_NEWS_MONTHLY_LIMIT,
     secUserAgent: environment.SEC_USER_AGENT,
     alpacaApiKey: environment.ALPACA_API_KEY,
     alpacaApiSecret: environment.ALPACA_API_SECRET,

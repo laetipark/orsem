@@ -44,6 +44,7 @@ beforeEach(() => {
   vi.spyOn(api, 'dashboard').mockResolvedValue({
     asOf: '2026-09-04T23:00:00Z',
     todayCounts: { D001: 6, D002: 23, D003: 1, D004: 2, D005: 2 },
+    totalCounts: { D001: 126, D002: 245, D003: 8, D004: 3, D005: 18 },
     priorities: { P1: [], P2: [] },
     reviewPending: 0,
     parserFailures: 0,
@@ -65,11 +66,17 @@ it('labels dashboard sections and disclosure counts without changing their coded
   expect(
     screen.getAllByRole('link', { name: '전체 보기' }).map((link) => link.getAttribute('href')),
   ).toEqual(['/events?priority=P1', '/events?priority=P2']);
-  const summary = screen.getByRole('region', { name: '오늘의 OpenDART 공시 건수' });
+  const summary = screen.getByRole('region', { name: 'OpenDART 공시 건수' });
   const massive = within(summary).getByRole('link', { name: /대량보유 공시/ });
   expect(massive).toHaveAttribute('href', '/events?detailType=D001');
   expect(massive).toHaveTextContent('5% 이상 보유');
-  expect(massive).toHaveTextContent('6건');
+  expect(massive.querySelector('strong')).toHaveTextContent('6건');
+  expect(massive.querySelector('.disclosure-stat__counts small')).toHaveTextContent(
+    '전체 누적 126건',
+  );
+  expect(summary).toHaveTextContent('2026. 09. 05. KST 접수일 기준');
+  expect(summary).toHaveTextContent('전체 기간 목록으로 이동합니다');
+  expect(massive).toHaveAccessibleName(/전체 보기 · 오늘 접수 6건 · 전체 누적 126건/);
   expect(within(summary).getByRole('link', { name: /임원·주요주주 보유/ })).toHaveAttribute(
     'href',
     '/events?detailType=D002',
@@ -109,9 +116,54 @@ it('keeps API and URL filter codes when choosing public names and clears the pre
         priority: 'P1',
         cursor: null,
       }),
+      expect.any(AbortSignal),
     ),
   );
   expect(screen.getByLabelText('현재 경로')).toHaveTextContent(
     '/events?region=kr&detailType=D001&priority=P1',
   );
+});
+
+it('keeps zero today counts prominent on a day with no receipts while showing nonzero totals separately', async () => {
+  vi.mocked(api.dashboard).mockResolvedValue({
+    asOf: '2026-09-04T15:00:00Z',
+    todayCounts: { D001: 0, D002: 0, D003: 0, D004: 0, D005: 0 },
+    totalCounts: { D001: 1260, D002: 245, D003: 8, D004: 3, D005: 18 },
+    priorities: { P1: [], P2: [] },
+    reviewPending: 0,
+    parserFailures: 0,
+    alertFailures: 0,
+    sources: [],
+    recentlyVerified: [],
+  });
+  show('/');
+  const summary = await screen.findByRole('region', { name: 'OpenDART 공시 건수' });
+  const cards = within(summary).getAllByRole('link');
+  expect(cards).toHaveLength(5);
+  for (const card of cards) expect(card.querySelector('strong')).toHaveTextContent(/^0건$/);
+  expect(cards[0]?.querySelector('.disclosure-stat__counts small')).toHaveTextContent(
+    '전체 누적 1,260건',
+  );
+  expect(cards[0]).toHaveAttribute('href', '/events?detailType=D001');
+  expect(summary).toHaveTextContent('2026. 09. 05. KST 접수일 기준');
+});
+
+it('does not invent a zero total when an older API response has no totalCounts', async () => {
+  vi.mocked(api.dashboard).mockResolvedValue({
+    asOf: '2026-09-04T14:59:59Z',
+    todayCounts: { D001: 6, D002: 23, D003: 0, D004: 0, D005: 2 },
+    priorities: { P1: [], P2: [] },
+    reviewPending: 0,
+    parserFailures: 0,
+    alertFailures: 0,
+    sources: [],
+    recentlyVerified: [],
+  });
+  show('/');
+  const summary = await screen.findByRole('region', { name: 'OpenDART 공시 건수' });
+  const card = within(summary).getAllByRole('link')[0]!;
+  expect(card.querySelector('strong')).toHaveTextContent('6건');
+  expect(card.querySelector('.disclosure-stat__counts small')).toHaveTextContent('전체 누적 —');
+  expect(card).not.toHaveAccessibleName(/전체 누적 0건/);
+  expect(summary).toHaveTextContent('2026. 09. 04. KST 접수일 기준');
 });

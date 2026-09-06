@@ -45,6 +45,7 @@ export const scheduledDiscoveryConnectorSchema = z.enum([
   'IR',
   'NEWS_RSS',
   'GDELT',
+  'ALPACA_NEWS',
 ]);
 
 export const discoverLinksJobSchema = z
@@ -114,7 +115,11 @@ export const discoverLinksJobSchema = z
     const signature = `${[...value.connectors].sort().join(',')}:${[...value.priorities]
       .sort()
       .join(',')}`;
-    if (!['NAVER:P1', 'NAVER:P2', 'SEC:P1,P2', 'IR:', 'NEWS_RSS:', 'GDELT:'].includes(signature)) {
+    if (
+      !['NAVER:P1', 'NAVER:P2', 'SEC:P1,P2', 'IR:', 'NEWS_RSS:', 'GDELT:', 'ALPACA_NEWS:'].includes(
+        signature,
+      )
+    ) {
       context.addIssue({
         code: 'custom',
         message: 'Scheduled discovery does not match an approved source cadence.',

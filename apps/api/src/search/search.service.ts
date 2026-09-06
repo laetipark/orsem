@@ -1,3 +1,4 @@
+import { manualNewsTranslationSql } from '../resources/manual-news-translation';
 import { Inject, Injectable } from '@nestjs/common';
 import {
   RightsMode,
@@ -24,8 +25,9 @@ import {
   publicNewsTranslation,
 } from '../common/news-translation';
 import {
-  availableNewsContentSql,
+  visibleNewsSql,
   newsFiltersSql,
+  newsFilterParameters,
   PUBLIC_NEWS_PUBLISHERS,
   representativeNewsSql,
 } from '../resources/news-query';
@@ -79,9 +81,12 @@ interface SourceRow {
   rceptDate: string | null;
   rawHash?: string | null;
   translationJson?: unknown;
+  manualTranslationJson?: unknown;
+  manualRevisionVerified?: number | string;
   sourcePolicyJson?: unknown;
   sourceKind?: string | null;
   publisherId?: string | null;
+  metadataRightsContext?: string | null;
   contentState?: string | null;
   contentLanguage?: string | null;
 }
@@ -159,9 +164,25 @@ function sourceItem(row: SourceRow): SearchItem | null {
   if (row.source.startsWith('NAVER') || !url || !metadataRights.includes(row.rightsMode))
     return null;
   const filing = row.source === 'SEC';
-  const translation = publicNewsTranslation(row);
+  let policy: any = row.sourcePolicyJson;
+  if (typeof policy === 'string') {
+    try {
+      policy = JSON.parse(policy);
+    } catch {
+      policy = null;
+    }
+  }
+  const metadataCard =
+    ['GDELT', 'ALPACA_NEWS'].includes(row.source) &&
+    row.metadataRightsContext === 'APPROVED_PUBLISHER_METADATA' &&
+    policy?.metadataStorageAllowed === true &&
+    policy?.displayAllowed === true &&
+    policy?.fullTextStorageAllowed === false &&
+    policy?.aiAllowed === false;
+  const translation = metadataCard ? null : publicNewsTranslation(row);
   if (
     !filing &&
+    !metadataCard &&
     (row.contentState !== 'AVAILABLE' ||
       !['OFFICIAL_RELEASE', 'COMPANY_IR'].includes(row.sourceKind ?? '') ||
       !PUBLIC_NEWS_PUBLISHERS.includes(
@@ -176,8 +197,8 @@ function sourceItem(row: SourceRow): SearchItem | null {
     title: row.title,
     translation,
     subtitle: [row.companyName, row.sourceName ?? row.source].filter(Boolean).join(' · '),
-    url: filing ? url : `/news/${encodeURIComponent(row.articleId ?? row.id)}`,
-    external: filing,
+    url: filing || metadataCard ? url : `/news/${encodeURIComponent(row.articleId ?? row.id)}`,
+    external: filing || metadataCard,
     companyId: row.companyId,
     source: row.source,
     rightsMode: row.rightsMode,
@@ -332,9 +353,12 @@ export class SearchService {
         'item.firstObservedAt AS firstObservedAt',
         'item.rawHash AS rawHash',
         'item.translationJson AS translationJson',
+        'item.manualTranslationJson AS manualTranslationJson',
         'item.sourcePolicyJson AS sourcePolicyJson',
         'item.sourceKind AS sourceKind',
+        "JSON_UNQUOTE(JSON_EXTRACT(item.rawMetadataJson, '$.rightsContext')) AS metadataRightsContext",
       ])
+      .addSelect(secOnly ? '0' : manualNewsTranslationSql('item'), 'manualRevisionVerified')
       .addSelect(
         "COALESCE(JSON_UNQUOTE(JSON_EXTRACT(item.rawMetadataJson, '$.publisherId')), item.sourceName, item.source)",
         'publisherId',
@@ -360,24 +384,18 @@ export class SearchService {
       .limit(limit + 1);
     if (!secOnly) {
       query
-        .innerJoin(NewsArticleContentEntity, 'content', 'content.source_item_id = item.id')
+        .leftJoin(NewsArticleContentEntity, 'content', 'content.source_item_id = item.id')
         .addSelect('content.status', 'contentState')
         .addSelect('content.language', 'contentLanguage')
         .andWhere(newsFiltersSql('item', {}))
-        .andWhere(availableNewsContentSql('content', 'item'))
+        .andWhere(visibleNewsSql('content', 'item'))
         .andWhere(representativeNewsSql({}, 'item'));
     }
     if (region !== 'all') {
       if (secOnly) {
         if (region === 'kr') query.andWhere('1 = 0');
       } else {
-        query.andWhere(
-          "(company.market IN (:...regionMarkets) OR (item.source = 'NEWS_RSS' AND JSON_UNQUOTE(JSON_EXTRACT(item.rawMetadataJson, '$.marketRegion')) IN ('global', :newsRegion)))",
-          {
-            regionMarkets: marketsForRegion(region),
-            newsRegion: region,
-          },
-        );
+        query.andWhere(newsFiltersSql('item', { region }), newsFilterParameters({ region }));
       }
     }
     return query;

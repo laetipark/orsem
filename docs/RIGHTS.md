@@ -21,3 +21,11 @@
 기업 로고는 토스 가격 데이터와 별개로 AllInvestView CDN에서 표시합니다. 눈에 보이는 출처 링크, 요청 한도, 대량 다운로드·로고 변형 금지 조건을 유지합니다. 현재 검증 범위와 근거는 [기업 아이콘 출처](SOURCES.md#기업-아이콘-출처)를 참고하세요.
 
 주기 뉴스는 검토된 콘텐츠 프로필의 `sourcePolicyJson`으로 표시·메타데이터 저장·AI·전문 저장·재배포·알림 권한을 구분합니다. 현재 메인 뉴스는 Samsung Global, Federal Reserve, BLS만 허용합니다. 새 RSS와 IR은 프로필이 없으면 등록·수집하지 않습니다. NAVER는 저장·통합 검색·AI 처리 경로에서 제외하고 별도 수동 검색 화면에서만 응답을 일시 표시합니다. 과거 이용 불가 뉴스 저장 행은 정리 마이그레이션으로 제거합니다. [사이트 콘텐츠용 뉴스 수집](NEWS_COLLECTION.md)을 참고하세요.
+
+## SEC ownership·메타데이터 뉴스 추가 정책
+
+SEC ownership은 공식 공시의 구조화 관측이며 접수·거래 날짜와 원문 코드·숫자·각주를 보존한다. 공개시장 거래라는 추정, 투자 추천, 자동 매매를 생성하지 않는다. raw XML은 이번 경로에서 파일/DB에 저장하지 않는다.
+
+GDELT는 publisher별 저장·표시 승인을 요구한다. `APPROVED_GDELT_SOURCE_POLICIES`는 비어 있고 `GDELT_ENABLED=true`만으로 수집을 허용하지 않는다. ALPACA_NEWS는 공식 공시가 아닌 제3자 언론 metadata다. 공급자의 응답 가능성, 무료 entitlement, 저장·공유·AI 권리는 각각 확인한다. 승인 레지스트리는 기본 null이다. 두 메타데이터 어댑터는 aiAllowed/fullTextStorageAllowed/notifyAllowed=false를 강제한다.
+
+장기 저장·캐시·공유 계약이 미확인인 후보는 UNKNOWN 또는 REQUIRES_CONTRACT_REVIEW로 둔다. 승인 철회 시 수집 설정을 끄고 해당 SourceItem 정책의 displayAllowed를 false로 갱신해 기존 표시를 차단한다. 원본 이력·번역을 삭제해 처리하지 않는다. [공식 근거와 비교](NEWS_PROVIDER_COMPARISON.md)를 참고한다.

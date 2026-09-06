@@ -4,6 +4,7 @@ import { TypeOrmModule, type TypeOrmModuleOptions } from '@nestjs/typeorm';
 import { createTypeOrmOptions } from '@orsem/database';
 import { DataSource } from 'typeorm';
 import { createSecFetch } from './connectors/sec-access-policy';
+import { GdeltHttpTransport } from './connectors/gdelt-http-transport';
 import { CompatibleClassifierClient } from './ai/compatible-classifier.client';
 import { LocalNewsTranslationClient } from './ai/local-news-translation.client';
 import { NewsTranslationService } from './ai/news-translation.service';
@@ -20,7 +21,7 @@ import { TossStockInfoService } from './market-data/toss-stock-info.service';
 import { SecCikSyncService } from './market-data/sec-cik-sync.service';
 import { MarketIndicatorClient } from './market-indicators/market-indicator.client';
 import { MarketIndicatorIngestionService } from './market-indicators/market-indicator-ingestion.service';
-import { HTTP_FETCH, OpenDartClient, type FetchImplementation } from './opendart/opendart.client';
+import { HTTP_FETCH, OpenDartClient } from './opendart/opendart.client';
 import { OpenDartIngestionService } from './opendart/opendart-ingestion.service';
 import { ConnectorHealthProcessor } from './processors/connector-health.processor';
 import { AiReviewProcessor } from './processors/ai-review.processor';
@@ -56,8 +57,6 @@ function redisConnection(redisUrl: string): Record<string, unknown> {
   };
 }
 
-const fetchImplementation: FetchImplementation = (input, init) => globalThis.fetch(input, init);
-
 @Module({
   imports: [
     TypeOrmModule.forRoot(createTypeOrmOptions(config.databaseUrl) as TypeOrmModuleOptions),
@@ -78,10 +77,12 @@ const fetchImplementation: FetchImplementation = (input, init) => globalThis.fet
   ],
   providers: [
     { provide: WORKER_CONFIG, useValue: config },
+    GdeltHttpTransport,
     {
       provide: HTTP_FETCH,
-      useFactory: (dataSource: DataSource) => createSecFetch(dataSource, fetchImplementation),
-      inject: [DataSource],
+      useFactory: (dataSource: DataSource, transport: GdeltHttpTransport) =>
+        createSecFetch(dataSource, transport.fetch),
+      inject: [DataSource, GdeltHttpTransport],
     },
     { provide: WEB_PUSH_SEND, useValue: defaultWebPushSend },
     PushFanoutService,

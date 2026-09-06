@@ -37,6 +37,7 @@ const GOOGL = company('00000000-0000-4000-8000-000000000002', 'GOOGL');
 const config = loadWorkerConfig({
   SEC_USER_AGENT: 'Orsem test@example.com',
   GDELT_ENABLED: 'false',
+  SEC_FORM4_ENABLED: 'false',
 });
 const scheduled = () =>
   discoverLinksJobSchema.parse({
@@ -89,6 +90,9 @@ function memoryDatabase() {
     );
   };
   const getRepository = (target: unknown) => ({
+    findOneBy: jest.fn(
+      async (where: unknown) => rows(target).find((row) => matches(row, where)) ?? null,
+    ),
     findOneByOrFail: jest.fn(async (where: Record<string, unknown>) =>
       rows(target).find((row) => Object.entries(where).every(([key, value]) => row[key] === value)),
     ),
@@ -109,7 +113,13 @@ function memoryDatabase() {
         },
         orIgnore: () => builder,
         execute: async () => {
-          if (!rows(target).some((row) => row.urlHash === incoming.urlHash))
+          if (
+            !rows(target).some((row) =>
+              target === SourceCheckpointEntity
+                ? row.connector === incoming.connector && row.stream === incoming.stream
+                : row.urlHash === incoming.urlHash,
+            )
+          )
             rows(target).push(incoming);
         },
       };
@@ -133,6 +143,7 @@ function memoryDatabase() {
   const manager = { getRepository };
   const dataSource = {
     ...manager,
+    query: jest.fn(async () => []),
     transaction: async (callback: (manager: unknown) => unknown) => callback(manager),
   } as unknown as DataSource;
   rows(CompanyEntity).push(GOOG, GOOGL);
@@ -276,6 +287,29 @@ describe('SEC recent submissions metadata', () => {
 });
 
 describe('SEC ingestion baselines and share classes', () => {
+  it('collects the approved personal-group union when the legacy watchlist is empty, deduplicating one issuer', async () => {
+    const db = memoryDatabase();
+    db.rows(WatchlistItemEntity).length = 0;
+    (db.dataSource.query as jest.Mock).mockResolvedValue([
+      { companyId: GOOG.id },
+      { companyId: GOOGL.id },
+      { companyId: GOOG.id },
+    ]);
+    const fetch = jest.fn().mockResolvedValue(jsonResponse(response(1)));
+    const push = { enqueueNews: jest.fn() };
+    const service = new NewsDiscoveryService(
+      db.dataSource,
+      config,
+      fetch,
+      push as unknown as PushFanoutService,
+    );
+    expect(await service.discover(scheduled())).toMatchObject([{ seen: 1, created: 1 }]);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(db.dataSource.query).toHaveBeenCalledWith(
+      expect.stringMatching(/m\.status\s*=\s*'APPROVED'/),
+    );
+    expect(push.enqueueNews).not.toHaveBeenCalled();
+  });
   it('completes a missing-CIK run without claiming a successful request or advancing success timestamps', async () => {
     const db = memoryDatabase();
     db.rows(CompanyEntity)[0] = { ...GOOG, cik: null };

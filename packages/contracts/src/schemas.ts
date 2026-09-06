@@ -1,3 +1,4 @@
+import type { GroupDisplayPrice } from './watchlist-groups';
 import { z } from 'zod';
 import { regionSchema } from './region';
 import { NEWS_IR_SOURCE_PROFILES, NewsContentState, NewsSourceKind } from './news-sources';
@@ -332,12 +333,14 @@ export const filingQuerySchema = cursorQuerySchema.extend({
   to: dateOnlySchema.optional(),
 });
 
+// AZURE remains a valid stored-result provenance; new translations use LOCAL only.
 export const newsTranslationSchema = z.object({
   language: z.literal('ko'),
   title: z.string().trim().min(1),
   description: z.string().nullable(),
   translatedAt: isoInstantSchema,
-  provider: z.literal('LOCAL'),
+  provider: z.enum(['LOCAL', 'AZURE']),
+  editedAt: isoInstantSchema.optional(),
   model: z.string().trim().min(1),
 });
 export type NewsTranslation = z.infer<typeof newsTranslationSchema>;
@@ -375,7 +378,9 @@ export const newsContentTranslationSchema = z.object({
   language: z.literal('ko'),
   blocks: z.array(newsContentBlockSchema).min(1).max(2_000),
   translatedAt: isoInstantSchema,
-  provider: z.literal('LOCAL'),
+  provider: z.enum(['LOCAL', 'AZURE']),
+  format: z.literal('MARKDOWN').optional(),
+  editedAt: isoInstantSchema.optional(),
   model: z.string().trim().min(1),
 });
 export type NewsContentTranslation = z.infer<typeof newsContentTranslationSchema>;
@@ -387,8 +392,49 @@ export const newsArticleContentDetailSchema = z.object({
 });
 export type NewsArticleContentDetail = z.infer<typeof newsArticleContentDetailSchema>;
 
+export const newsTranslationEditInputSchema = z
+  .object({
+    revision: z.string().regex(/^[a-f0-9]{64}$/u),
+    title: z.string().trim().min(1).max(2_000),
+    description: z.string().trim().max(20_000).nullable(),
+    markdown: z.string().trim().min(1).max(100_000),
+  })
+  .strict();
+export type NewsTranslationEditInput = z.infer<typeof newsTranslationEditInputSchema>;
+export const newsTranslationEditSchema = z.object({
+  sourceItemId: idSchema,
+  revision: z.string().regex(/^[a-f0-9]{64}$/u),
+  original: z.object({
+    title: z.string(),
+    description: z.string().nullable(),
+    language: z.string(),
+    markdown: z.string(),
+  }),
+  translation: z.object({
+    title: z.string(),
+    description: z.string().nullable(),
+    markdown: z.string(),
+  }),
+  editedAt: isoInstantSchema.nullable(),
+  editedByAdminId: idSchema.nullable(),
+});
+export type NewsTranslationEdit = z.infer<typeof newsTranslationEditSchema>;
+
 export const sourceItemSchema = z.object({
   id: idSchema,
+  displayMode: z.enum(['INTERNAL_CONTENT', 'EXTERNAL_LINK']).optional(),
+  relatedCompanies: z
+    .array(
+      companySchema.pick({
+        id: true,
+        market: true,
+        stockCode: true,
+        ticker: true,
+        nameKo: true,
+        nameEn: true,
+      }),
+    )
+    .optional(),
   articleId: idSchema.nullable().optional(),
   sourceKind: z.enum(NewsSourceKind).optional(),
   sourceCount: z.number().int().positive().optional(),
@@ -683,14 +729,26 @@ export const livePriceQuoteSchema = z.object({
   lossy: z.literal(true),
 });
 export const livePriceSnapshotSchema = livePriceQuoteSchema.extend({ companyId: idSchema });
+export const fallbackCloseSchema = z.object({
+  price: decimalStringSchema.refine(
+    (value) => Number.isFinite(Number(value)) && Number(value) > 0,
+    'Closing price must be finite and positive',
+  ),
+  currency: z.literal('KRW'),
+  sessionDate: dateOnlySchema,
+  source: z.literal('TOSS_KR'),
+});
 export const companyLivePriceSchema = z.object({
   companyId: idSchema,
   provider: z.literal('toss'),
   status: z.enum(['NOT_CONFIGURED', 'WAITING', 'LIVE', 'STALE', 'UNAVAILABLE']),
   quote: livePriceQuoteSchema.nullable(),
+  fallbackClose: fallbackCloseSchema.nullable().optional(),
   asOf: isoInstantSchema,
 });
-export type CompanyLivePrice = z.infer<typeof companyLivePriceSchema>;
+export type CompanyLivePrice = z.infer<typeof companyLivePriceSchema> & {
+  displayPrice?: GroupDisplayPrice;
+};
 export type LivePriceQuote = z.infer<typeof livePriceQuoteSchema>;
 
 export const watchlistQuotesQuerySchema = z.object({
@@ -707,6 +765,7 @@ export const watchlistQuotesSchema = z.object({
       companyId: idSchema,
       status: companyLivePriceSchema.shape.status,
       quote: livePriceQuoteSchema.nullable(),
+      fallbackClose: fallbackCloseSchema.nullable().optional(),
       previousClose: z.number().finite().positive().nullable(),
       change: z.number().finite().nullable(),
       changePercent: z.number().finite().nullable(),
@@ -820,6 +879,10 @@ export const connectorHealthSchema = z.object({
   lastSuccessAt: isoInstantSchema.nullable(),
   lastFailureAt: isoInstantSchema.nullable(),
   checkedAt: isoInstantSchema,
+  httpStatus: z.number().int().min(0).max(599).nullable().optional(),
+  requestAttempted: z.boolean().nullable().optional(),
+  lastAttemptAt: isoInstantSchema.nullable().optional(),
+  nextRetryAt: isoInstantSchema.nullable().optional(),
 });
 export type ConnectorHealth = z.infer<typeof connectorHealthSchema>;
 
@@ -833,6 +896,10 @@ export const sourceFreshnessSchema = z.object({
   rightsMode: z.enum(RightsMode),
   message: z.string(),
   checkedAt: isoInstantSchema.optional(),
+  httpStatus: z.number().int().min(0).max(599).nullable().optional(),
+  requestAttempted: z.boolean().nullable().optional(),
+  lastAttemptAt: isoInstantSchema.nullable().optional(),
+  nextRetryAt: isoInstantSchema.nullable().optional(),
 });
 export type SourceFreshness = z.infer<typeof sourceFreshnessSchema>;
 
@@ -845,6 +912,15 @@ export const dashboardViewSchema = z.object({
     D004: z.number().int().nonnegative().default(0),
     D005: z.number().int().nonnegative(),
   }),
+  totalCounts: z
+    .object({
+      D001: z.number().int().nonnegative(),
+      D002: z.number().int().nonnegative(),
+      D003: z.number().int().nonnegative(),
+      D004: z.number().int().nonnegative(),
+      D005: z.number().int().nonnegative(),
+    })
+    .optional(),
   priorities: z.object({
     P1: z.array(eventSummaryViewSchema),
     P2: z.array(eventSummaryViewSchema),

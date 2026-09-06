@@ -69,3 +69,7 @@ npm run check:messenger-script
 ```
 
 공시 원문, 로그, 비밀 값, 비공개 테스트 문서 모음은 이 저장소가 아닌 `/home/laeti/orsem-data`에 보관합니다.
+
+## SEC·뉴스 복구
+
+SEC는 recent 전체와 과거 제출 파일의 커서를 복구하고 공시 접수 뒤 Form 3/4/5 지분 관측을 별도로 처리합니다. GDELT는 publisher 승인과 시간 구간 체크포인트를 모두 요구합니다. 선택적 Alpaca News는 기본 비활성이며 가격 공급자는 계속 토스입니다. [변경 전 분석](docs/SEC_NEWS_IMPLEMENTATION_ANALYSIS.md), [SEC 복구](docs/SEC_GAP_RECOVERY.md), [ownership 파서](docs/SEC_OWNERSHIP.md), [뉴스 공급자 비교](docs/NEWS_PROVIDER_COMPARISON.md)를 참고하세요.

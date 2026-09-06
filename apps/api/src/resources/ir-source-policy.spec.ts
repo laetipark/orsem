@@ -51,7 +51,7 @@ test('IR 관리 API는 검토된 Samsung URL만 받고 서버 정책으로 고�
   assert.equal(ir?.name, 'Samsung Global Newsroom');
   assert.equal(ir?.rightsMode, RightsMode.PRIVATE_DISPLAY_ONLY);
   const gdelt = sources.find((source) => source.id === 'gdelt');
-  assert.equal(gdelt?.name, 'GDELT (비활성)');
+  assert.equal(gdelt?.name, 'GDELT 뉴스 링크');
   assert.equal(gdelt?.status, 'DISABLED');
 
   const updated = await service.updateIrSource(created.id, { isActive: false });

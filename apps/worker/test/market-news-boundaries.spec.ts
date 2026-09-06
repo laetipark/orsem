@@ -1,10 +1,10 @@
+import { GdeltMetadataConnector } from './gdelt-approved-fixture';
 import { ProcessingStatus, RightsMode } from '@orsem/contracts';
 import { NEWS_IR_SOURCE_PROFILES } from '@orsem/contracts';
 import type { DataSource } from 'typeorm';
 import type { Queue } from 'bullmq';
 import { loadWorkerConfig } from '../src/config/worker-config';
 import {
-  GdeltMetadataConnector,
   PublisherNewsRssConnector,
   RegisteredIrFeedConnector,
   parseIrRssFeed,
@@ -197,7 +197,7 @@ describe('market news collection boundaries', () => {
     expect(transport).toHaveBeenCalledTimes(1);
   });
 
-  it('never represents GDELT crawl time as publication and refuses unapproved domains', async () => {
+  it('never represents GDELT crawl time as publication and rejects unsafe domain filters', async () => {
     const fetcher = jest.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -220,9 +220,12 @@ describe('market news collection boundaries', () => {
         observedBySourceAt: '2026-09-04T12:00:00.000Z',
       },
     });
-    expect(() => loadWorkerConfig({ GDELT_NEWS_DOMAINS: 'unreviewed.example' })).toThrow();
-    expect(() => new GdeltMetadataConnector(true, fetcher, 1000, ['unreviewed.example'])).toThrow(
-      'reviewed source policy',
+    expect(
+      loadWorkerConfig({ GDELT_NEWS_DOMAINS: 'publisher.example' }).gdeltApprovedDomains,
+    ).toEqual(['publisher.example']);
+    expect(() => loadWorkerConfig({ GDELT_NEWS_DOMAINS: 'http://localhost:80' })).toThrow();
+    expect(() => new GdeltMetadataConnector(true, fetcher, 1000, ['localhost'])).toThrow(
+      'Invalid GDELT domain filter',
     );
   });
 

@@ -29,6 +29,19 @@ export interface NewsSourcePolicy {
   checkedAt: string;
 }
 
+/** Covers the GDELT dataset's title/link metadata, never the linked publisher's full text. */
+export const GDELT_METADATA_POLICY: NewsSourcePolicy = Object.freeze({
+  rightsMode: RightsMode.STORE_METADATA_ONLY,
+  aiAllowed: false, fullTextStorageAllowed: false, publicRedistributionAllowed: true,
+  displayAllowed: true, metadataStorageAllowed: true, notifyAllowed: false,
+  policyUrl: 'https://www.gdeltproject.org/about.html#termsofuse', checkedAt: '2026-09-06',
+});
+
+export function isGdeltDomainFilter(domain: string): boolean {
+  return domain.length <= 253 && /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/u.test(domain)
+    && !/(?:^|\.)(?:localhost|local|internal|test|invalid)$/u.test(domain);
+}
+
 function officialContentPolicy(policyUrl: string): NewsSourcePolicy {
   return Object.freeze({
     rightsMode: RightsMode.OFFICIAL_PUBLIC_DATA,

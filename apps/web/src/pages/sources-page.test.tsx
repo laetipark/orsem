@@ -71,6 +71,17 @@ function show(role: 'ADMIN' | 'VIEWER', path = '/sources') {
 beforeEach(() => {
   vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined);
   vi.spyOn(api, 'sourceFreshness').mockResolvedValue(snapshot);
+  vi.spyOn(api, 'naverNewsStatus').mockResolvedValue({
+    configured: true,
+    automaticAllowed: false,
+    mode: 'ON_DEMAND',
+    freeUntil: null,
+    dailyLimit: 100,
+    monthlyLimit: 2000,
+    remainingToday: 100,
+    remainingMonth: 2000,
+    reason: '이번 달 무료 이용 조건과 호출 가능량 확인이 필요합니다.',
+  });
 });
 afterEach(() => {
   cleanup();
@@ -110,7 +121,11 @@ describe('shared data sources page', () => {
       const operations = vi.spyOn(api, 'operationSources');
       show(role);
       expect(await screen.findByText('NAVER 뉴스검색')).toBeInTheDocument();
-      expect(screen.getByText('지연')).toBeInTheDocument();
+      expect(await screen.findByText('검색 일시 중단')).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /네이버 뉴스 직접 검색/ })).toHaveAttribute(
+        'href',
+        '/news/naver',
+      );
       expect(screen.getByText('2026. 09. 04. 09:00 KST')).toBeInTheDocument();
       expect(screen.getByText('11분 전')).toBeInTheDocument();
       expect(screen.getByText('메타데이터만')).toBeInTheDocument();
@@ -146,4 +161,82 @@ describe('shared data sources page', () => {
     expect(screen.queryByText('internal connector configuration')).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Logos by AllInvestView' })).toBeInTheDocument();
   });
+
+  it('groups connectors by purpose and preserves deterministic name order after refresh', async () => {
+    const items: SourceFreshness[] = [
+      { ...sources[0]!, id: 'ai', name: 'AI 분류기', category: 'OFFICIAL' },
+      { ...sources[0]!, id: 'sec', name: 'SEC EDGAR', category: 'OFFICIAL' },
+      { ...sources[0]!, id: 'ir', name: 'Samsung Global Newsroom', category: 'OFFICIAL' },
+      sources[0]!,
+      { ...sources[1]!, id: 'toss', name: 'Toss', category: 'MARKET' },
+      { ...sources[0]!, id: 'news_rss:bls', name: 'BLS', category: 'OFFICIAL' },
+      { ...sources[0]!, id: 'opendart', name: 'OpenDART', category: 'OFFICIAL' },
+      sources[1]!,
+    ];
+    const inputOrder = items.map((source) => source.id);
+    vi.mocked(api.sourceFreshness).mockResolvedValue({ ...snapshot, items });
+    show('VIEWER');
+    await screen.findByText('OpenDART');
+    const freshness = within(screen.getByRole('region', { name: '커넥터 신선도' }));
+    const groupNames = ['공식 공시', '시장 데이터', '뉴스', '기타'];
+    expect(
+      freshness.getAllByRole('region').map((group) => group.getAttribute('aria-label')),
+    ).toEqual(groupNames);
+    const expectedNames = [
+      ['OpenDART', 'SEC EDGAR'],
+      ['Gold API', 'Toss'],
+      ['BLS', 'NAVER 뉴스검색', 'Samsung Global Newsroom'],
+      ['AI 분류기'],
+    ];
+    const displayedNames = () =>
+      groupNames.map((name) =>
+        within(freshness.getByRole('region', { name }))
+          .getAllByRole('heading', { level: 4 })
+          .map((heading) => heading.textContent),
+      );
+    expect(displayedNames()).toEqual(expectedNames);
+    expect(items.map((source) => source.id)).toEqual(inputOrder);
+
+    vi.mocked(api.sourceFreshness).mockResolvedValue({ ...snapshot, items: [...items].reverse() });
+    fireEvent.click(screen.getByRole('button', { name: '상태 새로고침' }));
+    await waitFor(() =>
+      expect(clients[0]!.getQueryData<typeof snapshot>(['source-freshness'])?.items[0]?.id).toBe(
+        'market:gold',
+      ),
+    );
+    expect(displayedNames()).toEqual(expectedNames);
+  });
+
+  it('omits empty connector categories', async () => {
+    show('VIEWER');
+    await screen.findByText('NAVER 뉴스검색');
+    const freshness = within(screen.getByRole('region', { name: '커넥터 신선도' }));
+    expect(
+      freshness.getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent),
+    ).toEqual(['시장 데이터 1개', '뉴스 1개']);
+    expect(freshness.queryByRole('region', { name: '공식 공시' })).not.toBeInTheDocument();
+    expect(freshness.queryByRole('region', { name: '기타' })).not.toBeInTheDocument();
+  });
+});
+
+it('shows safe SEC cooldown facts and the next request time without inventing a new successful fetch', async () => {
+  vi.mocked(api.sourceFreshness).mockResolvedValue({
+    ...snapshot,
+    items: [
+      {
+        ...sources[0]!,
+        id: 'sec',
+        name: 'SEC EDGAR',
+        category: 'OFFICIAL',
+        requestAttempted: false,
+        httpStatus: 403,
+        message: 'SEC 접근이 거부되었습니다(403). 대기 중이므로 새 요청을 보내지 않았습니다.',
+        nextRetryAt: '2026-09-04T00:30:00Z',
+      },
+    ],
+  });
+  show('VIEWER');
+  expect(await screen.findByText(/대기 중이므로 새 요청을 보내지 않았습니다/)).toBeVisible();
+  expect(screen.getByText('다음 요청 가능 2026. 09. 04. 09:30 KST')).toBeVisible();
+  expect(screen.getByText('2026. 09. 04. 09:00 KST')).toBeVisible();
 });

@@ -27,15 +27,37 @@ describe('bounded provider response reads', () => {
     expect(body.locked).toBe(false);
   });
 
-  it('rejects an oversized declaration before acquiring or reading the body', async () => {
-    const { response, body, pull } = streamedResponse([new Uint8Array([1])], {
+  it('cancels an oversized declaration before acquiring a reader or reading the body', async () => {
+    const { response, body, pull, cancel } = streamedResponse([new Uint8Array([1])], {
       'content-length': '9',
     });
     await expect(readBoundedResponseBytes(response, limit)).rejects.toThrow(limit.errorMessage);
     expect(pull).not.toHaveBeenCalled();
-    expect(response.bodyUsed).toBe(false);
+    expect(cancel).toHaveBeenCalledTimes(1);
     expect(body.locked).toBe(false);
   });
+
+  it.each([undefined, '9'])(
+    'preserves the size error when cleanup rejects (declared %s)',
+    async (declared) => {
+      const body = new ReadableStream<Uint8Array>(
+        {
+          pull(controller) {
+            controller.enqueue(new Uint8Array(9));
+          },
+          cancel() {
+            throw new Error('cleanup failed');
+          },
+        },
+        { highWaterMark: 0 },
+      );
+      const response = new Response(body, {
+        headers: declared ? { 'content-length': declared } : {},
+      });
+      await expect(readBoundedResponseBytes(response, limit)).rejects.toThrow(limit.errorMessage);
+      expect(body.locked).toBe(false);
+    },
+  );
 
   it.each([null, '1', 'not-a-number'])(
     'enforces actual bytes with Content-Length %s and cancels before reading the remaining data',

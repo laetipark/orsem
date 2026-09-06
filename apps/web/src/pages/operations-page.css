@@ -1,0 +1,44 @@
+.operation-runs {
+  display: grid;
+  gap: 12px;
+}
+.operation-run {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  overflow-wrap: anywhere;
+}
+.operation-run header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+.operation-run header strong {
+  min-width: 0;
+}
+.operation-run dl {
+  display: grid;
+  gap: 10px;
+  margin: 14px 0 0;
+}
+.operation-run dl > div {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
+  gap: 12px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.operation-run dt,
+.operation-runs__empty {
+  color: var(--muted);
+}
+.operation-run dd {
+  margin: 0;
+}
+.operation-runs__empty {
+  text-align: center;
+  padding-block: 30px;
+}

@@ -10,6 +10,9 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
+    resolve: {
+      alias: { '@orsem/contracts': resolve(envDir, 'packages/contracts/src/index.ts') },
+    },
     envDir,
     define: {
       'import.meta.env.VITE_FIXTURE_MODE': JSON.stringify(fixtureMode),

@@ -27,6 +27,9 @@ import { AddNewsArticles1788401000000 } from './migrations/1788401000000-AddNews
 import { AddDisclosureDomains1788402000000 } from './migrations/1788402000000-AddDisclosureDomains';
 import { AddNewsArticleContents1788403000000 } from './migrations/1788403000000-AddNewsArticleContents';
 import { MergeSamsungNewsSources1788404000000 } from './migrations/1788404000000-MergeSamsungNewsSources';
+import { AddManualNewsTranslations1788405000000 } from './migrations/1788405000000-AddManualNewsTranslations';
+import { AddWatchlistGroups1788406000000 } from './migrations/1788406000000-AddWatchlistGroups';
+import { AddNewsCompanyRelevance1788407000000 } from './migrations/1788407000000-AddNewsCompanyRelevance';
 import { numericStringTransformer } from './transformers';
 
 test('TypeORM CLI module exports exactly one DataSource instance', () => {
@@ -157,7 +160,7 @@ test('TypeORM production options never use schema synchronization', () => {
   assert.equal(options.migrationsRun, false);
   if (options.type !== 'mysql') assert.fail('Orsem persistence must use the MySQL driver');
   assert.deepEqual(options.dateStrings, ['DATE']);
-  assert.deepEqual(options.migrations, [
+  const historicalMigrations = [
     InitialSchema1788390000000,
     AddAiRunIdentityUnique1788391000000,
     AddAlpacaAssetMaster1788392000000,
@@ -173,7 +176,24 @@ test('TypeORM production options never use schema synchronization', () => {
     AddDisclosureDomains1788402000000,
     AddNewsArticleContents1788403000000,
     MergeSamsungNewsSources1788404000000,
-  ]);
+    AddManualNewsTranslations1788405000000,
+    AddWatchlistGroups1788406000000,
+    AddNewsCompanyRelevance1788407000000,
+  ];
+  assert.ok(Array.isArray(options.migrations));
+  assert.deepEqual(options.migrations.slice(0, historicalMigrations.length), historicalMigrations);
+  // Future additive migrations may follow, while history and timestamp ordering stay intact.
+  const timestamps = options.migrations.map((migration) => {
+    assert.equal(typeof migration, 'function');
+    const match = (migration as { name: string }).name.match(/(\d{13})$/u);
+    assert.ok(match, 'registered migrations must have timestamped names');
+    return Number(match[1]);
+  });
+  assert.equal(new Set(timestamps).size, timestamps.length);
+  assert.deepEqual(
+    timestamps,
+    [...timestamps].sort((left, right) => left - right),
+  );
 });
 
 test('Kakao members have isolated provider identities and pending read-only defaults without admin linking', async () => {

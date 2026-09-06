@@ -98,4 +98,71 @@ describe('OpenDartClient', () => {
     ).not.toContain('secret');
     expect(openDartViewerUrl('20260903000001')).toContain('rcpNo=20260903000001');
   });
+
+  it('releases the response reader after a successful streamed JSON read', async () => {
+    const response = new Response(
+      JSON.stringify({ status: '013', message: '조회된 데이터가 없습니다.' }),
+    );
+    const client = new OpenDartClient(config, async () => response);
+    await client.listDisclosures({
+      detailType: 'D002',
+      startDate: '2026-09-01',
+      endDate: '2026-09-03',
+      page: 1,
+    });
+    expect(response.body!.locked).toBe(false);
+  });
+
+  it('cancels JSON streams above 10 MiB and retains the OpenDART size error', async () => {
+    const cancel = jest.fn();
+    const body = new ReadableStream<Uint8Array>(
+      {
+        pull(controller) {
+          controller.enqueue(new Uint8Array(10 * 1024 * 1024 + 1));
+        },
+        cancel,
+      },
+      { highWaterMark: 0 },
+    );
+    const client = new OpenDartClient(config, async () => new Response(body));
+    await expect(
+      client.listDisclosures({
+        detailType: 'D001',
+        startDate: '2026-09-01',
+        endDate: '2026-09-03',
+        page: 1,
+      }),
+    ).rejects.toThrow('OpenDART response is too large.');
+    expect(cancel).toHaveBeenCalledWith('response too large');
+    expect(body.locked).toBe(false);
+  });
+
+  it('rejects and cancels declared binary responses above 50 MiB before reading', async () => {
+    const pull = jest.fn();
+    const cancel = jest.fn();
+    const body = new ReadableStream<Uint8Array>({ pull, cancel }, { highWaterMark: 0 });
+    const client = new OpenDartClient(
+      config,
+      async () =>
+        new Response(body, { headers: { 'content-length': String(50 * 1024 * 1024 + 1) } }),
+    );
+    await expect(client.fetchDocument('20260903000001')).rejects.toThrow(
+      'OpenDART response is too large.',
+    );
+    expect(pull).not.toHaveBeenCalled();
+    expect(cancel).toHaveBeenCalledWith('response too large');
+    expect(body.locked).toBe(false);
+  });
+
+  it('releases the response reader when streaming fails', async () => {
+    const failure = new Error('network interrupted');
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.error(failure);
+      },
+    });
+    const client = new OpenDartClient(config, async () => new Response(body));
+    await expect(client.fetchDocument('20260903000001')).rejects.toBe(failure);
+    expect(body.locked).toBe(false);
+  });
 });

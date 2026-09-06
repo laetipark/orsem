@@ -1,5 +1,5 @@
 import { ConnectorStatus } from '@orsem/contracts';
-import { GdeltMetadataConnector } from '../src/connectors/connector-adapters';
+import { GdeltMetadataConnector } from './gdelt-approved-fixture';
 
 const NOW = new Date('2026-09-04T03:00:00.000Z');
 
@@ -146,6 +146,60 @@ describe('GDELT request limits', () => {
     await jest.advanceTimersByTimeAsync(1);
     await second;
     expect(startedAt[1]! - startedAt[0]!).toBe(5_000);
+  });
+
+  it('waits five seconds after a slow first response body before a queued adapter can request', async () => {
+    const startedAt: number[] = [];
+    const fetcher = jest.fn(async () => {
+      startedAt.push(Date.now());
+      if (startedAt.length !== 1) return success();
+      await new Promise<void>((resolve) => setTimeout(resolve, 8_000));
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            setTimeout(() => {
+              controller.enqueue(new TextEncoder().encode('{"articles":[]}'));
+              controller.close();
+            }, 3_000);
+          },
+        }),
+      );
+    });
+    const first = new GdeltMetadataConnector(true, fetcher, 30_000).search('first company');
+    const second = new GdeltMetadataConnector(true, fetcher, 30_000).search('second company');
+
+    await jest.advanceTimersByTimeAsync(10_999);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(1);
+    await expect(first).resolves.toEqual([]);
+    const completedAt = Date.now();
+    await jest.advanceTimersByTimeAsync(4_999);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(1);
+    await expect(second).resolves.toEqual([]);
+    expect(startedAt).toEqual([NOW.getTime(), completedAt + 5_000]);
+  });
+
+  it('also spaces a queued request five seconds after a slow transport failure', async () => {
+    const startedAt: number[] = [];
+    const fetcher = jest.fn(async () => {
+      startedAt.push(Date.now());
+      if (startedAt.length !== 1) return success();
+      await new Promise<void>((resolve) => setTimeout(resolve, 11_000));
+      throw new TypeError('fetch failed');
+    });
+    const first = new GdeltMetadataConnector(true, fetcher, 30_000).search('first company');
+    const second = new GdeltMetadataConnector(true, fetcher, 30_000).search('second company');
+    const firstFailure = expect(first).rejects.toMatchObject({ httpStatus: 0 });
+
+    await jest.advanceTimersByTimeAsync(11_000);
+    await firstFailure;
+    const failedAt = Date.now();
+    await jest.advanceTimersByTimeAsync(4_999);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(1);
+    await expect(second).resolves.toEqual([]);
+    expect(startedAt).toEqual([NOW.getTime(), failedAt + 5_000]);
   });
 
   it('rejects already queued requests once an earlier response starts a cooldown', async () => {

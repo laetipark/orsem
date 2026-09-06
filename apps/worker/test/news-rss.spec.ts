@@ -260,6 +260,104 @@ describe('allowlisted publisher RSS', () => {
 });
 
 describe('publisher RSS ingestion', () => {
+  it('reuses a legacy completed translation when only feed metadata changes, preserving its original audit', async () => {
+    const db = memoryDatabase();
+    const service = new NewsDiscoveryService(db.dataSource, config, jest.fn(), {
+      enqueueNews: jest.fn(),
+    } as unknown as PushFanoutService);
+    const original = withOfficialContent(
+      'fed-press',
+      parseNewsRssFeed('fed-press', rss(article('Federal Reserve announces official results'))),
+    );
+    const revised = structuredClone(original);
+    revised.candidates[0]!.metadata = {
+      ...revised.candidates[0]!.metadata,
+      originalGuid: 'updated-guid-with-the-same-translation-input',
+    };
+    const fetch = jest.spyOn(PublisherNewsRssConnector.prototype, 'fetchFeed');
+    fetch.mockResolvedValueOnce(original).mockResolvedValueOnce(revised);
+    await service.discover(job);
+    const row = db.rows(SourceItemEntity)[0]!;
+    const beforeHash = row.rawHash;
+    const audit = {
+      version: 1,
+      status: 'COMPLETED',
+      inputHash: beforeHash,
+      title: '연방준비제도 공식 결과 발표',
+      description: '공식 요약입니다.',
+      translatedAt: '2026-09-04T00:00:00.000Z',
+      provider: 'LOCAL',
+      model: 'original-local-model',
+      attempts: 1,
+    };
+    row.translationJson = audit;
+    const body = db.rows(NewsArticleContentEntity)[0]!;
+    body.translationJson = { status: 'COMPLETED', inputHash: body.contentHash, blocks: [] };
+    const bodyAudit = structuredClone(body.translationJson);
+    await service.discover(job);
+    expect(row.rawHash).not.toBe(beforeHash);
+    expect(row.translationJson).toEqual({
+      ...audit,
+      inputHash: row.rawHash,
+      sourceTextHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    expect(body.translationJson).toEqual(bodyAudit);
+    expect(db.repository(SourceItemEntity).findOne).toHaveBeenCalledWith(
+      expect.objectContaining({ lock: { mode: 'pessimistic_write' } }),
+    );
+    expect(db.repository(NewsArticleContentEntity).findOne).toHaveBeenCalledWith(
+      expect.objectContaining({ lock: { mode: 'pessimistic_write' } }),
+    );
+  });
+
+  it('keeps a prior translation bound to its old hash when the actual title changes', async () => {
+    const db = memoryDatabase();
+    const service = new NewsDiscoveryService(db.dataSource, config, jest.fn(), {
+      enqueueNews: jest.fn(),
+    } as unknown as PushFanoutService);
+    const fetch = jest.spyOn(PublisherNewsRssConnector.prototype, 'fetchFeed');
+    for (const title of ['Federal Reserve announces results', 'Federal Reserve revises results']) {
+      fetch.mockResolvedValueOnce(
+        withOfficialContent('fed-press', parseNewsRssFeed('fed-press', rss(article(title)))),
+      );
+    }
+    await service.discover(job);
+    const row = db.rows(SourceItemEntity)[0]!;
+    const audit = { version: 1, status: 'COMPLETED', inputHash: row.rawHash, title: '이전 결과' };
+    row.translationJson = audit;
+    await service.discover(job);
+    expect(row.translationJson).toEqual(audit);
+    expect(row.rawHash).not.toBe(audit.inputHash);
+  });
+
+  it.each([SourceItemEntity, NewsArticleContentEntity])(
+    'preserves manual edits and previous AI content when the original changes (%p)',
+    async (manualTarget) => {
+      const db = memoryDatabase();
+      const service = new NewsDiscoveryService(db.dataSource, config, jest.fn(), {
+        enqueueNews: jest.fn(),
+      } as unknown as PushFanoutService);
+      const original = withOfficialContent(
+        'fed-press',
+        parseNewsRssFeed('fed-press', rss(article())),
+      );
+      const revised = structuredClone(original);
+      revised.candidates[0]!.content!.contentHash = 'd'.repeat(64);
+      const fetch = jest.spyOn(PublisherNewsRssConnector.prototype, 'fetchFeed');
+      fetch.mockResolvedValueOnce(original).mockResolvedValueOnce(revised);
+      await service.discover(job);
+      const manual = { revisionId: 'manual-revision', sourceHash: 'old-hash' };
+      db.rows(manualTarget)[0]!.manualTranslationJson = manual;
+      const body = db.rows(NewsArticleContentEntity)[0]!;
+      const audit = { version: 1, status: 'COMPLETED', inputHash: body.contentHash, blocks: [] };
+      body.translationJson = audit;
+      await service.discover(job);
+      expect(db.rows(manualTarget)[0]!.manualTranslationJson).toEqual(manual);
+      expect(body.translationJson).toEqual(audit);
+      expect(body.contentHash).toBe('d'.repeat(64));
+    },
+  );
+
   it('clears stale HTTP validators after a content failure so the next poll retries the full feed', async () => {
     const db = memoryDatabase();
     const service = new NewsDiscoveryService(db.dataSource, config, jest.fn(), {

@@ -1,0 +1,592 @@
+.watch-groups {
+  overflow: hidden;
+  min-width: 0;
+}
+.watch-groups__header,
+.watch-groups__spaces,
+.watch-groups__toolbar,
+.watch-groups__tools,
+.watch-groups__actions,
+.watch-groups__views,
+.watch-groups__pagination {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.watch-groups__header {
+  padding: 14px 16px 8px;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+.watch-groups__header h2 {
+  margin: 0;
+  font-size: 16px;
+}
+.watch-groups__actions {
+  flex-wrap: wrap;
+}
+.watch-groups__spaces {
+  padding: 0 16px 10px;
+  flex-wrap: wrap;
+}
+.watch-groups__spaces > button,
+.watch-groups__spaces > select {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-2);
+  color: var(--muted);
+  padding: 6px 10px;
+  font-size: 12px;
+  min-height: 32px;
+  max-width: 100%;
+}
+.watch-groups__spaces .is-active {
+  background: var(--text);
+  color: var(--surface);
+}
+.watch-groups__toolbar {
+  padding: 0 12px;
+  border-block: 1px solid var(--border);
+  justify-content: space-between;
+}
+.watch-groups__tabs {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  min-width: 0;
+}
+.watch-groups__tabs button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  padding: 10px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+.watch-groups__tabs button[aria-selected='true'] {
+  color: var(--text);
+  border-bottom-color: var(--teal);
+}
+.watch-groups__tabs small {
+  color: var(--subtle);
+  font-size: 10px;
+}
+.watch-groups__views {
+  flex-shrink: 0;
+}
+.watch-groups__views button,
+.watch-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  height: 30px;
+  padding: 5px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.watch-groups__views button[aria-pressed='true'],
+.watch-icon-button:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.watch-groups__tools {
+  padding: 6px 12px;
+  flex-wrap: wrap;
+}
+.watch-groups__tools .button {
+  min-height: 28px;
+  font-size: 11px;
+  padding: 4px 7px;
+}
+.watch-groups__tools > small {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--subtle);
+}
+.watch-groups__content {
+  padding: 4px 14px 10px;
+}
+.watch-groups__stocks {
+  display: grid;
+  gap: 10px;
+  align-items: start;
+}
+.watch-groups__stocks--grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.watch-group-stock {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 95px;
+  gap: 9px 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-2);
+  color: var(--text);
+  text-decoration: none;
+  min-width: 0;
+  align-content: start;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+.watch-group-stock:hover {
+  border-color: var(--teal);
+  background: var(--surface);
+}
+.watch-group-stock:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+.watch-group-stock__company {
+  grid-column: 1/-1;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+.watch-group-stock__company .company-avatar {
+  width: 30px;
+  height: 30px;
+  flex: none;
+}
+.watch-group-stock__company > span:last-child {
+  min-width: 0;
+}
+.watch-group-stock__company strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.watch-group-stock__company small {
+  display: block;
+  color: var(--subtle);
+  font-size: 10px;
+  margin-top: 2px;
+}
+.watch-group-stock__quote {
+  min-width: 0;
+}
+.watch-group-stock__quote > strong {
+  display: block;
+  font-size: 20px;
+  line-height: 1.3;
+  letter-spacing: -0.025em;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.watch-group-stock__basis {
+  display: block;
+  color: var(--subtle);
+  font-size: 10px;
+  margin-top: 2px;
+}
+.watch-group-stock__change {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  margin-top: 4px;
+}
+.watch-group-stock__change[data-direction='up'] {
+  color: var(--red);
+}
+.watch-group-stock__change[data-direction='down'] {
+  color: var(--blue);
+}
+.watch-group-stock__chart {
+  align-self: center;
+  color: var(--teal);
+  min-width: 0;
+}
+.watch-group__sparkline {
+  display: block;
+  width: 100%;
+  height: 40px;
+}
+.watch-group__chart-empty {
+  color: var(--subtle);
+  font-size: 10px;
+}
+.watch-group-stock__activity {
+  grid-column: 1/-1;
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  border-top: 1px solid var(--border);
+  padding-top: 7px;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.watch-group-stock__activity > span {
+  color: var(--subtle);
+}
+.watch-group-stock__activity > b {
+  font-weight: 550;
+}
+.watch-groups__stocks--list {
+  gap: 5px;
+}
+.watch-groups__stocks--list .watch-group-stock {
+  grid-template-columns: minmax(130px, 1.2fr) minmax(150px, 1fr) minmax(90px, 0.7fr) minmax(
+      150px,
+      1fr
+    );
+  align-items: center;
+  padding: 9px 12px;
+  gap: 10px;
+  min-height: 76px;
+}
+.watch-groups__stocks--list .watch-group-stock__company,
+.watch-groups__stocks--list .watch-group-stock__activity {
+  grid-column: auto;
+}
+.watch-groups__stocks--list .watch-group-stock__quote {
+  display: grid;
+  grid-template-columns: auto;
+  gap: 1px;
+}
+.watch-groups__stocks--list .watch-group-stock__quote > strong {
+  font-size: 17px;
+}
+.watch-groups__stocks--list .watch-group-stock__change {
+  margin: 0;
+}
+.watch-groups__stocks--list .watch-group-stock__basis {
+  font-size: 9px;
+}
+.watch-groups__stocks--list .watch-group-stock__activity {
+  border: 0;
+  padding: 0;
+  flex-wrap: wrap;
+  gap: 5px 8px;
+}
+.watch-groups__pagination {
+  font-size: 11px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  min-height: 24px;
+}
+.watch-groups__pagination small {
+  color: var(--subtle);
+}
+.watch-groups__pagination > a {
+  margin-left: auto;
+}
+.watch-groups .empty-state {
+  padding: 24px 12px;
+}
+.watch-groups .form-error {
+  margin: 8px 16px;
+}
+.watch-dialog {
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  padding: 0;
+  width: min(560px, calc(100vw - 24px));
+  max-height: 85dvh;
+  box-shadow: 0 20px 80px #0006;
+}
+.watch-dialog--wide {
+  width: min(740px, calc(100vw - 24px));
+}
+.watch-dialog::backdrop {
+  background: #0007;
+}
+.watch-dialog > header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--surface);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.watch-dialog h2 {
+  margin: 0;
+  font-size: 16px;
+}
+.watch-dialog h3 {
+  font-size: 13px;
+  margin: 16px 0 8px;
+}
+.watch-dialog__body {
+  padding: 14px 16px;
+}
+.watch-dialog__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+.watch-help {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+  margin: 8px 0 14px;
+}
+.watch-inline-form {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0;
+}
+.watch-inline-form > .input,
+.watch-inline-form > select {
+  flex: 1;
+  min-width: 0;
+}
+.watch-room-form {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0;
+}
+.watch-room-form label {
+  display: grid;
+  gap: 5px;
+  font-size: 12px;
+}
+.watch-dialog select,
+.watch-room-form textarea {
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 7px;
+  font: inherit;
+  max-width: 100%;
+}
+.watch-room-form textarea {
+  resize: vertical;
+  min-height: 64px;
+}
+.watch-edit-list,
+.watch-search-results,
+.watch-room-directory,
+.watch-member-list {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0;
+}
+.watch-edit-list li,
+.watch-search-results li,
+.watch-room-directory li,
+.watch-member-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  min-width: 0;
+}
+.watch-edit-list .input {
+  flex: 1;
+  min-width: 0;
+}
+.watch-edit-company {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.watch-edit-company small,
+.watch-search-results small,
+.watch-room-directory small,
+.watch-member-list small {
+  display: block;
+  color: var(--subtle);
+  font-size: 11px;
+  margin-top: 3px;
+}
+.watch-order-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+.watch-order-controls input {
+  width: 42px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  border-radius: 4px;
+  padding: 4px;
+  font-size: 11px;
+  text-align: center;
+}
+.watch-edit-list--stocks {
+  max-height: 42dvh;
+  overflow-y: auto;
+}
+.watch-search-results {
+  max-height: 24dvh;
+  overflow: auto;
+}
+.watch-search-results li,
+.watch-room-directory li {
+  justify-content: space-between;
+}
+.watch-room-directory li > div {
+  min-width: 0;
+}
+.watch-room-directory strong {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.watch-room-directory p {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+  margin: 5px 0;
+  overflow-wrap: anywhere;
+}
+.watch-edit-caption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  margin-top: 10px;
+}
+.watch-member-list li {
+  justify-content: space-between;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+.watch-member-actions {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.watch-member-actions label {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+  font-size: 11px;
+}
+.watch-room-danger {
+  border-top: 1px solid var(--border);
+  margin-top: 16px;
+  padding-top: 8px;
+}
+.watch-dialog button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+@media (max-width: 1100px) {
+  .watch-groups__stocks--grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .watch-groups__stocks--list .watch-group-stock {
+    grid-template-columns: minmax(110px, 1fr) minmax(120px, 1fr) 70px 90px;
+  }
+  .watch-groups__stocks--list .watch-group-stock__activity {
+    grid-column: auto;
+  }
+  .watch-groups__stocks--list .watch-group-stock__activity > span {
+    margin-right: auto;
+  }
+}
+@media (max-width: 620px) {
+  .watch-groups__stocks--grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .watch-groups__header {
+    padding: 12px;
+  }
+  .watch-groups__header .button {
+    font-size: 11px;
+  }
+  .watch-groups__spaces {
+    padding-inline: 12px;
+  }
+  .watch-groups__content {
+    padding-inline: 10px;
+  }
+  .watch-groups__tools > small {
+    width: 100%;
+    margin-left: 5px;
+  }
+  .watch-groups__stocks--list .watch-group-stock {
+    grid-template-columns: minmax(0, 1fr) minmax(115px, 0.8fr);
+    gap: 3px 8px;
+    padding: 7px 10px;
+  }
+  .watch-groups__stocks--list .watch-group-stock__quote {
+    text-align: right;
+  }
+  .watch-groups__stocks--list .watch-group-stock__quote > strong {
+    font-size: 16px;
+    line-height: 1.15;
+  }
+  .watch-groups__stocks--list .watch-group-stock__basis {
+    line-height: 1.2;
+    margin: 0;
+  }
+  .watch-groups__stocks--list .watch-group-stock__change {
+    justify-content: flex-end;
+    font-size: 10px;
+    line-height: 1.25;
+  }
+  .watch-groups__stocks--list .watch-group-stock__chart {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .watch-groups__stocks--list .watch-group__sparkline {
+    height: 20px;
+    max-width: 90px;
+  }
+  .watch-groups__stocks--list .watch-group-stock__activity {
+    grid-column: 2;
+    grid-row: 2;
+    justify-content: flex-end;
+    border: 0;
+    padding: 0;
+    font-size: 9px;
+  }
+  .watch-groups__stocks--list .watch-group-stock__activity > span {
+    display: none;
+  }
+  .watch-icon-button,
+  .watch-groups__views button {
+    min-width: 36px;
+    min-height: 36px;
+  }
+  .watch-dialog__body {
+    padding: 12px;
+  }
+  .watch-order-controls input {
+    width: 34px;
+  }
+  .watch-order-controls .watch-icon-button {
+    min-width: 30px;
+  }
+  .watch-room-directory li {
+    align-items: start;
+  }
+  .watch-member-actions {
+    gap: 8px;
+  }
+  .watch-dialog .button {
+    min-height: 40px;
+  }
+  .watch-groups__pagination > a {
+    margin-left: 0;
+  }
+}

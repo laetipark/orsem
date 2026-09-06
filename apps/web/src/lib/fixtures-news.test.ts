@@ -87,3 +87,40 @@ it('NAVER 검색 fixture는 헤더 입력을 안전하게 표시하고 20개 단
   expect(first.items.every((item) => !item.link.includes(encodeURIComponent(query)))).toBe(true);
   expect(last).toMatchObject({ total: 45, start: 41, display: 5 });
 });
+
+it('translation-edit fixtures preserve the original, update displayed copies and reject stale revisions', async () => {
+  const id = 'fixture-news-bls-release-01';
+  const before = await fixtureRequest<import('../types').NewsDetail>(`/api/v1/news/${id}`);
+  const edit = await fixtureRequest<import('../types').NewsTranslationEdit>(
+    `/api/v1/news/${id}/translation-edit`,
+  );
+  const input = {
+    revision: edit.revision,
+    title: '편집 검증 제목',
+    description: null,
+    markdown: '## 수정 문단\n\n**수정** 본문',
+  };
+  const saved = await fixtureRequest<import('../types').NewsTranslationEdit>(
+    `/api/v1/news/${id}/translation-edit`,
+    { method: 'PATCH', body: JSON.stringify(input) },
+  );
+  expect(saved.revision).not.toBe(edit.revision);
+  const after = await fixtureRequest<import('../types').NewsDetail>(`/api/v1/news/${id}`);
+  expect(after.content!.original).toEqual(before.content!.original);
+  expect(after.title).toBe(before.title);
+  expect(after.rightsMode).toBe(before.rightsMode);
+  expect(after.translation).toMatchObject({
+    title: input.title,
+    description: null,
+    editedAt: saved.editedAt,
+  });
+  expect(after.content!.translation).toMatchObject({ format: 'MARKDOWN' });
+  await expect(
+    fixtureRequest(`/api/v1/news/${id}/translation-edit`, {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    }),
+  ).rejects.toMatchObject({ statusCode: 409 });
+  const list = await fixtureRequest<CursorPage<SourceItem>>('/api/v1/news');
+  expect(list.items.find((item) => item.id === id)?.translation?.title).toBe(input.title);
+});

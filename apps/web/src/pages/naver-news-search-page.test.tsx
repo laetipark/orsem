@@ -3,14 +3,27 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import { NaverNewsSearchPage } from './naver-news-search-page';
 
-const mocks = vi.hoisted(() => ({ search: vi.fn() }));
-vi.mock('../lib/api', () => ({ api: { naverNewsSearch: mocks.search } }));
+const mocks = vi.hoisted(() => ({ search: vi.fn(), status: vi.fn() }));
+vi.mock('../lib/api', () => ({
+  api: { naverNewsSearch: mocks.search, naverNewsStatus: mocks.status },
+}));
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
 });
 
 it('네이버 검색은 사용자 동작으로만 호출하고 제공자 순서·안전한 강조·페이지를 유지한다', async () => {
+  mocks.status.mockResolvedValue({
+    configured: true,
+    automaticAllowed: true,
+    mode: 'ON_DEMAND',
+    freeUntil: '2026-09-30T00:00:00Z',
+    dailyLimit: 100,
+    monthlyLimit: 2000,
+    remainingToday: 100,
+    remainingMonth: 2000,
+    reason: null,
+  });
   mocks.search.mockResolvedValue({
     provider: 'NAVER',
     lastBuildDate: 'Sat, 05 Sep 2026 15:00:00 +0900',
@@ -44,6 +57,7 @@ it('네이버 검색은 사용자 동작으로만 호출하고 제공자 순서�
     target: { value: ' 삼성전자 ' },
   });
   fireEvent.change(screen.getByLabelText('정렬'), { target: { value: 'sim' } });
+  await waitFor(() => expect(screen.getByRole('button', { name: '검색' })).toBeEnabled());
   fireEvent.click(screen.getByRole('button', { name: '검색' }));
   await waitFor(() =>
     expect(mocks.search).toHaveBeenCalledWith('삼성전자', 1, 'sim', expect.any(AbortSignal)),
@@ -62,4 +76,26 @@ it('네이버 검색은 사용자 동작으로만 호출하고 제공자 순서�
   await waitFor(() =>
     expect(mocks.search).toHaveBeenLastCalledWith('삼성전자', 21, 'sim', expect.any(AbortSignal)),
   );
+});
+
+it('blocks manual queries when free allowance is unknown', async () => {
+  mocks.status.mockResolvedValue({
+    configured: true,
+    automaticAllowed: false,
+    mode: 'ON_DEMAND',
+    freeUntil: null,
+    dailyLimit: 100,
+    monthlyLimit: 0,
+    remainingToday: null,
+    remainingMonth: null,
+    reason: '이번 달 무료 이용 조건과 호출 가능량 확인이 필요합니다.',
+  });
+  render(
+    <MemoryRouter>
+      <NaverNewsSearchPage />
+    </MemoryRouter>,
+  );
+  await screen.findByText(/이번 달 무료 이용 조건과 호출 가능량 확인이 필요합니다/);
+  expect(screen.getByRole('button', { name: '검색' })).toBeDisabled();
+  expect(mocks.search).not.toHaveBeenCalled();
 });

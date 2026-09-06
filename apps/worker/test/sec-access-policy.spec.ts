@@ -81,7 +81,7 @@ it('shares a ten-minute SEC 403 cooldown across wrappers and allows a request at
   fetcher.mockImplementation(async () => new Response('{}'));
   await expect(another(URL)).resolves.toMatchObject({ status: 200 });
   expect(fetcher).toHaveBeenCalledTimes(2);
-  expect(db.repository.save).toHaveBeenCalledTimes(1);
+  expect(db.repository.save).toHaveBeenCalledTimes(3);
   expect(jest.getTimerCount()).toBe(0);
 });
 
@@ -104,28 +104,37 @@ it.each([
   });
 });
 
-it('does not let shorter concurrent restrictions or an older in-flight 200 clear the shared cooldown', async () => {
+it('serializes transports and marks queued requests skipped after the first provider denial', async () => {
   const db = database();
-  const resolveResponses: Array<(response: Response) => void> = [];
-  const fetcher = jest.fn(() => new Promise<Response>((resolve) => resolveResponses.push(resolve)));
-  const long = createSecFetch(db.dataSource, fetcher)(URL).catch((error: unknown) => error);
-  const short = createSecFetch(db.dataSource, fetcher)(URL).catch((error: unknown) => error);
-  const success = createSecFetch(db.dataSource, fetcher)(URL);
-  await Promise.resolve();
-  resolveResponses[0]!(new Response('', { status: 429, headers: { 'Retry-After': '3600' } }));
-  await long;
-  resolveResponses[1]!(new Response('', { status: 403 }));
-  expect(await short).toMatchObject({ retryAt: new Date(NOW + 3_600_000) });
-  resolveResponses[2]!(new Response('{}'));
-  expect((await success).status).toBe(200);
-  expect(db.row()?.metadataJson).toMatchObject({
-    retryAt: new Date(NOW + 3_600_000).toISOString(),
-    providerStatus: 429,
+  const fetcher = jest.fn(async () => new Response('', { status: 403 }));
+  const calls = [
+    createSecFetch(db.dataSource, fetcher)(URL).catch((e: unknown) => e),
+    createSecFetch(
+      db.dataSource,
+      fetcher,
+    )('https://www.sec.gov/files/company_tickers_exchange.json').catch((e: unknown) => e),
+  ];
+  const [observed, skipped] = await Promise.all(calls);
+  expect(observed).toMatchObject({ providerStatus: 403, requestAttempted: true });
+  expect(skipped).toMatchObject({ providerStatus: 403, requestAttempted: false });
+  expect(fetcher).toHaveBeenCalledTimes(1);
+});
+
+it('spaces all SEC transports through the same 250ms start gate', async () => {
+  const db = database();
+  const starts: number[] = [];
+  const fetcher = jest.fn(async () => {
+    starts.push(Date.now());
+    return new Response('{}');
   });
-  await expect(createSecFetch(db.dataSource, fetcher)(URL)).rejects.toBeInstanceOf(
-    SecAccessCooldownError,
-  );
-  expect(fetcher).toHaveBeenCalledTimes(3);
+  await createSecFetch(db.dataSource, fetcher)(URL);
+  const second = createSecFetch(
+    db.dataSource,
+    fetcher,
+  )('https://www.sec.gov/files/company_tickers_exchange.json');
+  await jest.advanceTimersByTimeAsync(250);
+  await second;
+  expect(starts).toEqual([NOW, NOW + 250]);
 });
 
 it('passes through other hosts and preserves transport failures without recording provider denial', async () => {
@@ -140,7 +149,8 @@ it('passes through other hosts and preserves transport failures without recordin
   expect(fetcher).toHaveBeenLastCalledWith('https://sec.gov.example.com/data', { headers });
   fetcher.mockRejectedValue(timeout);
   await expect(wrapped(URL, { headers })).rejects.toBe(timeout);
-  expect(db.repository.save).not.toHaveBeenCalled();
+  expect(db.row()?.metadataJson?.retryAt).toBeUndefined();
+  expect(db.row()?.metadataJson?.nextRequestAt).toBeDefined();
 });
 
 it('fails closed on checkpoint database failures without leaking database details', async () => {
@@ -151,4 +161,22 @@ it('fails closed on checkpoint database failures without leaking database detail
   await expect(wrapped(URL)).rejects.toBeInstanceOf(SecAccessPolicyError);
   await expect(wrapped(URL)).rejects.not.toThrow('private');
   expect(fetcher).not.toHaveBeenCalled();
+});
+
+it('reserves request slots across independent worker DataSource handles sharing the same database', async () => {
+  const db = database();
+  const other = {
+    getRepository: db.dataSource.getRepository.bind(db.dataSource),
+    transaction: db.dataSource.transaction.bind(db.dataSource),
+  } as unknown as DataSource;
+  const starts: number[] = [];
+  const fetcher = async () => {
+    starts.push(Date.now());
+    return new Response('{}');
+  };
+  const first = createSecFetch(db.dataSource, fetcher)(URL);
+  const second = createSecFetch(other, fetcher)(URL);
+  await jest.advanceTimersByTimeAsync(250);
+  await Promise.all([first, second]);
+  expect(starts).toEqual([NOW, NOW + 250]);
 });

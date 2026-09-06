@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { chartTime, chartTimeLabel, hasChartCandles, isNoTradePrice } from '../lib/chart-prices';
 import type { CompanyTimeline, PricePoint } from '../types';
+import { mockMediaQuery } from '../test/media-query';
 import { CompanyChart } from './company-chart';
 
 const chartMocks = vi.hoisted(() => ({
@@ -16,6 +17,8 @@ const chartMocks = vi.hoisted(() => ({
   updatePriceLine: vi.fn(),
   subscribeCrosshairMove: vi.fn(),
   unsubscribeCrosshairMove: vi.fn(),
+  subscribeClick: vi.fn(),
+  unsubscribeClick: vi.fn(),
   removeSeries: vi.fn(),
   setVisibleLogicalRange: vi.fn(),
 }));
@@ -59,12 +62,16 @@ function timeline(prices: PricePoint[]): CompanyTimeline {
 beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
+  localStorage.setItem(
+    'orsem-chart-indicators-v1',
+    JSON.stringify({ volume: true, sma: [20], rsi: false, rsiPeriod: 14 }),
+  );
   chartMocks.addSeries.mockImplementation((definition, options) => ({
     setData: definition.type === 'candlestick' ? chartMocks.setData : vi.fn(),
     createPriceLine: definition.type === 'candlestick' ? chartMocks.createPriceLine : vi.fn(),
     removePriceLine: chartMocks.removePriceLine,
     options: () => options,
-    getPane: () => ({ setStretchFactor: vi.fn() }),
+    getPane: () => ({ setStretchFactor: vi.fn(), setHeight: vi.fn(), getHTMLElement: () => null }),
     priceScale: () => ({ applyOptions: vi.fn() }),
   }));
   chartMocks.createChart.mockReturnValue({
@@ -76,8 +83,8 @@ beforeEach(() => {
     }),
     subscribeCrosshairMove: chartMocks.subscribeCrosshairMove,
     unsubscribeCrosshairMove: chartMocks.unsubscribeCrosshairMove,
-    subscribeClick: vi.fn(),
-    unsubscribeClick: vi.fn(),
+    subscribeClick: chartMocks.subscribeClick,
+    unsubscribeClick: chartMocks.unsubscribeClick,
     removeSeries: chartMocks.removeSeries,
     applyOptions: vi.fn(),
     remove: chartMocks.remove,
@@ -166,6 +173,9 @@ describe('Toss chart updates', () => {
     const input = { ...timeline([first, last]), currency: 'USD' as const };
     const view = render(<CompanyChart timeline={input} />);
     const legend = screen.getByRole('group', { name: '봉별 가격과 지표 범례' });
+    const latestButton = screen.getByRole('button', { name: '최신 봉 보기' });
+    expect(latestButton).toBeDisabled();
+    expect(within(legend).queryByRole('button', { name: '최신 봉 보기' })).not.toBeInTheDocument();
     expect(within(legend).getByText('101.25')).toBeInTheDocument();
     act(() =>
       chartMocks.subscribeCrosshairMove.mock.calls[0]![0]({
@@ -174,14 +184,16 @@ describe('Toss chart updates', () => {
       }),
     );
     expect(within(legend).getByText('100.75')).toBeInTheDocument();
+    expect(latestButton).toBeEnabled();
     view.rerender(
       <CompanyChart timeline={{ ...input, prices: [first, { ...last, close: 101.5 }] }} />,
     );
     expect(within(legend).getByText('100.75')).toBeInTheDocument();
     fireEvent.keyDown(legend, { key: 'ArrowRight' });
     expect(within(legend).getByText('101.50')).toBeInTheDocument();
-    fireEvent.click(within(legend).getByRole('button', { name: '최신 봉 보기' }));
+    fireEvent.click(latestButton);
     expect(within(legend).getByText('최신 봉')).toBeInTheDocument();
+    expect(latestButton).toBeDisabled();
     view.unmount();
     expect(chartMocks.unsubscribeCrosshairMove).toHaveBeenCalledWith(
       chartMocks.subscribeCrosshairMove.mock.calls[0]![0],
@@ -190,6 +202,7 @@ describe('Toss chart updates', () => {
 
   it('toggles indicator panes without rebuilding the chart and saves browser settings', () => {
     render(<CompanyChart timeline={timeline([price])} />);
+    fireEvent.click(screen.getByRole('button', { name: /보조지표/ }));
     fireEvent.click(screen.getByLabelText('RSI', { exact: true }));
     expect(chartMocks.addSeries).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'line' }),
@@ -210,10 +223,79 @@ describe('Toss chart updates', () => {
       rsi: true,
       rsiPeriod: 14,
     });
+    fireEvent.click(screen.getByRole('button', { name: /보조지표/ }));
+    expect(screen.queryByLabelText('RSI', { exact: true })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /보조지표/ }));
+    expect(screen.getByLabelText('RSI', { exact: true })).toBeChecked();
+    expect(screen.getByLabelText('거래량', { exact: true })).not.toBeChecked();
+    expect(chartMocks.createChart).toHaveBeenCalledOnce();
+  });
+
+  it('always shows compact OHLC on mobile and retains touch selection across data updates', () => {
+    const media = mockMediaQuery(true);
+    const first = { ...price, time: '2026-09-01', close: 100.75 },
+      last = { ...price, time: '2026-09-02', close: 101.25 };
+    const input = { ...timeline([first, last]), currency: 'USD' as const };
+    const view = render(<CompanyChart timeline={input} />),
+      legend = screen.getByRole('group', { name: '봉별 가격과 지표 범례' });
+    expect(within(legend).getByText('시가')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '가격·지표 상세' })).not.toBeInTheDocument();
+    act(() =>
+      chartMocks.subscribeClick.mock.calls[0]![0]({ time: first.time, point: { x: 30, y: 40 } }),
+    );
+    expect(within(legend).getByText('100.75')).toBeInTheDocument();
+    view.rerender(
+      <CompanyChart timeline={{ ...input, prices: [first, { ...last, close: 102 }] }} />,
+    );
+    act(() => media.resize(false));
+    expect(within(legend).getByText('100.75')).toBeInTheDocument();
+    expect(within(legend).getByText('시가')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '최신 봉 보기' }));
+    expect(within(legend).getByText('102.00')).toBeInTheDocument();
+    expect(chartMocks.createChart).toHaveBeenCalledOnce();
+    expect(chartMocks.fitContent).toHaveBeenCalledOnce();
+  });
+  it('lets the keyboard scroll compact legend rows without changing the selected candle', () => {
+    mockMediaQuery(true);
+    const first = { ...price, time: '2026-09-01', close: 100.75 },
+      last = { ...price, time: '2026-09-02', close: 101.25 };
+    render(<CompanyChart timeline={{ ...timeline([first, last]), currency: 'USD' }} />);
+    const legend = screen.getByRole('group', { name: '봉별 가격과 지표 범례' });
+    const priceRow = screen.getByRole('group', { name: '시가·고가·저가·종가' });
+    expect(priceRow).toHaveAttribute('tabindex', '0');
+    expect(screen.getByRole('group', { name: '이동평균 값' })).toHaveAttribute('tabindex', '0');
+    expect(screen.getByRole('group', { name: '선택 시각과 거래량' })).toHaveAttribute(
+      'tabindex',
+      '0',
+    );
+    fireEvent.keyDown(priceRow, { key: 'ArrowLeft' });
+    expect(within(legend).getByText('101.25')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '최신 봉 보기' })).toBeDisabled();
+    fireEvent.keyDown(legend, { key: 'ArrowLeft' });
+    expect(within(legend).getByText('100.75')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '최신 봉 보기' })).toBeEnabled();
+  });
+  it('uses the new first-use profile without overwriting saved indicator choices', () => {
+    localStorage.clear();
+    render(<CompanyChart timeline={timeline([price])} />);
+    expect(JSON.parse(localStorage.getItem('orsem-chart-indicators-v1')!)).toEqual({
+      volume: true,
+      sma: [5, 20, 60],
+      rsi: true,
+      rsiPeriod: 14,
+    });
+    expect(chartMocks.addSeries).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'line' }),
+      expect.objectContaining({ title: 'RSI 14' }),
+      2,
+    );
   });
 });
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 describe('company chart KRX no-trade days', () => {
   it('passes no-trade days as whitespace and preserves traded OHLC and official source closes', () => {
