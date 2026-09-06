@@ -22,7 +22,7 @@ Nest 애플리케이션 컨텍스트에서 실행되는 worker입니다. OpenDAR
 | OpenDART / SEC        | `OFFICIAL_PUBLIC_DATA` | API 키 또는 식별 가능한 User-Agent                                       |
 | Samsung Global IR     | `PRIVATE_DISPLAY_ONLY` | 검토된 정확한 Global RSS와 로그인 개인 화면                              |
 | Federal Reserve / BLS | `OFFICIAL_PUBLIC_DATA` | 검토된 공식 RSS와 공식 기사 호스트, 텍스트 본문만                        |
-| GDELT                | `STORE_METADATA_ONLY` | 제목·출처·언어·원문 링크, 본문·이미지·자동 번역 없음                     |
+| GDELT                 | `STORE_METADATA_ONLY`  | 제목·출처·언어·원문 링크, 본문·이미지·자동 번역 없음                     |
 | Alpaca 자산 마스터    | `PRIVATE_DISPLAY_ONLY` | Alpaca 자격 증명, 기업 식별 정보만 제공                                  |
 | Toss Securities       | `PRIVATE_DISPLAY_ONLY` | `TOSS_CREDENTIALS_FILE` 또는 주입한 클라이언트 자격 증명, 허용된 서버 IP |
 
