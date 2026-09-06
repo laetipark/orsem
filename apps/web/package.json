@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "brand:generate": "node scripts/generate-brand-assets.mjs",
+    "brand:check": "node scripts/generate-brand-assets.mjs --check",
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b --pretty false",
@@ -30,6 +32,7 @@
     "@types/react-dom": "^19.1.9",
     "@vitejs/plugin-react": "^5.0.2",
     "jsdom": "^26.1.0",
+    "sharp": "0.35.4",
     "typescript": "^5.9.2",
     "vite": "^7.1.4",
     "vitest": "^3.2.4"

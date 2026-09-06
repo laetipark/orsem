@@ -421,6 +421,19 @@ export const newsTranslationEditSchema = z.object({
 export type NewsTranslationEdit = z.infer<typeof newsTranslationEditSchema>;
 
 export const sourceItemSchema = z.object({
+  expiresAt: isoInstantSchema.optional(),
+  collectedAt: isoInstantSchema.optional(),
+  providerOriginal: z
+    .object({
+      title: z.string(),
+      description: z.string(),
+      link: z.string(),
+      originallink: z.string(),
+      pubDate: z.string(),
+    })
+    .optional(),
+  summaryLine: z.string().optional(),
+  translationStatus: z.enum(['PENDING', 'COMPLETED', 'FAILED', 'UNAVAILABLE']).optional(),
   id: idSchema,
   displayMode: z.enum(['INTERNAL_CONTENT', 'EXTERNAL_LINK']).optional(),
   relatedCompanies: z
@@ -604,6 +617,25 @@ export const eventDetailViewSchema = eventSummaryViewSchema.extend({
 export type EventDetailView = z.infer<typeof eventDetailViewSchema>;
 
 export const companySummaryViewSchema = z.object({
+  canonicalPath: z
+    .string()
+    .regex(/^\/companies\/(?:[A-Z]+:)?[A-Za-z0-9][A-Za-z0-9.-]{0,63}$/u)
+    .optional(),
+  quote: z
+    .object({
+      price: z.string().nullable(),
+      currency: z.string().nullable(),
+      changePercent: z.number().nullable(),
+      volume: z.string().nullable(),
+      basisDate: dateOnlySchema.nullable(),
+      referenceDate: dateOnlySchema.nullable(),
+      observedAt: isoInstantSchema.nullable(),
+      source: z.string().nullable(),
+      marketCap: z.string().nullable(),
+      capBasisDate: dateOnlySchema.nullable(),
+    })
+    .nullable()
+    .optional(),
   id: idSchema,
   nameKo: z.string(),
   nameEn: z.string().nullable(),
@@ -639,6 +671,19 @@ export const companyTimelineQuerySchema = z.object({
 });
 export const priceTimeSchema = z.union([dateOnlySchema, isoInstantSchema]);
 
+export const companyPricePointSchema = z.object({
+  time: priceTimeSchema,
+  sessionDate: dateOnlySchema,
+  observedAt: isoInstantSchema.nullable(),
+  open: z.number(),
+  high: z.number(),
+  low: z.number(),
+  close: z.number(),
+  volume: z.number(),
+  source: candleSourceSchema,
+  rightsMode: z.enum(RightsMode),
+});
+
 export const companyTimelineSchema = z
   .object({
     companyId: idSchema,
@@ -646,20 +691,9 @@ export const companyTimelineSchema = z
     provider: marketDataProviderSchema,
     interval: priceIntervalSchema,
     status: z.enum(['READY', 'NOT_CONFIGURED', 'PENDING']),
-    prices: z.array(
-      z.object({
-        time: priceTimeSchema,
-        sessionDate: dateOnlySchema,
-        observedAt: isoInstantSchema.nullable(),
-        open: z.number(),
-        high: z.number(),
-        low: z.number(),
-        close: z.number(),
-        volume: z.number(),
-        source: candleSourceSchema,
-        rightsMode: z.enum(RightsMode),
-      }),
-    ),
+    prices: z.array(companyPricePointSchema),
+    // 실제 표시 기간 전의 저장된 봉입니다. 수익률·차트 기간에는 포함하지 않습니다.
+    indicatorWarmupPrices: z.array(companyPricePointSchema).max(119).optional(),
     priceSources: z.array(
       z.object({
         source: candleSourceSchema,
@@ -696,15 +730,17 @@ export const companyTimelineSchema = z
   })
   .superRefine((timeline, context) => {
     const timeSchema = timeline.interval === '1d' ? dateOnlySchema : isoInstantSchema;
-    timeline.prices.forEach((point, index) => {
-      if (!timeSchema.safeParse(point.time).success) {
-        context.addIssue({
-          code: 'custom',
-          path: ['prices', index, 'time'],
-          message: 'Time must match the selected interval',
-        });
-      }
-    });
+    for (const field of ['prices', 'indicatorWarmupPrices'] as const) {
+      (timeline[field] ?? []).forEach((point, index) => {
+        if (!timeSchema.safeParse(point.time).success) {
+          context.addIssue({
+            code: 'custom',
+            path: [field, index, 'time'],
+            message: 'Time must match the selected interval',
+          });
+        }
+      });
+    }
     if (timeline.latestCloseAt && !timeSchema.safeParse(timeline.latestCloseAt).success) {
       context.addIssue({
         code: 'custom',
@@ -1100,7 +1136,25 @@ export const deviceHeartbeatSchema = z.object({
 });
 export const deviceCommandSchema = z.object({
   deviceId: z.string().min(3).max(128),
-  command: z.string().min(1).max(128),
+  command: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .pipe(
+      z.enum([
+        'status',
+        'recent',
+        'company',
+        'market',
+        'news',
+        '상태',
+        '최근',
+        '기업',
+        '종목',
+        '시장',
+        '뉴스',
+      ]),
+    ),
   query: z
     .string()
     .max(4000)

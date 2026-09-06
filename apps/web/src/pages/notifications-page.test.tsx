@@ -109,6 +109,9 @@ describe('personal browser notifications', () => {
   it('keeps operations hidden for members and persists the selected topics', async () => {
     const client = show();
     expect(screen.queryByLabelText('운영 상태')).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('checkbox', { name: /국내·미국 시총 상위 20종목 소식만 받기/ }),
+    ).toBeChecked();
     fireEvent.click(screen.getByRole('switch', { name: '알림 받기' }));
     fireEvent.click(screen.getByRole('checkbox', { name: '기업 뉴스' }));
     fireEvent.click(screen.getByRole('button', { name: '알림 설정 저장' }));

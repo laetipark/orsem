@@ -188,21 +188,26 @@ test('RSS news source filtering precedes limit and cursor in every fixture regio
       tickers: [],
     })),
   );
-  const controller = new NewsController(data);
+  const controller = new NewsController(data, { feed: async () => ({ groups: [] }) } as never);
   for (const region of ['all', 'kr', 'us']) {
-    const first = await controller.list({ source: 'NEWS_RSS', limit: '1', region });
+    const first = await controller.list({ source: 'NEWS_RSS', limit: '1', region }, {
+      session: { memberId: 'member' },
+    } as never);
     assert.deepEqual(
       first.items.map((item) => item.id),
       ['rss-newer'],
     );
     assert.equal(first.pageInfo.hasMore, true);
     assert.ok(first.nextCursor);
-    const second = await controller.list({
-      source: 'NEWS_RSS',
-      limit: '1',
-      region,
-      cursor: first.nextCursor,
-    });
+    const second = await controller.list(
+      {
+        source: 'NEWS_RSS',
+        limit: '1',
+        region,
+        cursor: first.nextCursor,
+      },
+      { session: { memberId: 'member' } } as never,
+    );
     assert.deepEqual(
       second.items.map((item) => item.id),
       ['rss-older'],
@@ -211,10 +216,14 @@ test('RSS news source filtering precedes limit and cursor in every fixture regio
     assert.equal(second.pageInfo.hasMore, false);
     assert.ok([...first.items, ...second.items].every((item) => item.source === 'NEWS_RSS'));
   }
-  assert.equal((await controller.list({ limit: 100 })).items.length, 3);
+  assert.equal(
+    (await controller.list({ limit: 100 }, { session: { memberId: 'member' } } as never)).items
+      .length,
+    3,
+  );
   for (const source of ['NAVER', 'unknown', 'news_rss', ['NEWS_RSS', 'NAVER']]) {
-    assert.throws(
-      () => controller.list({ source }),
+    await assert.rejects(
+      () => controller.list({ source }, { session: { memberId: 'member' } } as never),
       (error: unknown) => error instanceof HttpException && error.getStatus() === 400,
     );
   }

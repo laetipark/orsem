@@ -201,7 +201,7 @@ async function main() {
   if (!args.includes('--collect-only')) await runJob(JobName.SYNC_SEC_CIK, {}, 'map_cik');
   const companies = await rows(`SELECT c.id,c.ticker,c.name_ko,c.cik FROM companies c
     WHERE c.is_listed=1 AND c.market IN ('NASDAQ','NYSE','AMEX') AND (
-      EXISTS (SELECT 1 FROM watchlist_items w WHERE w.company_id=c.id AND w.priority IN ('P1','P2'))
+      EXISTS (SELECT 1 FROM market_leader_company_links w WHERE w.company_id=c.id AND w.priority IN ('P1','P2'))
       OR EXISTS (SELECT 1 FROM ir_sources ir WHERE ir.company_id=c.id AND ir.is_active=1)
       OR EXISTS (SELECT 1 FROM source_checkpoints cp WHERE cp.connector='TOSS'
         AND cp.stream LIKE 'PRICE_BARS:%' AND cp.last_success_at>=UTC_TIMESTAMP()-INTERVAL 1 DAY

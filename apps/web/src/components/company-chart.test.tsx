@@ -9,6 +9,10 @@ const chartMocks = vi.hoisted(() => ({
   createChart: vi.fn(),
   addSeries: vi.fn(),
   setData: vi.fn(),
+  indicatorData: vi.fn(),
+  closeData: vi.fn(),
+  candleOptions: vi.fn(),
+  closeOptions: vi.fn(),
   remove: vi.fn(),
   fitContent: vi.fn(),
   setMarkers: vi.fn(),
@@ -21,6 +25,9 @@ const chartMocks = vi.hoisted(() => ({
   unsubscribeClick: vi.fn(),
   removeSeries: vi.fn(),
   setVisibleLogicalRange: vi.fn(),
+  getVisibleLogicalRange: vi.fn(),
+  subscribeVisibleLogicalRangeChange: vi.fn(),
+  unsubscribeVisibleLogicalRangeChange: vi.fn(),
 }));
 
 vi.mock('lightweight-charts', () => ({
@@ -66,8 +73,20 @@ beforeEach(() => {
     'orsem-chart-indicators-v1',
     JSON.stringify({ volume: true, sma: [20], rsi: false, rsiPeriod: 14 }),
   );
+  chartMocks.getVisibleLogicalRange.mockReturnValue({ from: 0, to: 40 });
   chartMocks.addSeries.mockImplementation((definition, options) => ({
-    setData: definition.type === 'candlestick' ? chartMocks.setData : vi.fn(),
+    setData:
+      definition.type === 'candlestick'
+        ? chartMocks.setData
+        : options.title === '종가'
+          ? chartMocks.closeData
+          : chartMocks.indicatorData,
+    applyOptions:
+      definition.type === 'candlestick'
+        ? chartMocks.candleOptions
+        : options.title === '종가'
+          ? chartMocks.closeOptions
+          : vi.fn(),
     createPriceLine: definition.type === 'candlestick' ? chartMocks.createPriceLine : vi.fn(),
     removePriceLine: chartMocks.removePriceLine,
     options: () => options,
@@ -78,7 +97,9 @@ beforeEach(() => {
     addSeries: chartMocks.addSeries,
     timeScale: () => ({
       fitContent: chartMocks.fitContent,
-      getVisibleLogicalRange: () => ({ from: 0, to: 40 }),
+      subscribeVisibleLogicalRangeChange: chartMocks.subscribeVisibleLogicalRangeChange,
+      unsubscribeVisibleLogicalRangeChange: chartMocks.unsubscribeVisibleLogicalRangeChange,
+      getVisibleLogicalRange: chartMocks.getVisibleLogicalRange,
       setVisibleLogicalRange: chartMocks.setVisibleLogicalRange,
     }),
     subscribeCrosshairMove: chartMocks.subscribeCrosshairMove,
@@ -342,4 +363,100 @@ describe('company chart KRX no-trade days', () => {
   ])('does not treat a different source or price pattern as a KRX no-trade day: %o', (patch) => {
     expect(isNoTradePrice({ ...noTradePrice, ...patch })).toBe(false);
   });
+});
+
+describe('indicator warmup data', () => {
+  it('calculates 120-day SMA from older candles without expanding the visible chart range', () => {
+    localStorage.setItem(
+      'orsem-chart-indicators-v1',
+      JSON.stringify({ volume: false, sma: [120], rsi: false, rsiPeriod: 14 }),
+    );
+    const prices: PricePoint[] = Array.from({ length: 120 }, (_, index) => ({
+      time: new Date(Date.UTC(2026, 0, index + 1)).toISOString().slice(0, 10),
+      open: index + 1,
+      high: index + 1,
+      low: index + 1,
+      close: index + 1,
+      volume: 1,
+      source: 'TOSS_KR',
+      rightsMode: 'PRIVATE_DISPLAY_ONLY',
+    }));
+    const visible = prices.slice(-1);
+    render(
+      <CompanyChart
+        timeline={{ ...timeline(visible), indicatorWarmupPrices: prices.slice(0, -1) }}
+      />,
+    );
+    expect(chartMocks.setData).toHaveBeenLastCalledWith([
+      { time: visible[0]!.time, open: 120, high: 120, low: 120, close: 120 },
+    ]);
+    expect(chartMocks.indicatorData).toHaveBeenLastCalledWith([
+      { time: visible[0]!.time, value: 60.5 },
+    ]);
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('explains insufficient history rather than displaying a fabricated indicator', () => {
+    render(
+      <CompanyChart
+        timeline={timeline([
+          { ...noTradePrice, source: 'TOSS_KR', open: 10, high: 10, low: 10, close: 10, volume: 1 },
+        ])}
+      />,
+    );
+    expect(screen.getByRole('status')).toHaveTextContent('연속 데이터가 부족');
+  });
+});
+
+it('latest candle button follows the viewport and preserves the zoom width when returning', () => {
+  const prices = Array.from({ length: 60 }, (_, index) => ({
+    ...noTradePrice,
+    time: new Date(Date.UTC(2026, 6, 1 + index)).toISOString().slice(0, 10),
+    open: 100,
+    high: 102,
+    low: 99,
+    close: 101,
+    volume: 100,
+    source: 'TOSS_KR',
+  }));
+  render(<CompanyChart timeline={timeline(prices)} />);
+  const changed = chartMocks.subscribeVisibleLogicalRangeChange.mock.calls[0]![0] as () => void;
+  chartMocks.getVisibleLogicalRange.mockReturnValue({ from: 5, to: 25 });
+  act(changed);
+  const latest = screen.getByRole('button', { name: '최신 봉 보기' });
+  expect(latest).toBeEnabled();
+  fireEvent.click(latest);
+  expect(chartMocks.setVisibleLogicalRange).toHaveBeenLastCalledWith({ from: 39, to: 59 });
+  chartMocks.getVisibleLogicalRange.mockReturnValue({ from: 39, to: 59 });
+  act(changed);
+  expect(latest).toBeDisabled();
+});
+
+it('switches candle and close line without rebuilding or fitting the time range; quick MA uses shared settings', () => {
+  const prices = [
+    {
+      ...noTradePrice,
+      source: 'TOSS_KR' as const,
+      open: 40000,
+      high: 43000,
+      low: 39000,
+      close: 42000,
+      volume: 100,
+    },
+  ];
+  render(<CompanyChart timeline={timeline(prices)} />);
+  const creates = chartMocks.createChart.mock.calls.length,
+    fits = chartMocks.fitContent.mock.calls.length;
+  fireEvent.click(screen.getByRole('button', { name: '라인' }));
+  expect(chartMocks.closeOptions).toHaveBeenLastCalledWith({ visible: true });
+  expect(chartMocks.candleOptions).toHaveBeenLastCalledWith({ visible: false });
+  expect(chartMocks.closeData).toHaveBeenLastCalledWith([
+    { time: chartTime(prices[0]!.time), value: 42000 },
+  ]);
+  fireEvent.click(screen.getByRole('button', { name: '캔들' }));
+  expect(chartMocks.createChart).toHaveBeenCalledTimes(creates);
+  expect(chartMocks.fitContent).toHaveBeenCalledTimes(fits);
+  fireEvent.click(screen.getByRole('button', { name: '이동평균 120' }));
+  fireEvent.click(screen.getByRole('button', { name: /보조지표/ }));
+  expect(screen.getByRole('checkbox', { name: '120일선' })).toBeChecked();
 });

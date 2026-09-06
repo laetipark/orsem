@@ -9,6 +9,7 @@ import { formatDate, formatKst } from '../lib/format';
 import type { SearchItem, SearchResults } from '../types';
 import { RightsBadge } from '../components/domain-badges';
 import { TranslatedText } from '../components/translated-text';
+import { MarketNewsList, type NewsListItem } from '../components/market-news';
 import {
   Badge,
   Button,
@@ -229,7 +230,25 @@ function SearchGroup({
           </Badge>
         </h2>
       </CardHeader>
-      {data[group].length ? (
+      {data[group].length && group === 'news' ? (
+        <MarketNewsList
+          items={data.news.map((item): NewsListItem => ({
+            id: item.id,
+            title: item.title,
+            description: item.description,
+            translation: item.translation,
+            translationStatus: item.translationStatus,
+            url: item.url,
+            source: item.source ?? 'NEWS',
+            sourceName:
+              item.subtitle || (item.source ? (sourceNames[item.source] ?? item.source) : null),
+            relatedCompanies: item.relatedCompanies,
+            rightsMode: item.rightsMode ?? undefined,
+            publishedAt: item.publishedAt,
+            firstObservedAt: item.firstObservedAt ?? undefined,
+          }))}
+        />
+      ) : data[group].length ? (
         <div>
           {data[group].map((item) => (
             <ResultRow key={`${item.type}-${item.id}`} item={item} />

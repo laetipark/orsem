@@ -35,7 +35,7 @@ export function SourcesPage() {
               rel="noopener noreferrer"
               referrerPolicy="no-referrer"
             >
-              Logos by AllInvestView <ExternalLink size={15} aria-hidden="true" />
+              기업 로고 제공자 <ExternalLink size={15} aria-hidden="true" />
             </a>
           </div>
         </CardContent>

@@ -45,6 +45,10 @@ export const tossStockSchema = z
 export type TossStock = z.infer<typeof tossStockSchema>;
 const stockMarketSchema = z.enum(['KOSPI', 'KOSDAQ', 'NYSE', 'NASDAQ', 'AMEX', 'KR_ETC', 'US_ETC']);
 export type TossStockMarket = z.infer<typeof stockMarketSchema>;
+export interface TossStockUniverseFilter {
+  readonly status?: 'ACTIVE' | 'DELISTED';
+  readonly securityType?: 'ETF';
+}
 const listedStockSchema = z
   .object({
     symbol: z.string().min(1).max(32),
@@ -322,11 +326,17 @@ export class TossMarketClient implements OnModuleDestroy {
       .parse(await this.get('/api/v1/stocks', { symbols: symbols.join(',') })).result;
   }
 
-  async stocksAll(market: TossStockMarket): Promise<readonly TossListedStock[]> {
+  async stocksAll(
+    market: TossStockMarket,
+    filter: TossStockUniverseFilter = {},
+  ): Promise<readonly TossListedStock[]> {
     return z.object({ result: z.array(listedStockSchema).max(20_000) }).parse(
       await this.get('/api/v1/stocks/all', {
         market: stockMarketSchema.parse(market),
-        status: 'ACTIVE',
+        status: z.enum(['ACTIVE', 'DELISTED']).parse(filter.status ?? 'ACTIVE'),
+        ...(filter.securityType
+          ? { securityType: z.literal('ETF').parse(filter.securityType) }
+          : {}),
       }),
     ).result;
   }

@@ -80,7 +80,6 @@ test('NAVER와 AI 허용이 명시되지 않은 과거 번역은 반환하지 �
     { ...(source.sourcePolicyJson as object), rightsMode: RightsMode.PRIVATE_DISPLAY_ONLY },
     { ...(source.sourcePolicyJson as object), metadataStorageAllowed: false },
     { ...(source.sourcePolicyJson as object), displayAllowed: false },
-    { ...(source.sourcePolicyJson as object), fullTextStorageAllowed: false },
   ]) {
     assert.equal(publicNewsTranslation({ ...source, sourcePolicyJson }), null);
   }
@@ -132,4 +131,14 @@ test('메타데이터 전용 뉴스 번역은 차단하고 원문 설명 권리�
     );
   }
   assert.equal(publicNewsDescription(RightsMode.OFFICIAL_PUBLIC_DATA, { raw: true }), null);
+});
+
+test('permitted metadata translation does not require body storage rights', () => {
+  assert.equal(
+    publicNewsTranslation({
+      ...source,
+      sourcePolicyJson: { ...(source.sourcePolicyJson as object), fullTextStorageAllowed: false },
+    })?.title,
+    '한국어로 옮긴 제목',
+  );
 });

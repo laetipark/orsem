@@ -1,3 +1,4 @@
+import { useNewsCacheExpiry } from '../lib/news-cache';
 import {
   Activity,
   Bell,
@@ -18,6 +19,7 @@ import { disconnectPushOnLogout } from '../lib/web-push';
 import { clearNewsEditDrafts } from '../lib/news-edit-drafts';
 import { api, isFixtureMode } from '../lib/api';
 import { BrandLogo } from './brand-logo';
+import orsemMark from '../assets/orsem-mark.svg';
 import { HeaderSearch } from './search-autocomplete';
 import { useTheme } from '../theme';
 import { Badge, Button, LoadingState, cn } from './ui';
@@ -27,6 +29,7 @@ import './app-shell.css';
 const navigation = [
   { to: '/', label: '오늘', icon: LayoutDashboard, end: true },
   { to: '/markets', label: '시장', icon: ChartNoAxesCombined },
+  { to: '/companies', label: '종목', icon: ChartNoAxesCombined },
   { to: '/events', label: '이벤트', icon: FileSearch },
   { to: '/news', label: '뉴스', icon: Newspaper },
   { to: '/watchlist', label: '관심기업', icon: Star },
@@ -41,10 +44,11 @@ const routeTitles: Array<[RegExp, string]> = [
   [/^\/sources$/, '데이터 출처·신선도'],
   [/^\/markets/, '시장 지표'],
   [/^\/search/, '통합 검색'],
-  [/^\/news\/naver$/, '네이버 뉴스 검색'],
   [/^\/news$/, '시장 뉴스'],
+  [/^\/news\//, '뉴스 상세'],
   [/^\/events\/[^/]+$/, '이벤트 근거'],
   [/^\/events/, '이벤트 탐색'],
+  [/^\/companies$/, '종목 탐색'],
   [/^\/companies\//, '종목 정보'],
   [/^\/watchlist/, '관심기업'],
   [/^\/reviews/, '검토함'],
@@ -67,14 +71,16 @@ export function ThemeButton() {
 }
 
 export function AppShell({ session }: { session: Session }) {
+  useNewsCacheExpiry();
   const location = useLocation();
   const navigate = useNavigate();
   const navigationType = useNavigationType();
   const previousPathname = useRef(location.pathname);
   const isAdmin = session.user?.role === 'ADMIN';
-  const isCompanyPage = /^\/companies\/[^/]+\/?$/.test(location.pathname);
+  const pathname = location.pathname.replace(/\/+$/, '') || '/';
+  const isCompanyDetailPage = /^\/companies\/[^/]+$/.test(pathname);
   const queryClient = useQueryClient();
-  const title = routeTitles.find(([pattern]) => pattern.test(location.pathname))?.[1] ?? 'ORSEM';
+  const title = routeTitles.find(([pattern]) => pattern.test(pathname))?.[1] ?? '오르셈';
   const logout = useMutation({
     mutationFn: async () => {
       await disconnectPushOnLogout(session.user?.id, api.unsubscribeNotifications);
@@ -95,13 +101,13 @@ export function AppShell({ session }: { session: Session }) {
     previousPathname.current = location.pathname;
   }, [location.pathname, navigationType]);
   return (
-    <div className={cn('app-shell', isCompanyPage && 'app-shell--company')}>
+    <div className="app-shell">
       <a className="skip-link" href="#main-content">
         본문으로 건너뛰기
       </a>
       <header className="site-header">
         <div className="site-header__inner">
-          <NavLink to="/" className="brand" aria-label="ORSEM 홈">
+          <NavLink to="/" className="brand" aria-label="오르셈 홈">
             <BrandLogo />
           </NavLink>
           <nav className="header-navigation" aria-label="주 메뉴">
@@ -117,7 +123,7 @@ export function AppShell({ session }: { session: Session }) {
               </NavLink>
             ))}
           </nav>
-          <HeaderSearch />
+          <HeaderSearch actorKey={session.user?.id ?? ''} />
           <div className="site-header__actions">
             <NavLink
               to="/settings/notifications"
@@ -142,12 +148,8 @@ export function AppShell({ session }: { session: Session }) {
           </div>
         </div>
       </header>
-      <main
-        id="main-content"
-        className={cn('main-content', isCompanyPage && 'main-content--company')}
-        tabIndex={-1}
-      >
-        {!isCompanyPage ? (
+      <main id="main-content" className="main-content" tabIndex={-1}>
+        {!isCompanyDetailPage ? (
           <div className="workspace-heading">
             <h1>{title}</h1>
             <div>
@@ -175,30 +177,49 @@ export function AppShell({ session }: { session: Session }) {
           <span className="site-footer__brand">
             <img
               className="site-footer__logo"
-              src="/favicon.svg"
+              src={orsemMark}
               width="36"
               height="36"
-              alt="ORSEM"
+              alt="오르셈"
             />
-            <span>한국 시간 기준</span>
+            <span>오르셈</span>
           </span>
           <NavLink
             to="/sources"
+            aria-label="데이터 출처·신선도"
             className={({ isActive }) => cn('site-footer__sources', isActive && 'is-active')}
           >
-            <Activity size={16} aria-hidden="true" /> 데이터 출처·신선도
+            <Activity size={16} aria-hidden="true" />
+            <span className="site-footer__source-label">데이터 출처·신선도</span>
+            <span className="site-footer__source-short" aria-hidden="true">
+              출처
+            </span>
           </NavLink>
+          <a
+            className="site-footer__logo-credit"
+            href="https://www.allinvestview.com/tools/ticker-logos/"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Logos by AllInvestView
+          </a>
           {isAdmin ? (
             <nav aria-label="관리 메뉴">
               {administration.map(({ to, label, icon: Icon }) => (
-                <NavLink key={to} to={to} className={({ isActive }) => cn(isActive && 'is-active')}>
+                <NavLink
+                  key={to}
+                  to={to}
+                  aria-label={label}
+                  title={label}
+                  className={({ isActive }) => cn(isActive && 'is-active')}
+                >
                   <Icon size={16} aria-hidden="true" />
-                  {label}
+                  <span>{label}</span>
                 </NavLink>
               ))}
             </nav>
           ) : (
-            <span>공시와 출처를 함께 확인하는 관측 공간</span>
+            <span className="site-footer__tagline">공시와 출처를 함께 확인하는 관측 공간</span>
           )}
         </div>
       </footer>

@@ -1,5 +1,5 @@
 import {
-  manualMetadataSchema,
+  manualMetadataV2Schema,
   manualNewsTranslationSql,
   storedJson,
 } from '../resources/manual-news-translation';
@@ -13,6 +13,7 @@ import { z } from 'zod';
 
 interface TranslationSource {
   source: string;
+  title?: string;
   rightsMode: RightsMode;
   rawHash?: string | null;
   translationJson?: unknown;
@@ -63,14 +64,12 @@ export function publicNewsTranslation(source: TranslationSource): NewsTranslatio
     policy.metadataStorageAllowed !== true ||
     !('displayAllowed' in policy) ||
     policy.displayAllowed !== true ||
-    !('fullTextStorageAllowed' in policy) ||
-    policy.fullTextStorageAllowed !== true ||
     !translationRights.includes(source.rightsMode) ||
     !source.rawHash
   )
     return null;
   if (source.manualTranslationJson != null) {
-    const manual = manualMetadataSchema.safeParse(storedJson(source.manualTranslationJson));
+    const manual = manualMetadataV2Schema.safeParse(storedJson(source.manualTranslationJson));
     if (
       !manual.success ||
       ![true, 1, '1'].includes(source.manualRevisionVerified ?? false) ||
@@ -113,6 +112,41 @@ export function publicNewsTranslation(source: TranslationSource): NewsTranslatio
   });
 }
 
+/** Public status contains no provider errors, prompts or body-translation state. */
+export function publicNewsTranslationStatus(
+  source: TranslationSource,
+): 'PENDING' | 'COMPLETED' | 'FAILED' | 'UNAVAILABLE' {
+  if (publicNewsTranslation(source)) return 'COMPLETED';
+  const policy = storedJson(source.sourcePolicyJson) as Record<string, unknown> | null;
+  if (
+    !translationSources.some((allowed) => allowed === source.source) ||
+    !translationRights.includes(source.rightsMode) ||
+    policy?.rightsMode !== source.rightsMode ||
+    policy.metadataStorageAllowed !== true ||
+    policy.displayAllowed !== true ||
+    policy.aiAllowed !== true ||
+    !source.rawHash
+  )
+    return 'UNAVAILABLE';
+  const saved = storedJson(source.translationJson) as Record<string, unknown> | null;
+  if (saved?.inputHash === source.rawHash) {
+    if (saved.status === 'FAILED') return 'FAILED';
+    if (saved.status === 'PROCESSING') return 'PENDING';
+    if (saved.status === 'SKIPPED') return 'UNAVAILABLE';
+  }
+  if (source.manualTranslationJson != null) return 'UNAVAILABLE';
+  const title = source.title ?? '';
+  const letters = title.match(/\p{L}/gu) ?? [];
+  const latin = title.match(/[A-Za-z]/g) ?? [];
+  return title.length <= 1000 &&
+    !/[가-힣]/u.test(title) &&
+    latin.length >= 8 &&
+    latin.length / Math.max(1, letters.length) >= 0.85 &&
+    (title.match(/[A-Za-z]{2,}/g) ?? []).length >= 2
+    ? 'PENDING'
+    : 'UNAVAILABLE';
+}
+
 export function literalSearchPattern(term: string): string {
   return `%${term.replace(/[!%_]/gu, (character) => `!${character}`)}%`;
 }
@@ -134,7 +168,6 @@ export function completedAutomaticNewsTranslationCondition(alias: string): strin
     AND BINARY JSON_UNQUOTE(JSON_EXTRACT(${alias}.source_policy_json, '$.rightsMode')) = BINARY ${alias}.rights_mode
     AND JSON_EXTRACT(${alias}.source_policy_json, '$.metadataStorageAllowed') = true
     AND JSON_EXTRACT(${alias}.source_policy_json, '$.displayAllowed') = true
-    AND JSON_EXTRACT(${alias}.source_policy_json, '$.fullTextStorageAllowed') = true
     AND JSON_TYPE(JSON_EXTRACT(${alias}.source_policy_json, '$.aiAllowed')) = 'BOOLEAN'
     AND JSON_EXTRACT(${alias}.source_policy_json, '$.aiAllowed') = true
     AND ${alias}.rights_mode IN ('OFFICIAL_PUBLIC_DATA', 'PRIVATE_DISPLAY_ONLY')

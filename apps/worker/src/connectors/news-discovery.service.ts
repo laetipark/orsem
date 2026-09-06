@@ -20,10 +20,9 @@ import {
   IrSourceEntity,
   NewsArticleEntity,
   NewsItemEntity,
-  NewsArticleContentEntity,
   SourceCheckpointEntity,
   SourceItemEntity,
-  WatchlistItemEntity,
+  MarketLeaderScopeEntity,
   attachNewsArticle,
 } from '@orsem/database';
 import { DataSource, In } from 'typeorm';
@@ -48,7 +47,7 @@ import {
   type FeedCheckpoint,
 } from './connector-adapters';
 import { createNewsCompanyMatcher, newsCompanyAliases } from './news-company-matching';
-import { APPROVED_GROUP_COMPANIES_SQL, replaceNewsCompanyRelevance } from './news-relevance';
+import { NEWS_COLLECTION_COMPANIES_SQL, replaceNewsCompanyRelevance } from './news-relevance';
 import { projectSecFilingEvents } from './sec-event-projection';
 import { newsTranslationInputHash, translationInput } from '../ai/news-translation.service';
 
@@ -378,7 +377,11 @@ export class NewsDiscoveryService {
                   irCompanyIdsByUrl,
                   job,
                   job.suppressAlerts || job.reason === 'BACKFILL' || batch.suppressAlerts === true,
-                  matchCompanies(candidate.title),
+                  matchCompanies(
+                    [candidate.title, candidate.metadata.description]
+                      .filter((value) => typeof value === 'string')
+                      .join('\n'),
+                  ),
                 )
               ) {
                 created++;
@@ -601,8 +604,8 @@ export class NewsDiscoveryService {
           });
         row.metadataJson = {
           ...row.metadataJson,
-          // A content/parser failure must force a full feed response on the next poll.
-          // Retaining an earlier validator can produce a 304 and strand FAILED content.
+          // A parser failure must force a full feed response on the next poll.
+          // Retaining an earlier validator can hide the skipped metadata behind a 304.
           etag: null,
           lastModified: null,
           feedUrl: url,
@@ -617,7 +620,7 @@ export class NewsDiscoveryService {
 
   private async loadDiscoveryCompanies(job: DiscoverLinksJob): Promise<readonly CompanyEntity[]> {
     const companyIds: string[] = [];
-    const watchlistRepository = this.dataSource.getRepository(WatchlistItemEntity);
+    const watchlistRepository = this.dataSource.getRepository(MarketLeaderScopeEntity);
     if (job.reason === 'BACKFILL') {
       companyIds.push(...job.companyIds);
     } else if (job.reason === 'DISCLOSURE_TRIGGER') {
@@ -647,7 +650,7 @@ export class NewsDiscoveryService {
       job.connectors.some((connector) => ['SEC', 'GDELT', 'ALPACA_NEWS'].includes(connector))
     ) {
       const groupRows: { companyId: string }[] = await this.dataSource.query(
-        APPROVED_GROUP_COMPANIES_SQL,
+        NEWS_COLLECTION_COMPANIES_SQL,
       );
       companyIds.push(...groupRows.map((row) => row.companyId));
       if (job.connectors.some((connector) => ['GDELT', 'ALPACA_NEWS'].includes(connector))) {
@@ -732,19 +735,6 @@ export class NewsDiscoveryService {
       sourcePolicy.displayAllowed !== true ||
       sourcePolicy.rightsMode !== candidate.rightsMode
     )
-      return false;
-    const content = candidate.content;
-    const contentPolicyValid =
-      !content ||
-      (sourcePolicy.fullTextStorageAllowed === true &&
-        content.rightsPolicy.metadataStorageAllowed === true &&
-        content.rightsPolicy.displayAllowed === true &&
-        content.rightsPolicy.fullTextStorageAllowed === true &&
-        content.rightsPolicy.rightsMode === sourcePolicy.rightsMode &&
-        candidate.rightsMode === sourcePolicy.rightsMode &&
-        (content.language !== 'en' ||
-          (sourcePolicy.aiAllowed === true && content.rightsPolicy.aiAllowed === true)));
-    if (['IR', 'NEWS_RSS'].includes(candidate.connector) && (!content || !contentPolicyValid))
       return false;
     const candidateHash = rawHash(candidate);
     const externalId =
@@ -837,14 +827,6 @@ export class NewsDiscoveryService {
       let newsItem = sourceItem
         ? await newsRepository.findOne({ where: { sourceItemId: sourceItem.id } })
         : null;
-      const contentRepository = manager.getRepository(NewsArticleContentEntity);
-      const storedContent =
-        sourceItem && content
-          ? await contentRepository.findOne({
-              where: { sourceItemId: sourceItem.id },
-              lock: { mode: 'pessimistic_write' },
-            })
-          : null;
       const previousInput = sourceItem && newsItem ? translationInput(sourceItem, newsItem) : null;
       const previousTranslation = sourceItem?.translationJson;
       const previousRawHash = sourceItem?.rawHash;
@@ -876,7 +858,7 @@ export class NewsDiscoveryService {
         tickers,
         tags,
         matchedCompanyIds,
-        companyMatchMethod: matchedCompanyIds.length > 0 ? 'UNAMBIGUOUS_TITLE_ALIAS_V1' : null,
+        companyMatchMethod: matchedCompanyIds.length > 0 ? 'UNAMBIGUOUS_METADATA_ALIAS_V2' : null,
         discoveryReason: job.reason,
         discoveryPriorities: job.priorities,
         triggerFilingId: job.triggerFilingId ?? null,
@@ -894,7 +876,6 @@ export class NewsDiscoveryService {
       );
       if (
         !sourceItem.manualTranslationJson &&
-        !storedContent?.manualTranslationJson &&
         previousInput &&
         nextInput &&
         previousTranslation?.version === 1 &&
@@ -910,63 +891,18 @@ export class NewsDiscoveryService {
       }
       sourceItem = await sourceRepository.save(sourceItem);
       await attachNewsArticle(manager, sourceItem);
-      await replaceNewsCompanyRelevance(manager, sourceItem.id, title, [
-        ...companies.map((company) => ({
-          companyId: company.id,
-          matchMethod: secCik ? 'SEC_CIK' : 'TITLE_ALIAS',
-        })),
-        ...registeredCompanyIds.map((id) => ({ companyId: id, matchMethod: 'REGISTERED_IR' })),
-      ]);
-      if (content && contentPolicyValid) {
-        let content = storedContent;
-        if (!(content?.status === 'AVAILABLE' && candidate.content.status === 'FAILED')) {
-          const previousHash = content?.contentHash ?? null;
-          content ??= contentRepository.create({ sourceItemId: sourceItem.id });
-          content.status = candidate.content.status;
-          content.language = candidate.content.language;
-          content.blocksJson = candidate.content.blocks
-            ? candidate.content.blocks.map((block) =>
-                block.type === 'LIST' ? { ...block, items: [...block.items] } : { ...block },
-              )
-            : null;
-          content.contentHash = candidate.content.contentHash;
-          content.extractorVersion = 1;
-          content.fetchedAt = new Date(candidate.content.fetchedAt);
-          content.attemptedAt = new Date(candidate.content.fetchedAt);
-          content.attempts = Math.min((content.attempts ?? 0) + 1, 1_000_000);
-          content.nextAttemptAt =
-            candidate.content.status === 'FAILED' ? new Date(Date.now() + 15 * 60_000) : null;
-          content.failureCode = candidate.content.failureCode;
-          content.rightsPolicyJson = candidate.content.rightsPolicy;
-          if (
-            previousHash !== candidate.content.contentHash &&
-            !sourceItem.manualTranslationJson &&
-            !content.manualTranslationJson
-          ) {
-            content.translationJson =
-              candidate.content.status === 'AVAILABLE' &&
-              candidate.content.language === 'en' &&
-              candidate.content.contentHash &&
-              candidate.content.rightsPolicy.aiAllowed === true
-                ? {
-                    version: 1,
-                    status: 'PENDING',
-                    inputHash: candidate.content.contentHash,
-                    provider: 'LOCAL',
-                    model: this.config.newsTranslationModel,
-                    sourceLanguage: 'en',
-                    targetLanguage: 'ko',
-                    blocks: null,
-                    attemptedAt: candidate.content.fetchedAt,
-                    translatedAt: null,
-                    attempts: 0,
-                    nextAttemptAt: candidate.content.fetchedAt,
-                  }
-                : null;
-          }
-          await contentRepository.save(content);
-        }
-      }
+      await replaceNewsCompanyRelevance(
+        manager,
+        sourceItem.id,
+        [title, description].filter(Boolean).join('\n'),
+        [
+          ...companies.map((company) => ({
+            companyId: company.id,
+            matchMethod: secCik ? 'SEC_CIK' : 'METADATA_ALIAS',
+          })),
+          ...registeredCompanyIds.map((id) => ({ companyId: id, matchMethod: 'REGISTERED_IR' })),
+        ],
+      );
       if (candidate.connector === 'SEC')
         await projectSecFilingEvents(manager, sourceItem, companies);
 

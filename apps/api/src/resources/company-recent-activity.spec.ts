@@ -32,6 +32,7 @@ function controller() {
         return { filingCount: 0, eventCount: 0, items: [] };
       },
     } as unknown as CompanyObservationService,
+    {} as never,
   );
   return { value, observed, companyReads };
 }

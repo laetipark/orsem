@@ -47,7 +47,13 @@ test('AI requires explicit permission and NAVER cannot be opted in through metad
 });
 
 test('only approved official RSS feeds are executable and explicitly allow content', () => {
-  assert.deepEqual(NEWS_RSS_FEED_IDS, ['fed-press', 'fed-speeches', 'bls-latest']);
+  assert.deepEqual(NEWS_RSS_FEED_IDS, [
+    'fed-press',
+    'fed-speeches',
+    'bls-latest',
+    'eia-today',
+    'eia-press',
+  ]);
   assert.deepEqual(Object.keys(NEWS_RSS_FEEDS), [...NEWS_RSS_FEED_IDS]);
   assert.equal(Object.isFrozen(NEWS_RSS_FEED_IDS), true);
   assert.equal(Object.isFrozen(NEWS_RSS_FEEDS), true);
@@ -87,7 +93,7 @@ test('research candidates cannot enter either runtime feed allowlist', () => {
     ...NEWS_RSS_FEED_IDS.map((id) => NEWS_RSS_FEEDS[id].url),
     ...NEWS_IR_SOURCE_PROFILE_IDS.map((id) => NEWS_IR_SOURCE_PROFILES[id].url),
   ]);
-  assert.equal(activeUrls.size, 4);
+  assert.equal(activeUrls.size, 6);
   for (const candidate of NEWS_SOURCE_RESEARCH_CANDIDATES) {
     assert.equal(activeUrls.has(candidate.url), false, `${candidate.publisher} became executable`);
   }

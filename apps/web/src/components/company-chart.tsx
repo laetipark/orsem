@@ -1,4 +1,4 @@
-import { Maximize } from 'lucide-react';
+import { Maximize, Expand, Shrink } from 'lucide-react';
 import { HelpPopover } from './help-popover';
 import {
   useEffect,
@@ -63,7 +63,11 @@ export function CompanyChart({
   timeline,
   livePrice,
   toolbar,
+  expanded = false,
+  onExpand,
 }: {
+  expanded?: boolean;
+  onExpand?: () => void;
   toolbar?: ReactNode;
   timeline: CompanyTimeline;
   livePrice?: CompanyLivePrice | null;
@@ -71,6 +75,10 @@ export function CompanyChart({
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
+  const closeRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const closeMarkersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
+  const closePriceLineRef = useRef<IPriceLine | null>(null);
+  const [chartType, setChartType] = useState<'candle' | 'line'>('candle');
   const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
   const priceLineRef = useRef<IPriceLine | null>(null);
   const smaRefs = useRef(new Map<number, ISeriesApi<'Line'>>());
@@ -79,6 +87,9 @@ export function CompanyChart({
   const fittedRef = useRef(false);
   const [settings, setSettings] = useState(loadChartSettings);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [latestVisible, setLatestVisible] = useState(true);
+  const latestIndexRef = useRef(timeline.prices.length - 1);
+  latestIndexRef.current = timeline.prices.length - 1;
   const compact = useMediaQuery('(max-width: 620px)');
   const sizingRef = useRef(settings);
   sizingRef.current = settings;
@@ -89,18 +100,21 @@ export function CompanyChart({
   const { theme } = useTheme();
   const hasCandles = hasChartCandles(timeline.prices);
   const minute = timeline.interval === '1m';
-  const indicators = useMemo(
-    () => ({
-      sma: new Map(settings.sma.map((period) => [period, smaSeries(timeline.prices, period)])),
+  const indicators = useMemo(() => {
+    const prices = [...(timeline.indicatorWarmupPrices ?? []), ...timeline.prices];
+    const visibleTimes = new Set(timeline.prices.map((price) => timeKey(chartTime(price.time))));
+    const visible = <T extends { time: Time }>(rows: T[]) =>
+      rows.filter((row) => visibleTimes.has(timeKey(row.time)));
+    return {
+      sma: new Map(settings.sma.map((period) => [period, visible(smaSeries(prices, period))])),
       volume: volumeSeries(timeline.prices, {
         up: '#28b9a680',
         down: '#d76d5d80',
         unchanged: '#89979a80',
       }),
-      rsi: settings.rsi ? rsiSeries(timeline.prices, settings.rsiPeriod) : [],
-    }),
-    [timeline.prices, settings],
-  );
+      rsi: settings.rsi ? visible(rsiSeries(prices, settings.rsiPeriod)) : [],
+    };
+  }, [timeline.prices, timeline.indicatorWarmupPrices, settings]);
   const priceIndex = useMemo(
     () => new Map(timeline.prices.map((price, index) => [timeKey(chartTime(price.time)), index])),
     [timeline.prices],
@@ -149,7 +163,7 @@ export function CompanyChart({
         background: { type: ColorType.Solid, color: 'transparent' },
         textColor: dark ? '#aab9bd' : '#4f6268',
         fontSize: container.clientWidth < 640 ? 11 : 12,
-        attributionLogo: false,
+        attributionLogo: true,
         panes: {
           separatorColor: dark ? '#34454b' : '#d6e0df',
           separatorHoverColor: dark ? '#496169' : '#b4c8c5',
@@ -171,6 +185,7 @@ export function CompanyChart({
         rightOffset: 0,
         fixLeftEdge: true,
         fixRightEdge: true,
+        lockVisibleTimeRangeOnResize: true,
         ...(minute
           ? {
               tickMarkFormatter: (time: Time, type: TickMarkType) =>
@@ -214,6 +229,15 @@ export function CompanyChart({
                 new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 0 }).format(value),
             },
     });
+    const close = chart.addSeries(LineSeries, {
+      color: '#5d8cf5',
+      lineWidth: 2,
+      visible: false,
+      title: '종가',
+      priceFormat: series.options().priceFormat,
+    });
+    closeRef.current = close;
+    closeMarkersRef.current = createSeriesMarkers(close, []);
     const selectBar = (event: MouseEventParams<Time>) =>
       setSelectedKey(
         event.time === undefined || !event.point || event.point.x < 0 || event.point.y < 0
@@ -226,11 +250,29 @@ export function CompanyChart({
     seriesRef.current = series;
     markersRef.current = createSeriesMarkers(series, []);
     fittedRef.current = false;
+    const trackVisibleRange = () => {
+      const range = chart.timeScale().getVisibleLogicalRange();
+      const latest = latestIndexRef.current;
+      setLatestVisible(Boolean(range && latest >= range.from && latest <= range.to));
+    };
+    chart.timeScale().subscribeVisibleLogicalRangeChange(trackVisibleRange);
     const resize = () => {
       const width = container.clientWidth,
         narrow = width < 640,
         setting = sizingRef.current;
-      const height = narrow ? (setting.rsi ? 400 : 320) : setting.rsi ? 480 : 420;
+      const fullscreen =
+        document.fullscreenElement?.contains(container) || container.closest('.is-expanded');
+      const height = fullscreen
+        ? Math.max(260, window.innerHeight - (narrow ? 310 : 220))
+        : narrow
+          ? setting.rsi
+            ? 400
+            : 320
+          : setting.rsi
+            ? 480
+            : 420;
+      if (width <= 0) return;
+      const visibleRange = chart.timeScale().getVisibleLogicalRange();
       chart.applyOptions({
         width,
         height,
@@ -239,6 +281,8 @@ export function CompanyChart({
       });
       volumeRef.current?.getPane().setHeight(narrow ? 50 : 60);
       rsiRef.current?.getPane().setHeight(narrow ? 80 : 90);
+      if (visibleRange) chart.timeScale().setVisibleLogicalRange(visibleRange);
+      trackVisibleRange();
     };
     resizeChartRef.current = resize;
     const observer = new ResizeObserver(() => resize());
@@ -248,9 +292,13 @@ export function CompanyChart({
       resizeChartRef.current = null;
       chart.unsubscribeCrosshairMove(selectBar);
       chart.unsubscribeClick(selectBar);
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(trackVisibleRange);
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;
+      closeRef.current = null;
+      closeMarkersRef.current = null;
+      closePriceLineRef.current = null;
       markersRef.current = null;
       priceLineRef.current = null;
       smaRefs.current.clear();
@@ -387,6 +435,13 @@ export function CompanyChart({
     const chart = chartRef.current;
     if (!series || !chart) return;
     series.setData(chartPriceData(timeline.prices));
+    closeRef.current?.setData(
+      timeline.prices.map((price) =>
+        isNoTradePrice(price)
+          ? { time: chartTime(price.time) }
+          : { time: chartTime(price.time), value: price.close },
+      ),
+    );
     for (const [period, data] of indicators.sma) smaRefs.current.get(period)?.setData(data);
     volumeRef.current?.setData(indicators.volume);
     rsiRef.current?.setData(indicators.rsi);
@@ -400,6 +455,7 @@ export function CompanyChart({
           size: 1.2,
         }));
     markersRef.current?.setMarkers(markers);
+    closeMarkersRef.current?.setMarkers(markers);
     if (!fittedRef.current) {
       chart.timeScale().fitContent();
       fittedRef.current = true;
@@ -414,6 +470,8 @@ export function CompanyChart({
     if (!quote || quote.currency !== timeline.currency || !Number.isFinite(price) || price <= 0) {
       if (priceLineRef.current) series.removePriceLine(priceLineRef.current);
       priceLineRef.current = null;
+      if (closePriceLineRef.current) closeRef.current?.removePriceLine(closePriceLineRef.current);
+      closePriceLineRef.current = null;
       return;
     }
     const options = {
@@ -426,6 +484,8 @@ export function CompanyChart({
     };
     if (priceLineRef.current) priceLineRef.current.applyOptions(options);
     else priceLineRef.current = series.createPriceLine(options);
+    if (closePriceLineRef.current) closePriceLineRef.current.applyOptions(options);
+    else closePriceLineRef.current = closeRef.current?.createPriceLine(options) ?? null;
   }, [
     livePrice,
     theme,
@@ -436,6 +496,21 @@ export function CompanyChart({
     hasCandles,
   ]);
 
+  useEffect(() => {
+    seriesRef.current?.applyOptions({ visible: chartType === 'candle' });
+    closeRef.current?.applyOptions({ visible: chartType === 'line' });
+  }, [
+    chartType,
+    theme,
+    timeline.companyId,
+    timeline.currency,
+    timeline.provider,
+    minute,
+    hasCandles,
+  ]);
+  useEffect(() => {
+    resizeChartRef.current?.();
+  }, [expanded]);
   function selectWithKeyboard(event: KeyboardEvent<HTMLDivElement>) {
     // Focused overflow rows keep native keyboard scrolling; the outer legend selects candles.
     if (event.target !== event.currentTarget) return;
@@ -491,12 +566,66 @@ export function CompanyChart({
     <section className="chart-workspace" aria-label="차트와 보조지표">
       <div className="indicator-toolbar">
         {toolbar ? <div className="chart-primary-controls">{toolbar}</div> : null}
+        <div className="chart-type-control" role="group" aria-label="차트 형태">
+          {(['candle', 'line'] as const).map((type) => (
+            <button
+              type="button"
+              key={type}
+              aria-pressed={chartType === type}
+              onClick={() => setChartType(type)}
+            >
+              {type === 'candle' ? '캔들' : '라인'}
+            </button>
+          ))}
+        </div>
+        <div className="chart-ma-control" role="group" aria-label="이동평균 빠른 선택">
+          <span>MA</span>
+          {smaPeriods.map((period) => (
+            <button
+              type="button"
+              key={period}
+              aria-label={`이동평균 ${period}`}
+              aria-pressed={settings.sma.includes(period)}
+              style={{ color: settings.sma.includes(period) ? smaColors[period] : undefined }}
+              onClick={() =>
+                setSettings((current) => ({
+                  ...current,
+                  sma: current.sma.includes(period)
+                    ? current.sma.filter((value) => value !== period)
+                    : [...current.sma, period].sort((a, b) => a - b),
+                }))
+              }
+            >
+              {period}
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          className="chart-expand-button"
+          aria-label={expanded ? '확대 보기 닫기' : '차트 확대 보기'}
+          onClick={onExpand}
+        >
+          {expanded ? <Shrink size={16} /> : <Expand size={16} />}
+          <span>{expanded ? '닫기' : '확대'}</span>
+        </button>
         <button
           type="button"
           className="chart-latest-button"
           aria-label="최신 봉 보기"
-          disabled={selectedKey === null}
-          onClick={() => setSelectedKey(null)}
+          disabled={selectedKey === null && latestVisible}
+          onClick={() => {
+            setSelectedKey(null);
+            const scale = chartRef.current?.timeScale();
+            const range = scale?.getVisibleLogicalRange();
+            if (scale && range) {
+              const last = latestIndexRef.current;
+              scale.setVisibleLogicalRange({
+                from: Math.max(0, last - (range.to - range.from)),
+                to: last,
+              });
+            }
+          }}
         >
           최신 봉
         </button>
@@ -531,7 +660,8 @@ export function CompanyChart({
             {settings.rsi
               ? `RSI(${settings.rsiPeriod})는 0–100 범위이며 점선은 30·70 기준입니다. `
               : ''}
-            조회 기간의 데이터가 부족한 지표는 —로 표시합니다.
+            표시 기간 이전의 저장된 봉도 지표 계산에 사용합니다. 이동평균은 기간만큼, RSI는 기간보다
+            1개 많은 연속 유효 봉이 필요합니다. 부족한 구간은 —로 표시합니다.
           </p>
           <p>
             {minute
@@ -675,8 +805,21 @@ export function CompanyChart({
             </span>
           ))}
           {!settings.sma.length ? <span>이동평균 표시 꺼짐</span> : null}
+          {settings.rsi ? (
+            <span>
+              <span>RSI ({settings.rsiPeriod})</span>
+              <strong>{indicatorValue(indicators.rsi)?.toFixed(2) ?? '—'}</strong>
+            </span>
+          ) : null}
         </div>
       </div>
+      {selected &&
+      (settings.sma.some((period) => indicatorValue(indicators.sma.get(period)) === undefined) ||
+        (settings.rsi && indicatorValue(indicators.rsi) === undefined)) ? (
+        <p className="chart-indicator-status" role="status">
+          선택한 봉의 일부 지표는 계산에 필요한 연속 데이터가 부족합니다.
+        </p>
+      ) : null}
       <div className="chart-plot-wrap">
         <div
           className="company-chart"

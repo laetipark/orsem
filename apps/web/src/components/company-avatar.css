@@ -24,7 +24,7 @@
   width: 100%;
   height: 100%;
   object-fit: contain;
-  padding: 6px;
+  padding: 0;
 }
 .company-avatar.company-heading__icon {
   width: 56px;

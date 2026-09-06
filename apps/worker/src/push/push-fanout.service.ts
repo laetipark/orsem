@@ -13,7 +13,7 @@ import {
   PushDeliveryEntity,
   PushSubscriptionEntity,
   SourceItemEntity,
-  WatchlistItemEntity,
+  MarketLeaderScopeEntity,
 } from '@orsem/database';
 import type { EntityManager } from 'typeorm';
 import {
@@ -276,7 +276,7 @@ export class PushFanoutService {
               .findOneBy({ id: match[2], status: 'APPROVED', role: 'VIEWER', provider: 'KAKAO' }),
           );
     const watchlisted = companyId
-      ? Boolean(await manager.getRepository(WatchlistItemEntity).findOneBy({ companyId }))
+      ? Boolean(await manager.getRepository(MarketLeaderScopeEntity).findOneBy({ companyId }))
       : false;
     return pushPreferenceAllows({
       ownerKey: preference.ownerKey,

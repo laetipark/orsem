@@ -1,17 +1,10 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  ArrowLeft,
-  ArrowUpRight,
-  CalendarDays,
-  MoreHorizontal,
-  PanelRightClose,
-  PanelRightOpen,
-  Star,
-  StarOff,
-} from 'lucide-react';
+import { CompanyKeyStats, CompanyDailyPrices } from '../components/company-price-details';
+import { companyPath } from '../lib/company-path';
+import { CompanyInformation } from '../components/company-information';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { ArrowLeft, ArrowUpRight, PanelRightClose, PanelRightOpen } from 'lucide-react';
 import { useEffect, useState, type CSSProperties } from 'react';
-import { Link, useLocation, useOutletContext, useParams } from 'react-router-dom';
-import type { Session } from '../types';
+import { Link, useLocation, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api';
 import { hasChartCandles } from '../lib/chart-prices';
 import { domesticFallbackClose, effectiveLiveStatus } from '../lib/live-price';
@@ -19,10 +12,11 @@ import { formatDate, formatKst, formatMoney, formatPercent } from '../lib/format
 import { disclosureLabels, displayDomainText } from '../lib/domain-labels';
 import { CompanyNewsPanel } from '../components/company-news-panel';
 import { CompanyGroupPicker } from '../components/company-group-picker';
+import { MarketSelectionMembership } from '../components/market-selection';
 import { useMediaQuery } from '../lib/use-media-query';
 import { CompanyChart } from '../components/company-chart';
 import { CompanyAvatar } from '../components/company-avatar';
-import { EvidenceBadge, PriorityBadge, RightsBadge } from '../components/domain-badges';
+import { RightsBadge } from '../components/domain-badges';
 import { HelpPopover } from '../components/help-popover';
 import {
   Badge,
@@ -49,7 +43,6 @@ const eventReturnLabels = {
 const marketRefreshInterval = 2_000;
 
 export function CompanyPage() {
-  const session = useOutletContext<Session | undefined>();
   const location = useLocation(),
     desktop = useMediaQuery('(min-width: 1200px)');
   const [sideOpen, setSideOpen] = useState(() => {
@@ -62,6 +55,35 @@ export function CompanyPage() {
   const sideVisible = !desktop || sideOpen;
   const [chartElement, setChartElement] = useState<HTMLDivElement | null>(null);
   const [chartHeight, setChartHeight] = useState(600);
+  const [chartExpanded, setChartExpanded] = useState(false);
+  useEffect(() => {
+    if (!chartExpanded) return;
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setChartExpanded(false);
+    };
+    const fullscreen = () => {
+      if (!document.fullscreenElement) setChartExpanded(false);
+    };
+    document.addEventListener('keydown', escape);
+    document.addEventListener('fullscreenchange', fullscreen);
+    return () => {
+      document.body.style.overflow = overflow;
+      document.removeEventListener('keydown', escape);
+      document.removeEventListener('fullscreenchange', fullscreen);
+    };
+  }, [chartExpanded]);
+  const toggleChartExpanded = () => {
+    if (chartExpanded) {
+      setChartExpanded(false);
+      if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+    } else {
+      setChartExpanded(true);
+      void chartElement?.requestFullscreen?.().catch(() => undefined);
+    }
+  };
+
   useEffect(() => {
     if (!chartElement || typeof ResizeObserver === 'undefined') return;
     const observer = new ResizeObserver(([entry]) => {
@@ -81,8 +103,13 @@ export function CompanyPage() {
     });
   const returnPath = (location.state as { watchlistReturn?: string } | null)?.watchlistReturn;
   const safeReturn = returnPath && /^\/(?:watchlist|)(?:\?|$)/.test(returnPath) ? returnPath : null;
-  const canEdit = session?.user?.role === 'ADMIN';
-  const { id = '' } = useParams();
+  const { id: address = '' } = useParams();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedTab = searchParams.get('tab') ?? 'chart';
+  const activeTab = ['chart', 'prices', 'information', 'events', 'news'].includes(requestedTab)
+    ? requestedTab
+    : 'chart';
   const [range, setRange] = useState<(typeof rangeOptions)[number]>('3M');
   const [interval, setInterval] = useState<'1d' | '1m'>('1d');
   const [clockNow, setClockNow] = useState(Date.now);
@@ -92,10 +119,20 @@ export function CompanyPage() {
   }, []);
   const queryClient = useQueryClient();
   const company = useQuery({
-    queryKey: ['company', id],
-    queryFn: ({ signal }) => api.company(id, signal),
-    enabled: Boolean(id),
+    queryKey: ['company', address],
+    queryFn: ({ signal }) => api.company(address, signal),
+    enabled: Boolean(address),
   });
+  const id = company.data?.id ?? '';
+  useEffect(() => {
+    if (!company.data) return;
+    const canonical = companyPath(company.data);
+    if (location.pathname !== canonical)
+      void navigate(`${canonical}${location.search}${location.hash}`, {
+        replace: true,
+        state: location.state,
+      });
+  }, [company.data, location.pathname, location.search, location.hash, location.state, navigate]);
   const timeline = useQuery({
     queryKey: ['company-timeline', id, range, interval],
     queryFn: ({ signal }) => api.companyTimeline(id, range, interval, signal),
@@ -106,10 +143,17 @@ export function CompanyPage() {
   const dailyTimeline = useQuery({
     queryKey: ['company-timeline', id, range, '1d'],
     queryFn: ({ signal }) => api.companyTimeline(id, range, '1d', signal),
-    enabled: Boolean(id) && interval === '1m',
+    enabled: Boolean(id) && (interval === '1m' || activeTab === 'prices'),
     refetchInterval: interval === '1m' ? marketRefreshInterval : false,
     refetchIntervalInBackground: false,
   });
+  const latestDailyPriceAt = (interval === '1m' ? dailyTimeline.data : timeline.data)?.prices.at(
+    -1,
+  )?.time;
+  useEffect(() => {
+    if (id && latestDailyPriceAt)
+      void queryClient.invalidateQueries({ queryKey: ['company-information', id] });
+  }, [id, latestDailyPriceAt, queryClient]);
   const livePrice = useQuery({
     queryKey: ['company-live-price', id],
     queryFn: ({ signal }) => api.companyLivePrice(id, signal),
@@ -117,25 +161,6 @@ export function CompanyPage() {
     refetchInterval: marketRefreshInterval,
     refetchIntervalInBackground: false,
     retry: false,
-  });
-  const watchlist = useMutation({
-    mutationFn: async () => {
-      if (!company.data) throw new Error('기업 정보가 없습니다.');
-      return company.data.isWatchlisted
-        ? api.removeWatchlist(company.data.id)
-        : api.addWatchlist({
-            companyId: company.data.id,
-            priority: 'P2',
-            realtimeAlerts: true,
-            digestAlerts: false,
-          });
-    },
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['company', id] }),
-        queryClient.invalidateQueries({ queryKey: ['watchlist'] }),
-      ]);
-    },
   });
 
   if (company.isPending)
@@ -182,6 +207,16 @@ export function CompanyPage() {
     latestMarker && isEventPeriodInsufficient(latestMarker.time),
   );
 
+  const tvSymbol =
+    data.isListed &&
+    /^(?:KOSPI|KOSDAQ|KRX)$/u.test(data.market) &&
+    /^[A-Z0-9]{6}$/u.test(data.stockCode ?? '')
+      ? `KRX:${data.stockCode}`
+      : data.isListed &&
+          ['NASDAQ', 'NYSE', 'AMEX'].includes(data.market) &&
+          /^[A-Z][A-Z0-9.-]{0,19}$/u.test(data.ticker ?? '')
+        ? `${data.market}:${data.ticker}`
+        : null;
   const chartTools = (
     <div className="chart-controls">
       <div className="range-control" role="group" aria-label="차트 주기">
@@ -218,9 +253,9 @@ export function CompanyPage() {
         <section className="company-heading">
           <Link
             className="company-back"
-            to={safeReturn ?? '/events'}
-            aria-label={safeReturn ? '관심종목으로 돌아가기' : '이벤트로 돌아가기'}
-            title={safeReturn ? '관심종목으로 돌아가기' : '이벤트로 돌아가기'}
+            to={safeReturn ?? '/companies'}
+            aria-label={safeReturn ? '관심 종목으로 돌아가기' : '종목 목록으로 돌아가기'}
+            title={safeReturn ? '관심 종목으로 돌아가기' : '종목 목록으로 돌아가기'}
           >
             <ArrowLeft size={18} />
           </Link>
@@ -247,7 +282,7 @@ export function CompanyPage() {
             <CompanyGroupPicker key={data.id} companyId={data.id} />
           </div>
         </section>
-
+        <MarketSelectionMembership companyId={data.id} />
         <section className="company-overview" aria-label="주가 요약">
           <div className="live-price-strip" aria-label="현재가">
             <div className="company-quote-main">
@@ -363,14 +398,49 @@ export function CompanyPage() {
               )}
             </div>
           </section>
+          <CompanyKeyStats companyId={data.id} />
         </section>
       </div>
+      <nav className="company-section-nav" aria-label="종목 메뉴">
+        {(
+          [
+            ['chart', '차트'],
+            ['prices', '일별 시세'],
+            ['information', '기업정보·재무'],
+            ['events', '이벤트'],
+            ['news', '뉴스·공시'],
+          ] as const
+        ).map(([tab, label]) => (
+          <button
+            type="button"
+            key={tab}
+            aria-pressed={activeTab === tab}
+            onClick={() =>
+              setSearchParams(
+                (current) => {
+                  const next = new URLSearchParams(current);
+                  if (tab === 'chart') next.delete('tab');
+                  else next.set('tab', tab);
+                  return next;
+                },
+                { replace: true },
+              )
+            }
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
       <section
-        className={`company-workspace ${sideVisible ? 'has-sidebar' : ''}`}
+        className={`company-workspace company-workspace--${activeTab} ${sideVisible ? 'has-sidebar' : ''}`}
         aria-label="차트와 종목 소식"
         style={{ '--company-chart-height': `${chartHeight}px` } as CSSProperties}
       >
-        <div className="company-chart-section" ref={setChartElement}>
+        <div
+          className={`company-chart-section ${chartExpanded ? 'is-expanded' : ''}`}
+          hidden={activeTab !== 'chart'}
+          ref={setChartElement}
+        >
           <Card className="chart-card">
             {!hasCandles ? (
               <CardHeader>
@@ -393,6 +463,8 @@ export function CompanyPage() {
                 <CompanyChart
                   key={`${id}-${interval}-${range}`}
                   timeline={timeline.data}
+                  expanded={chartExpanded}
+                  onExpand={toggleChartExpanded}
                   toolbar={chartTools}
                   livePrice={
                     livePrice.data && !fallbackClose
@@ -425,6 +497,16 @@ export function CompanyPage() {
                   }
                 />
               ) : null}
+              {tvSymbol ? (
+                <a
+                  className="company-tradingview-link"
+                  href={`https://www.tradingview.com/chart/?symbol=${encodeURIComponent(tvSymbol)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  TradingView에서 보기 <ArrowUpRight size={13} />
+                </a>
+              ) : null}
               {timeline.data?.latestCloseAt ? (
                 <p className="chart-caption">
                   {interval === '1m'
@@ -455,7 +537,13 @@ export function CompanyPage() {
           </Card>
         </div>
 
-        {sideVisible ? (
+        {activeTab === 'prices' ? (
+          <CompanyDailyPrices
+            timeline={eventTimeline}
+            loading={timeline.isPending || dailyTimeline.isFetching}
+          />
+        ) : null}
+        {sideVisible || activeTab === 'news' ? (
           <CompanyNewsPanel
             key={data.id}
             companyId={data.id}
@@ -463,8 +551,14 @@ export function CompanyPage() {
           />
         ) : null}
 
+        {activeTab === 'events' && !eventTimeline?.markers.length ? (
+          <EmptyState
+            title="표시할 이벤트가 없습니다"
+            description="확인된 공시와 뉴스가 연결되면 가격 흐름과 함께 표시합니다."
+          />
+        ) : null}
         {eventTimeline?.markers.length ? (
-          <Card className="company-event-returns">
+          <Card className="company-event-returns" hidden={activeTab !== 'events'}>
             <CardHeader>
               <div>
                 <span className="section-kicker">EVENT RETURNS</span>
@@ -524,37 +618,13 @@ export function CompanyPage() {
           </Card>
         ) : null}
 
-        <section className="company-information">
+        <section className="company-information" hidden={activeTab !== 'information'}>
           <Card>
             <CardHeader>
               <div>
                 <span className="section-kicker">IDENTITY</span>
                 <h2>기업 정보</h2>
               </div>
-              {canEdit ? (
-                <details className="company-actions-menu">
-                  <summary aria-label="종목 관리">
-                    <MoreHorizontal size={18} />
-                  </summary>
-                  <div>
-                    <Button
-                      variant={data.isWatchlisted ? 'secondary' : 'primary'}
-                      onClick={() => watchlist.mutate()}
-                      disabled={watchlist.isPending}
-                    >
-                      {data.isWatchlisted ? (
-                        <>
-                          <StarOff size={16} /> 운영 관심 해제
-                        </>
-                      ) : (
-                        <>
-                          <Star size={16} /> 운영 관심 추가
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                </details>
-              ) : null}
             </CardHeader>
             <CardContent>
               <div className="company-identity-name">
@@ -562,14 +632,7 @@ export function CompanyPage() {
                 {data.nameEn ? <span>{data.nameEn}</span> : null}
                 {data.sector && data.sector !== '미분류' ? <span>{data.sector}</span> : null}
               </div>
-              <div className="company-heading__badges">
-                {data.priority ? <PriorityBadge priority={data.priority} /> : null}
-                {data.tags
-                  .filter((tag) => tag !== data.priority)
-                  .map((tag) => (
-                    <Badge key={tag}>{displayDomainText(tag)}</Badge>
-                  ))}
-              </div>
+              <CompanyInformation companyId={data.id} />
               <dl className="identity-list">
                 <div>
                   <dt>DART 기업 고유번호</dt>
@@ -588,33 +651,10 @@ export function CompanyPage() {
                   <dd>{formatKst(data.lastEventAt)}</dd>
                 </div>
               </dl>
-              {data.thesis ? (
-                <div className="company-note">
-                  <CalendarDays size={16} />
-                  <p>{data.thesis}</p>
-                </div>
-              ) : null}
-              <div className="company-provenance">
-                {data.provenance.map((source) => (
-                  <div key={source.id}>
-                    <EvidenceBadge grade={source.grade} />
-                    <RightsBadge status={source.rightsMode} />
-                    <span>{source.sourceName}</span>
-                  </div>
-                ))}
-              </div>
             </CardContent>
           </Card>
         </section>
       </section>
-      <div className="company-page-guide">
-        <HelpPopover label="관측 화면 안내">
-          <p>
-            공시·뉴스의 사실과 출처를 정리하는 관측 화면입니다. 수량 증가만으로 장내매수를 판단하지
-            않으며, 자동 매수·매도 추천을 제공하지 않습니다.
-          </p>
-        </HelpPopover>
-      </div>
     </div>
   );
 }

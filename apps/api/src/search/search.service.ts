@@ -1,3 +1,4 @@
+import { publicSourceUrl } from '../common/news-url';
 import { manualNewsTranslationSql } from '../resources/manual-news-translation';
 import { Inject, Injectable } from '@nestjs/common';
 import {
@@ -9,12 +10,7 @@ import {
   type NewsTranslation,
   type SourceItem,
 } from '@orsem/contracts';
-import {
-  CompanyEntity,
-  FilingEntity,
-  NewsArticleContentEntity,
-  SourceItemEntity,
-} from '@orsem/database';
+import { CompanyEntity, FilingEntity, SourceItemEntity } from '@orsem/database';
 import type { DataSource } from 'typeorm';
 import { APP_CONFIG, type AppConfig } from '../config/app-config';
 import { FixtureStoreService } from '../fixtures/fixture-store.service';
@@ -23,6 +19,8 @@ import {
   literalSearchPattern as searchPattern,
   newsTranslationSearchCondition,
   publicNewsTranslation,
+  publicNewsDescription,
+  publicNewsTranslationStatus,
 } from '../common/news-translation';
 import {
   visibleNewsSql,
@@ -38,6 +36,10 @@ export interface SearchItem {
   id: string;
   type: 'COMPANY' | 'NEWS' | 'FILING';
   title: string;
+  description?: string | null;
+  translationStatus?: SourceItem['translationStatus'];
+  relatedCompanies?: SourceItem['relatedCompanies'];
+  company?: CompanyRow;
   translation?: NewsTranslation | null;
   subtitle: string;
   url: string;
@@ -70,6 +72,8 @@ interface SourceRow {
   id: string;
   articleId?: string | null;
   title: string;
+  description?: string | null;
+  relatedCompanies?: SourceItem['relatedCompanies'];
   url: string;
   companyId: string | null;
   companyName: string | null;
@@ -109,24 +113,7 @@ const metadataRights: RightsMode[] = [
   RightsMode.LINK_ONLY,
 ];
 
-export function publicSourceUrl(value: string): string | null {
-  try {
-    if (
-      !/^https?:\/\//iu.test(value) ||
-      value.includes('\\') ||
-      Array.from(value).some(
-        (character) => character.charCodeAt(0) <= 32 || character.charCodeAt(0) === 127,
-      )
-    )
-      return null;
-    const url = new URL(value);
-    return ['https:', 'http:'].includes(url.protocol) && !url.username && !url.password
-      ? url.href
-      : null;
-  } catch {
-    return null;
-  }
-}
+export { publicSourceUrl } from '../common/news-url';
 
 function instant(value: Date | string | null): string | null {
   if (!value) return null;
@@ -146,9 +133,10 @@ function companyItem(row: CompanyRow): SearchItem {
   return {
     id: row.id,
     type: 'COMPANY',
+    company: row,
     title: row.nameKo,
     subtitle: [row.market, row.stockCode ?? row.ticker, row.nameEn].filter(Boolean).join(' · '),
-    url: `/companies/${encodeURIComponent(row.id)}`,
+    url: `/companies/${row.id}`,
     external: false,
     companyId: row.id,
     source: null,
@@ -183,22 +171,26 @@ function sourceItem(row: SourceRow): SearchItem | null {
   if (
     !filing &&
     !metadataCard &&
-    (row.contentState !== 'AVAILABLE' ||
+    (policy?.metadataStorageAllowed !== true ||
+      policy?.displayAllowed !== true ||
+      policy?.rightsMode !== row.rightsMode ||
       !['OFFICIAL_RELEASE', 'COMPANY_IR'].includes(row.sourceKind ?? '') ||
       !PUBLIC_NEWS_PUBLISHERS.includes(
         (row.publisherId ?? '') as (typeof PUBLIC_NEWS_PUBLISHERS)[number],
-      ) ||
-      (row.contentLanguage === 'en' && !translation))
+      ))
   )
     return null;
   return {
     id: row.id,
     type: filing ? 'FILING' : 'NEWS',
     title: row.title,
+    description: metadataCard ? null : publicNewsDescription(row.rightsMode, row.description),
+    relatedCompanies: row.relatedCompanies ?? [],
     translation,
+    translationStatus: filing ? 'UNAVAILABLE' : publicNewsTranslationStatus(row),
     subtitle: [row.companyName, row.sourceName ?? row.source].filter(Boolean).join(' · '),
-    url: filing || metadataCard ? url : `/news/${encodeURIComponent(row.articleId ?? row.id)}`,
-    external: filing || metadataCard,
+    url,
+    external: true,
     companyId: row.companyId,
     source: row.source,
     rightsMode: row.rightsMode,
@@ -257,9 +249,42 @@ export class SearchService {
     };
   }
 
-  private async databaseGroups(term: string, limit: number, region: Region) {
+  async suggestions(input: {
+    q: string;
+    limit: number;
+    region?: Region;
+    kind: 'all' | 'companies' | 'news' | 'events';
+    scope?: 'all' | 'market' | 'company';
+    sourceKind?: string;
+    publisher?: string;
+    companyId?: string;
+  }) {
+    const groups = this.config.fixtureMode
+      ? this.fixtureGroups(input.q, input.region ?? 'all')
+      : await this.databaseGroups(input.q, input.limit, input.region ?? 'all', input.kind, input);
+    return {
+      query: input.q,
+      companies: input.kind === 'news' ? [] : groups.companies.slice(0, input.limit),
+      news: ['all', 'news'].includes(input.kind) ? groups.news.slice(0, input.limit) : [],
+      filings: [],
+      hasMore: { companies: false, news: false, filings: false },
+    };
+  }
+
+  private async databaseGroups(
+    term: string,
+    limit: number,
+    region: Region,
+    kind: 'search' | 'all' | 'companies' | 'news' | 'events' = 'search',
+    filters: import('../resources/news-query').NewsFilters = {},
+  ) {
     const source = this.database.requireDataSource();
-    const parameters = { term, pattern: searchPattern(term), rights: metadataRights };
+    const parameters = {
+      term,
+      pattern: searchPattern(term),
+      prefix: searchPattern(term).slice(1),
+      rights: metadataRights,
+    };
     const companyQuery = source
       .getRepository(CompanyEntity)
       .createQueryBuilder('company')
@@ -273,7 +298,7 @@ export class SearchService {
       ])
       .where(companyCondition(), parameters)
       .orderBy(
-        'CASE WHEN company.stockCode = :term OR company.ticker = :term OR company.nameKo = :term OR company.nameEn = :term THEN 0 ELSE 1 END',
+        "CASE WHEN company.stockCode = :term OR company.ticker = :term OR company.nameKo = :term OR company.nameEn = :term THEN 0 WHEN company.nameKo LIKE :prefix ESCAPE '!' OR company.ticker LIKE :prefix ESCAPE '!' OR company.stockCode LIKE :prefix ESCAPE '!' THEN 1 ELSE 2 END",
         'ASC',
       )
       .addOrderBy('company.isListed', 'DESC')
@@ -314,11 +339,42 @@ export class SearchService {
 
     // 네 조회는 저장된 메타데이터만 읽으며 수집 작업이나 외부 API를 호출하지 않습니다.
     const [companies, news, dart, sec] = await Promise.all([
-      companyQuery.getRawMany<CompanyRow>(),
-      this.sourceQuery(source, false, parameters, limit, region).getRawMany<SourceRow>(),
-      filingQuery.getRawMany<FilingRow>(),
-      this.sourceQuery(source, true, parameters, limit, region).getRawMany<SourceRow>(),
+      kind === 'news' ? Promise.resolve([]) : companyQuery.getRawMany<CompanyRow>(),
+      ['search', 'all', 'news'].includes(kind)
+        ? this.sourceQuery(
+            source,
+            false,
+            parameters,
+            limit,
+            region,
+            filters,
+          ).getRawMany<SourceRow>()
+        : Promise.resolve([]),
+      kind === 'search' ? filingQuery.getRawMany<FilingRow>() : Promise.resolve([]),
+      kind === 'search'
+        ? this.sourceQuery(source, true, parameters, limit, region).getRawMany<SourceRow>()
+        : Promise.resolve([]),
     ]);
+    if (news.length) {
+      const relations = (await source.query(
+        `SELECT DISTINCT displayed.id sourceItemId,c.id,c.name_ko nameKo,c.name_en nameEn,c.market,c.stock_code stockCode,c.ticker
+        FROM source_items displayed JOIN source_items linked ON linked.id=displayed.id OR (displayed.news_article_id IS NOT NULL AND linked.news_article_id=displayed.news_article_id)
+        JOIN news_source_companies relevance ON relevance.source_item_id=linked.id JOIN companies c ON c.id=relevance.company_id
+        WHERE displayed.id IN (${news.map(() => '?').join(',')}) ORDER BY c.name_ko,c.id`,
+        news.map((row) => row.id),
+      )) as (NonNullable<SourceItem['relatedCompanies']>[number] & { sourceItemId: string })[];
+      for (const row of news)
+        row.relatedCompanies = relations
+          .filter((company) => company.sourceItemId === row.id)
+          .map(({ id, nameKo, nameEn, market, stockCode, ticker }) => ({
+            id,
+            nameKo,
+            nameEn,
+            market,
+            stockCode,
+            ticker,
+          }));
+    }
     return {
       companies: companies.map(companyItem),
       news: news.map(sourceItem).filter((row): row is SearchItem => row !== null),
@@ -334,6 +390,7 @@ export class SearchService {
     parameters: Record<string, unknown>,
     limit: number,
     region: Region,
+    filters: import('../resources/news-query').NewsFilters = {},
   ) {
     const query = source
       .getRepository(SourceItemEntity)
@@ -343,6 +400,7 @@ export class SearchService {
         'item.id AS id',
         'item.newsArticleId AS articleId',
         'item.title AS title',
+        "JSON_UNQUOTE(JSON_EXTRACT(item.rawMetadataJson, '$.description')) AS description",
         'item.url AS url',
         'item.companyId AS companyId',
         'company.nameKo AS companyName',
@@ -384,18 +442,18 @@ export class SearchService {
       .limit(limit + 1);
     if (!secOnly) {
       query
-        .leftJoin(NewsArticleContentEntity, 'content', 'content.source_item_id = item.id')
-        .addSelect('content.status', 'contentState')
-        .addSelect('content.language', 'contentLanguage')
-        .andWhere(newsFiltersSql('item', {}))
+        .andWhere(newsFiltersSql('item', filters), newsFilterParameters(filters))
         .andWhere(visibleNewsSql('content', 'item'))
-        .andWhere(representativeNewsSql({}, 'item'));
+        .andWhere(representativeNewsSql(filters, 'item'));
     }
     if (region !== 'all') {
       if (secOnly) {
         if (region === 'kr') query.andWhere('1 = 0');
       } else {
-        query.andWhere(newsFiltersSql('item', { region }), newsFilterParameters({ region }));
+        query.andWhere(
+          newsFiltersSql('item', { ...filters, region }),
+          newsFilterParameters({ ...filters, region }),
+        );
       }
     }
     return query;
@@ -438,12 +496,10 @@ export class SearchService {
       .filter(
         (item) =>
           item.source === 'SEC' ||
-          (item.contentState === 'AVAILABLE' &&
-            ['OFFICIAL_RELEASE', 'COMPANY_IR'].includes(item.sourceKind ?? '') &&
+          (['OFFICIAL_RELEASE', 'COMPANY_IR'].includes(item.sourceKind ?? '') &&
             PUBLIC_NEWS_PUBLISHERS.includes(
               (item.publisherId ?? '') as (typeof PUBLIC_NEWS_PUBLISHERS)[number],
-            ) &&
-            (item.contentLanguage !== 'en' || Boolean(item.translation))),
+            )),
       )
       .filter((item) => {
         const company = linkedCompany(item);
@@ -463,6 +519,12 @@ export class SearchService {
           ...item,
           companyId: company?.id ?? null,
           companyName: company?.nameKo ?? null,
+          relatedCompanies: company ? [company] : [],
+          sourcePolicyJson: {
+            rightsMode: item.rightsMode,
+            metadataStorageAllowed: true,
+            displayAllowed: true,
+          },
           rceptDate: null,
         });
       })

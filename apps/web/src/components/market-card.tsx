@@ -11,7 +11,8 @@ import { formatKst } from '../lib/format';
 import { marketStatusLabel } from '../lib/market-display';
 import { marketEmoji } from '../lib/market-emoji';
 import { marketCardTime, shortMarketTimestamp } from '../lib/market-time';
-import type { MarketQuote } from '../types';
+import type { MarketQuote, MarketHistory } from '../types';
+import { MarketSparkline } from './market-sparkline';
 import { Badge } from './ui';
 import { MarketValue } from './market-value';
 import { TradingViewWidget } from './tradingview-widget';
@@ -25,31 +26,21 @@ const categoryIcons = {
   CRYPTO: Bitcoin,
 };
 
-function MarketCardMetadata({ item, compact }: { item: MarketQuote; compact: boolean }) {
-  const time = marketCardTime(item);
+function MarketCardMetadata({ item }: { item: MarketQuote }) {
   const status = marketStatusLabel(item.status);
+  if (item.displayKind === 'WIDGET') {
+    return status && status !== '일별 종가' ? (
+      <div className="market-card__meta">
+        <Badge tone={item.status === 'STALE' ? 'orange' : 'neutral'}>{status}</Badge>
+      </div>
+    ) : null;
+  }
+  if (!status && item.category !== 'CRYPTO') return null;
   return (
     <div className="market-card__meta">
       {status ? (
         <Badge tone={item.status === 'STALE' ? 'orange' : 'neutral'}>{status}</Badge>
       ) : null}
-      {time.text ? (
-        <time
-          dateTime={time.dateTime}
-          title={time.description ?? undefined}
-          aria-label={time.description ?? undefined}
-        >
-          {time.text}
-        </time>
-      ) : (
-        <span title={item.displayKind === 'NATIVE' ? (time.description ?? undefined) : undefined}>
-          {item.displayKind === 'WIDGET'
-            ? compact
-              ? 'FRED 경유'
-              : 'FRED 경유 · TradingView'
-            : '수집 시각 확인 전'}
-        </span>
-      )}
       {item.category === 'CRYPTO' ? (
         <span
           className="market-card__conversion-time"
@@ -63,11 +54,18 @@ function MarketCardMetadata({ item, compact }: { item: MarketQuote; compact: boo
   );
 }
 
-export function MarketCard({ item, compact = false }: { item: MarketQuote; compact?: boolean }) {
+export function MarketCard({
+  item,
+  history,
+  compact = false,
+}: {
+  item: MarketQuote;
+  history?: MarketHistory;
+  compact?: boolean;
+}) {
   const Icon = categoryIcons[item.category];
   const emoji = marketEmoji(item.id);
-  const compactWidget = compact && item.displayKind === 'WIDGET';
-  const usIndex = item.region === 'us' && item.category === 'INDEX';
+  const time = marketCardTime(item);
   return (
     <article
       data-status={item.status}
@@ -77,15 +75,21 @@ export function MarketCard({ item, compact = false }: { item: MarketQuote; compa
         to={`/markets/${item.id}`}
         className="market-card__heading"
         aria-label={`${item.name} 상세 차트`}
+        title={time.description}
       >
         <span className="market-card__icon" aria-hidden="true">
           {emoji ?? <Icon size={17} />}
         </span>
         <h3>{item.name}</h3>
-        {compactWidget ? (
-          <Badge className="market-card__daily" title="FRED 경유 일별 종가">
-            일별 종가
-          </Badge>
+        {time.text ? (
+          <time
+            className="market-card__time"
+            dateTime={time.dateTime}
+            title={time.description}
+            aria-label={time.description}
+          >
+            {time.text}
+          </time>
         ) : null}
         <ArrowUpRight size={15} aria-hidden="true" />
       </Link>
@@ -97,9 +101,12 @@ export function MarketCard({ item, compact = false }: { item: MarketQuote; compa
           compact={compact}
         />
       ) : (
-        <MarketValue item={item} />
+        <div className="market-card__body">
+          <MarketValue item={item} />
+          <MarketSparkline history={history} name={item.name} />
+        </div>
       )}
-      {!compactWidget && !usIndex ? <MarketCardMetadata item={item} compact={compact} /> : null}
+      <MarketCardMetadata item={item} />
     </article>
   );
 }

@@ -78,6 +78,8 @@ export const NEWS_RSS_FEED_IDS = Object.freeze([
   'fed-press',
   'fed-speeches',
   'bls-latest',
+  'eia-today',
+  'eia-press',
 ] as const);
 export type NewsRssFeedId = (typeof NEWS_RSS_FEED_IDS)[number];
 interface NewsRssFeedDefinition {
@@ -91,6 +93,20 @@ interface NewsRssFeedDefinition {
   url: string;
   categories: readonly string[];
 }
+
+// Covers EIA-authored text; photographs, logos and third-party visual materials are excluded.
+const eia = Object.freeze({
+  publisher: 'U.S. Energy Information Administration',
+  publisherId: 'eia',
+  marketRegion: 'global' as const,
+  sourceKind: NewsSourceKind.OFFICIAL_RELEASE,
+  rightsContext: 'OFFICIAL_RSS_READER',
+  rightsPolicyUrl: 'https://www.eia.gov/about/copyrights_reuse.php',
+  policy: Object.freeze({
+    ...officialContentPolicy('https://www.eia.gov/about/copyrights_reuse.php'),
+    checkedAt: '2026-09-06',
+  }),
+});
 
 /** The complete runtime allowlist for the NEWS_RSS connector. */
 export const NEWS_RSS_FEEDS = Object.freeze({
@@ -114,6 +130,16 @@ export const NEWS_RSS_FEEDS = Object.freeze({
     policy: officialContentPolicy('https://www.bls.gov/opub/copyright-information.htm'),
     url: 'https://www.bls.gov/feed/bls_latest.rss',
     categories: Object.freeze(['ECONOMY']),
+  }),
+  'eia-today': Object.freeze({
+    ...eia,
+    url: 'https://www.eia.gov/rss/todayinenergy.xml',
+    categories: Object.freeze(['ECONOMY', 'ENERGY', 'COMMODITIES']),
+  }),
+  'eia-press': Object.freeze({
+    ...eia,
+    url: 'https://www.eia.gov/rss/press_rss.xml',
+    categories: Object.freeze(['ECONOMY', 'ENERGY', 'COMMODITIES']),
   }),
 } satisfies Record<NewsRssFeedId, NewsRssFeedDefinition>);
 

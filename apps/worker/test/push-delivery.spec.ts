@@ -11,6 +11,7 @@ import {
   PushDeliveryEntity,
   PushSubscriptionEntity,
   SourceItemEntity,
+  MarketLeaderScopeEntity,
   WatchlistItemEntity,
 } from '@orsem/database';
 import type { DataSource, EntityManager } from 'typeorm';
@@ -105,7 +106,7 @@ function harness() {
     [PushSubscriptionEntity, [sampleSubscription()]],
     [AlertEntity, [sampleAlert()]],
     [EventClusterEntity, [sampleEvent()]],
-    [WatchlistItemEntity, [{ companyId: uuid(4), priority: 'P3', realtimeAlerts: false }]],
+    [MarketLeaderScopeEntity, [{ companyId: uuid(4), priority: 'P3', realtimeAlerts: false }]],
     [
       EventClusterItemEntity,
       [{ eventClusterId: uuid(3), itemType: 'FILING', itemId: uuid(6), isPrimary: true }],
@@ -259,7 +260,7 @@ describe('personal push fan-out and source policy', () => {
       expect(await fanout.enqueueAlert(h.db.manager, alert as AlertEntity, NOW)).toBe(0);
       preference.filingTypesJson = [detailType];
       expect(await fanout.enqueueAlert(h.db.manager, alert as AlertEntity, NOW)).toBe(1);
-      Object.assign(h.tables.get(WatchlistItemEntity)![0]!, {
+      Object.assign(h.tables.get(MarketLeaderScopeEntity)![0]!, {
         priority: 'P1',
         realtimeAlerts: true,
       });
@@ -428,7 +429,7 @@ describe('durable Web Push sender', () => {
   it('sends an owner-requested TEST despite empty topic selections and watchlist scope', async () => {
     const h = harness();
     h.tables.get(NotificationPreferenceEntity)![0]!.topicsJson = [];
-    h.tables.get(WatchlistItemEntity)!.length = 0;
+    h.tables.get(MarketLeaderScopeEntity)!.length = 0;
     const row = h.delivery({
       topic: 'TEST',
       alertId: null,
@@ -648,5 +649,35 @@ describe('Web Push transport boundary', () => {
     expect(await new PushDeliveryService(h.db, new PushFanoutService(), client).dispatch()).toEqual(
       { configured: false, claimed: 0, sent: 0 },
     );
+  });
+});
+
+describe('verified secondary share-class notification scope', () => {
+  it('allows current secondary-class alerts without putting the class in the representative quote list', async () => {
+    const h = harness();
+    h.tables.set(WatchlistItemEntity, []);
+    Object.assign(h.tables.get(MarketLeaderScopeEntity)![0]!, {
+      representativeCompanyId: uuid(99),
+      priority: 'P1',
+      realtimeAlerts: true,
+    });
+    const fanout = new PushFanoutService();
+    expect(await fanout.enqueueAlert(h.manager, sampleAlert(), NOW)).toBe(1);
+    const dispatcher = new AlertOutboxDispatcherService(h.db, fanout, {
+      openDartGlobalAlertTypes: ['D001', 'D002', 'D005'],
+    } as unknown as WorkerConfig);
+    const eligible = () =>
+      (
+        dispatcher as unknown as {
+          externalFanOutAllowed: (manager: EntityManager, alert: AlertEntity) => Promise<boolean>;
+        }
+      ).externalFanOutAllowed(h.manager, sampleAlert());
+    expect(await eligible()).toBe(true);
+    const delivery = h.tables.get(PushDeliveryEntity)![0]! as PushDeliveryEntity;
+    expect(await fanout.resolveDelivery(h.manager, delivery, NOW)).not.toBeNull();
+    h.tables.get(MarketLeaderScopeEntity)!.length = 0;
+    expect(await eligible()).toBe(false);
+    expect(await fanout.resolveDelivery(h.manager, delivery, NOW)).toBeNull();
+    expect(h.tables.get(WatchlistItemEntity)).toHaveLength(0);
   });
 });

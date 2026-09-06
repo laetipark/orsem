@@ -1,3 +1,4 @@
+import { companyPath } from '../lib/company-path';
 import { useQuery } from '@tanstack/react-query';
 import {
   ArrowLeft,
@@ -78,7 +79,7 @@ export function EventDetailPage() {
         </div>
         <div className="detail-heading__title">
           <div>
-            <Link to={`/companies/${data.companyId}`} className="company-link">
+            <Link to={companyPath({ ...data, id: data.companyId })} className="company-link">
               {data.companyName}
               <ArrowUpRight size={15} />
             </Link>

@@ -2,8 +2,8 @@ import { createElement, useEffect, useRef, useState } from 'react';
 import { useTheme } from '../theme';
 
 const allowedSymbols = new Set(['SP:SPX', 'NASDAQ:IXIC', 'FRED:SP500', 'FRED:NDQCOM']);
-const singleTickerTag = 'tv-single-ticker';
-const singleTickerScript = 'https://widgets.tradingview-widget.com/w/en/tv-single-ticker.js';
+const singleTickerTag = 'tv-mini-chart';
+const singleTickerScript = 'https://widgets.tradingview-widget.com/w/en/tv-mini-chart.js';
 const widgetLoadTimeoutMs = 15_000;
 const tickerLoaders = new WeakMap<Document, { script: HTMLScriptElement; ready: Promise<void> }>();
 
@@ -96,6 +96,7 @@ function SingleTicker({ symbol, name, sourceUrl, compact }: WidgetProps) {
             symbol,
             theme,
             transparent: '',
+            'time-frame': '3M',
             'aria-label': `${name} TradingView 시세`,
           })}
         </div>

@@ -188,10 +188,8 @@ test('뉴스 목록·상세와 이벤트·근거에서 원문을 보존하고 �
   assert.equal(detail.relatedCompanies?.[0]?.id, 'related-company');
   assert.equal(detail.description, 'Original news summary');
   assert.equal(detail.translation?.description, '번역한 요약');
-  assert.equal(detail.content?.sourceItemId, row.id);
-  assert.deepEqual(detail.content?.translation?.blocks, [
-    { type: 'PARAGRAPH', text: '번역한 기사 본문' },
-  ]);
+  assert.equal(detail.content, null);
+  assert.equal(detail.displayMode, 'EXTERNAL_LINK');
   const eventList = await service.listEventViews({ limit: 5 });
   const view = await service.getEventView(event.id);
   assert.equal(eventList.items[0]?.title, row.title);
@@ -206,7 +204,7 @@ test('뉴스 목록·상세와 이벤트·근거에서 원문을 보존하고 �
     assert.ok(!JSON.stringify(value).includes('rawMetadataJson'));
   }
   row.rawHash = 'b'.repeat(64);
-  await assert.rejects(() => service.getNews(row.id));
+  assert.equal((await service.getNews(row.id)).translation, null);
   assert.equal((await service.listEventViews({ limit: 5 })).items[0]?.translation, null);
   row.rawHash = 'a'.repeat(64);
   row.rightsMode = RightsMode.STORE_METADATA_ONLY;
@@ -264,24 +262,19 @@ test('원문 해시가 없는 예시 SourceItem에는 번역을 추가하지 않
   );
 });
 
-test('news list projection omits ingestion-only fields but retains every content validation input', async () => {
+test('news list projection reads metadata and never joins or selects stored bodies', async () => {
   const { service, queries } = await context();
   await service.listNews({ limit: 5 });
   const sql = queries[0]!.sql;
   const selection = sql.slice(0, sql.indexOf(' FROM '));
+  for (const field of ['translation_json', 'raw_hash', 'sort_at']) {
+    assert.ok(selection.includes(field), `missing validation or cursor field ${field}`);
+  }
   for (const field of [
     'blocks_json',
     'content_hash',
     'rights_policy_json',
-    'source_item_id',
     'fetched_at',
-    'translation_json',
-    'raw_hash',
-    'sort_at',
-  ]) {
-    assert.ok(selection.includes(field), `missing validation or cursor field ${field}`);
-  }
-  for (const field of [
     'raw_object_uri',
     'attempted_at',
     'next_attempt_at',

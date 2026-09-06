@@ -1,11 +1,12 @@
 import {
+  BadRequestException,
   Inject,
   Injectable,
   NotFoundException,
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { AlertStatus, isSupportedFilingType, type Event } from '@orsem/contracts';
+import { AlertStatus, isSupportedFilingType, type Event, type Region } from '@orsem/contracts';
 import {
   AlertDeliveryEntity,
   AlertEntity,
@@ -13,16 +14,22 @@ import {
   BotDeliveryEntity,
   BotRoomBindingEntity,
   DevicePairingEntity,
+  EventClusterEntity,
   FILING_ALERT_INELIGIBLE,
   filingAlertIsEligible,
   MessengerDeviceEntity,
+  MarketLeaderScopeEntity,
+  marketLeaderCompanyIds,
 } from '@orsem/database';
 import { createHash, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
-import { In } from 'typeorm';
+import { In, type EntityManager } from 'typeorm';
 import { APP_CONFIG, type AppConfig } from '../config/app-config';
 import { DatabaseRuntimeService } from '../persistence/database-runtime.service';
 import { FixtureStoreService } from '../fixtures/fixture-store.service';
 import { OrsemDataService } from '../resources/orsem-data.service';
+import { CompanyInformationApiService } from '../resources/company-information.service';
+import { NaverFocusNewsService } from '../news-search/naver-focus-news.service';
+import { botKst, botNewsItems, messengerNews } from './bot-news';
 
 export interface AuthenticatedDevice {
   id: string;
@@ -45,6 +52,8 @@ export class BotService {
     private readonly database: DatabaseRuntimeService,
     private readonly fixtures: FixtureStoreService,
     private readonly data: OrsemDataService,
+    private readonly information: CompanyInformationApiService,
+    private readonly naverNews: NaverFocusNewsService,
   ) {}
 
   private globalFilingTypeAllowed(alert: AlertEntity): boolean {
@@ -208,7 +217,7 @@ export class BotService {
         events: events.items.map(compactEvent),
         message: formatMessengerEvents('최근 중요 이벤트', events.items),
       };
-    } else if (command === 'company' || command === '기업') {
+    } else if (command === 'company' || command === '기업' || command === '종목') {
       const result = await this.data.findCompanyEvents(input.query, 5);
       response = {
         command: 'company',
@@ -218,16 +227,41 @@ export class BotService {
           ? formatMessengerEvents(`${result.company.nameKo} 최근 이벤트`, result.events)
           : `\`${input.query}\`에 해당하는 회사를 찾지 못했습니다.`,
       };
+    } else if (command === 'market' || command === '시장') {
+      const result = await this.market(botRegion(input.query, 'kr') as 'kr' | 'us');
+      response = {
+        command: 'market',
+        ...result,
+        message: [
+          `${result.label} 시가총액 상위 20`,
+          `기준일: ${result.basisDate ?? '확인 대기'} · 월간 갱신`,
+          ...(result.selectionMonth ? [`선정 월: ${result.selectionMonth}`] : []),
+          ...(result.nextRefreshAt ? [`다음 갱신: ${botKst(result.nextRefreshAt)}`] : []),
+          ...(result.sourceName ? [`출처: ${result.sourceName}`] : []),
+          ...(result.status !== 'AVAILABLE' && result.reason ? [String(result.reason)] : []),
+          ...result.items.map(
+            (item) => `${item.rank}. ${item.nameKo} (${item.stockCode ?? item.ticker ?? ''})`,
+          ),
+          ...(!result.items.length ? ['확정된 시장 목록이 없습니다.'] : []),
+        ].join('\n'),
+      };
+    } else if (command === 'news' || command === '뉴스') {
+      const result = await this.news(botRegion(input.query, 'all'), 5);
+      response = { command: 'news', ...result, message: messengerNews(result.items) };
     } else if (command === 'status' || command === '상태') {
       const database = this.data.databaseHealth();
       response = {
         command: 'status',
         fixtureMode: this.data.fixtureMode,
         database,
-        message: `오르셈 상태: ${this.data.fixtureMode ? 'fixture' : database.ready ? '정상' : '점검 필요'}\n기준: ${new Date().toISOString()}`,
+        message: `오르셈 상태: ${this.data.fixtureMode ? 'fixture' : database.ready ? '정상' : '점검 필요'}\n기준: ${botKst(new Date().toISOString())}`,
       };
     } else {
-      response = { command, message: '지원 명령: status, recent, company', query: input.query };
+      response = {
+        command,
+        message: '지원 명령: status, recent, company, market, news',
+        query: input.query,
+      };
     }
     if (!this.config.fixtureMode) {
       const repository = this.database.requireDataSource().getRepository(BotCommandEntity);
@@ -238,11 +272,61 @@ export class BotService {
           command: input.command,
           query: input.query,
           receivedAt: new Date(),
-          responseJson: response,
+          // News can contain expiring Naver metadata. Persist command diagnostics only.
+          responseJson:
+            response.command === 'news'
+              ? {
+                  command: 'news',
+                  itemCount: Array.isArray(response.items) ? response.items.length : 0,
+                }
+              : response,
         }),
       );
     }
     return response;
+  }
+
+  async market(region: 'kr' | 'us') {
+    const selection = await this.information.selection();
+    const group = selection.regions.find((item) => item.region === region);
+    if (!group) throw new ServiceUnavailableException('시장 목록을 확인할 수 없습니다.');
+    const items = (
+      group.items as Array<{
+        rank: number;
+        id: string;
+        nameKo: string;
+        market: string;
+        stockCode: string | null;
+        ticker: string | null;
+        marketCap: string | number;
+      }>
+    )
+      .filter((item) => Number(item.rank) >= 1 && Number(item.rank) <= 20)
+      .sort((a, b) => Number(a.rank) - Number(b.rank))
+      .slice(0, 20);
+    return { ...group, region, label: region === 'kr' ? '국내' : '미국', items };
+  }
+
+  async news(region: Region, limit: number) {
+    const companyIds = this.config.fixtureMode
+      ? new Set<string>()
+      : await marketLeaderCompanyIds(this.database.requireDataSource(), region);
+    const [stored, market, naver] = await Promise.all([
+      this.data.listNews({ region, scope: 'company', limit: 100 }),
+      this.data.listNews({ region, scope: 'market', limit: 20 }),
+      // No companyId: read the existing short-lived snapshots without provider requests.
+      this.naverNews.feed({ region, scope: 'company' }, 'BOT:PUBLIC'),
+    ]);
+    return {
+      region,
+      items: botNewsItems(
+        [...stored.items, ...market.items, ...naver.groups.flat()],
+        companyIds,
+        region,
+        limit,
+      ),
+      status: naver.status,
+    };
   }
 
   async pull(
@@ -302,6 +386,7 @@ export class BotService {
           row.alertId &&
           (!alert ||
             !(await filingAlertIsEligible(manager, alert)) ||
+            !(await botAlertIsCurrentMarketLeader(manager, alert)) ||
             !this.globalFilingTypeAllowed(alert))
         ) {
           row.status = AlertStatus.CANCELLED;
@@ -396,6 +481,7 @@ export class BotService {
         row.alertId &&
         (!lockedAlert ||
           !this.globalFilingTypeAllowed(lockedAlert) ||
+          !(await botAlertIsCurrentMarketLeader(manager, lockedAlert)) ||
           !(await filingAlertIsEligible(manager, lockedAlert)))
       ) {
         row.status = AlertStatus.CANCELLED;
@@ -561,11 +647,20 @@ function formatMessengerEvents(heading: string, events: Event[]): string {
   if (events.length === 0) return `${heading}\n새 이벤트가 없습니다.`;
   const rows = events.map((event) => {
     const company = event.company?.nameKo ?? '회사 미확인';
-    const date = event.filing?.rceptDate ?? event.firstObservedAt;
+    const date = botKst(event.filing?.rceptDate ?? event.firstObservedAt);
     const url = event.filing?.officialUrl ? `\n${event.filing.officialUrl}` : '';
     return `• ${company} · ${event.canonicalEventType}\n${event.summary}\n${date}${url}`;
   });
   return [heading, ...rows, '관찰 정보이며 단독 매매 신호가 아닙니다.'].join('\n');
+}
+
+function botRegion(value: string, fallback: Region): Region {
+  const key = value.trim().toLowerCase();
+  if (!key) return fallback;
+  if (['kr', '국내', '한국'].includes(key)) return 'kr';
+  if (['us', '미국'].includes(key)) return 'us';
+  if (fallback === 'all' && ['all', '전체'].includes(key)) return 'all';
+  throw new BadRequestException('지역은 국내 또는 미국을 선택해 주세요.');
 }
 
 export function alertAllowedByGlobalTypes(
@@ -574,4 +669,21 @@ export function alertAllowedByGlobalTypes(
 ): boolean {
   const type = payload['detailType'];
   return typeof type !== 'string' || !isSupportedFilingType(type) || allowed.includes(type);
+}
+
+/** Recheck the current monthly projection for deliveries queued before a selection change. */
+export async function botAlertIsCurrentMarketLeader(
+  manager: EntityManager,
+  alert: AlertEntity,
+): Promise<boolean> {
+  if (alert.eventClusterId === null) return true;
+  if (!alert.eventClusterId) return false;
+  const event = await manager
+    .getRepository(EventClusterEntity)
+    .findOneBy({ id: alert.eventClusterId });
+  if (!event?.companyId) return false;
+  const current = await manager
+    .getRepository(MarketLeaderScopeEntity)
+    .findOneBy({ companyId: event.companyId });
+  return Boolean(current?.realtimeAlerts && ['P1', 'P2'].includes(current.priority));
 }

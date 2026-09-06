@@ -176,6 +176,16 @@ test('MessengerBotR wire payloads accept the ES5 bridge shapes', () => {
     deviceCommandSchema.parse({ deviceId: 'device-1', command: 'STATUS', query: null }).query,
     '',
   );
+  for (const command of ['MARKET', 'NEWS', '시장', '뉴스']) {
+    assert.equal(
+      deviceCommandSchema.safeParse({ deviceId: 'device-1', command, query: 'kr' }).success,
+      true,
+    );
+  }
+  assert.equal(
+    deviceCommandSchema.safeParse({ deviceId: 'device-1', command: 'DELETE', query: '' }).success,
+    false,
+  );
   assert.equal(
     deliveryAckSchema.safeParse({ ok: true, error: null, externalMessageId: 'discord-1' }).success,
     true,
@@ -340,6 +350,21 @@ test('price timelines preserve source rights and feed limitations', () => {
 
   assert.equal(parsed.prices[0]?.source, 'TOSS_US');
   assert.equal(parsed.priceSources[0]?.adjustment, 'RAW');
+  assert.deepEqual(
+    companyTimelineSchema.parse({ ...parsed, indicatorWarmupPrices: parsed.prices })
+      .indicatorWarmupPrices,
+    parsed.prices,
+  );
+  assert.equal(
+    companyTimelineSchema.safeParse({
+      ...parsed,
+      indicatorWarmupPrices: parsed.prices.map((point) => ({
+        ...point,
+        time: '2026-09-01T14:30:00.000Z',
+      })),
+    }).success,
+    false,
+  );
   assert.equal(
     companyTimelineSchema.safeParse({
       ...parsed,

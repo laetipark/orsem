@@ -1,4 +1,4 @@
-import { newsContentBlockSchema, parseNewsMarkdown, RightsMode } from '@orsem/contracts';
+import { newsContentBlockSchema, RightsMode } from '@orsem/contracts';
 import {
   NewsArticleContentEntity,
   NewsTranslationRevisionEntity,
@@ -19,6 +19,9 @@ export const manualMetadataSchema = manualIdentitySchema.extend({
   title: z.string().trim().min(1).max(2_000),
   description: z.string().max(20_000).nullable(),
 });
+export const manualMetadataV2Schema = manualMetadataSchema
+  .omit({ contentHash: true, version: true })
+  .extend({ version: z.literal(2) });
 export const manualContentSchema = manualIdentitySchema.extend({
   markdown: z.string().min(1).max(100_000),
   blocks: z.array(newsContentBlockSchema).min(1).max(2_000),
@@ -88,77 +91,43 @@ export type VerifiedManualContent = NewsArticleContentEntity & { manualRevisionV
 export async function verifyManualNewsSources(
   source: DataSource,
   rows: VerifiedManualSource[],
-  contents: VerifiedManualContent[] = [],
+  _contents: VerifiedManualContent[] = [],
 ): Promise<void> {
+  void _contents;
   const manualRows = rows.filter((row) => row.manualTranslationJson != null);
   if (!manualRows.length) return;
-  const bySource = new Map(contents.map((content) => [content.sourceItemId, content]));
-  const missing = manualRows.filter((row) => !bySource.has(row.id)).map((row) => row.id);
-  if (missing.length) {
-    for (const content of await source
-      .getRepository(NewsArticleContentEntity)
-      .findBy({ sourceItemId: In(missing) }))
-      bySource.set(content.sourceItemId, content);
-  }
-  const revisionIds = [
-    ...new Set(
-      manualRows.flatMap((row) => {
-        const parsed = manualMetadataSchema.safeParse(storedJson(row.manualTranslationJson));
-        return parsed.success ? [parsed.data.revisionId] : [];
-      }),
-    ),
-  ];
-  const revisions = revisionIds.length
+  const parsedRows = manualRows.map((row) => ({
+    row,
+    parsed: manualMetadataV2Schema.safeParse(storedJson(row.manualTranslationJson)),
+  }));
+  const ids = parsedRows.flatMap(({ parsed }) => (parsed.success ? [parsed.data.revisionId] : []));
+  const revisions = ids.length
     ? await source.getRepository(NewsTranslationRevisionEntity).find({
-        select: {
-          id: true,
-          sourceItemId: true,
-          sourceHash: true,
-          contentHash: true,
-          manualJson: true,
-        },
-        where: { id: In(revisionIds) },
+        select: { id: true, sourceItemId: true, sourceHash: true, manualJson: true },
+        where: { id: In(ids) },
       })
     : [];
   const byId = new Map(revisions.map((revision) => [revision.id, revision]));
-  for (const row of manualRows) {
+  for (const { row, parsed } of parsedRows) {
     row.manualRevisionVerified = false;
-    const content = bySource.get(row.id);
-    if (!content) continue;
-    content.manualRevisionVerified = false;
-    const metadata = manualMetadataSchema.safeParse(storedJson(row.manualTranslationJson));
-    const body = manualContentSchema.safeParse(storedJson(content.manualTranslationJson));
-    if (!metadata.success || !body.success) continue;
-    const revision = byId.get(metadata.data.revisionId);
-    if (
-      !revision ||
-      !manualRevisionMatches(metadata.data, body.data, revision) ||
-      revision.sourceItemId !== row.id ||
-      revision.sourceHash !== row.rawHash ||
-      revision.contentHash !== content.contentHash ||
-      metadata.data.sourceHash !== row.rawHash ||
-      metadata.data.contentHash !== content.contentHash ||
-      body.data.sourceHash !== row.rawHash ||
-      body.data.contentHash !== content.contentHash ||
-      metadata.data.revisionId !== body.data.revisionId ||
-      metadata.data.editedAt !== body.data.editedAt ||
-      metadata.data.editedByAdminId !== body.data.editedByAdminId ||
-      !allowsNewsEditingPolicy(row.sourcePolicyJson, row.rightsMode) ||
-      !allowsNewsEditingPolicy(content.rightsPolicyJson, row.rightsMode) ||
-      content.language !== 'en' ||
-      content.status !== 'AVAILABLE'
-    )
-      continue;
-    try {
-      if (
-        JSON.stringify(parseNewsMarkdown(body.data.markdown)) !== JSON.stringify(body.data.blocks)
-      )
-        continue;
-    } catch {
-      continue;
-    }
-    row.manualRevisionVerified = true;
-    content.manualRevisionVerified = true;
+    if (!parsed.success) continue;
+    const revision = byId.get(parsed.data.revisionId);
+    const saved = storedJson(revision?.manualJson) as Record<string, unknown> | null;
+    const snapshot = manualMetadataV2Schema.safeParse(saved?.metadata);
+    const policy = storedJson(row.sourcePolicyJson) as Record<string, unknown> | null;
+    row.manualRevisionVerified = Boolean(
+      revision &&
+      snapshot.success &&
+      revision.sourceItemId === row.id &&
+      revision.sourceHash === row.rawHash &&
+      parsed.data.sourceHash === row.rawHash &&
+      JSON.stringify(snapshot.data) === JSON.stringify(parsed.data) &&
+      editableRights.has(row.rightsMode) &&
+      policy?.rightsMode === row.rightsMode &&
+      policy.metadataStorageAllowed === true &&
+      policy.displayAllowed === true &&
+      policy.aiAllowed === true,
+    );
   }
 }
 
@@ -171,34 +140,14 @@ export function manualNewsTranslationSql(alias: string): string {
     AND BINARY JSON_UNQUOTE(JSON_EXTRACT(${alias}.source_policy_json, '$.rightsMode')) = BINARY ${alias}.rights_mode
     AND JSON_EXTRACT(${alias}.source_policy_json, '$.metadataStorageAllowed') = true
     AND JSON_EXTRACT(${alias}.source_policy_json, '$.displayAllowed') = true
-    AND JSON_EXTRACT(${alias}.source_policy_json, '$.fullTextStorageAllowed') = true
     AND JSON_EXTRACT(${alias}.source_policy_json, '$.aiAllowed') = true
-    AND JSON_EXTRACT(${json}, '$.version') = 1
+    AND JSON_EXTRACT(${json}, '$.version') = 2
     AND BINARY ${value('sourceHash')} = BINARY ${alias}.raw_hash
     AND JSON_TYPE(JSON_EXTRACT(${json}, '$.title')) = 'STRING'
     AND CHAR_LENGTH(TRIM(${value('title')})) BETWEEN 1 AND 2000
     AND JSON_TYPE(JSON_EXTRACT(${json}, '$.description')) IN ('STRING','NULL')
-    AND EXISTS (SELECT 1 FROM news_article_contents manual_body
-      JOIN news_translation_revisions manual_revision ON manual_revision.id = ${value('revisionId')}
-      WHERE manual_body.source_item_id = ${alias}.id
-      AND manual_revision.source_item_id = ${alias}.id
-      AND BINARY JSON_EXTRACT(manual_revision.manual_json, '$.metadata') = BINARY JSON_EXTRACT(${json}, '$')
-      AND BINARY JSON_EXTRACT(manual_revision.manual_json, '$.content') = BINARY JSON_EXTRACT(manual_body.manual_translation_json, '$')
+    AND EXISTS (SELECT 1 FROM news_translation_revisions manual_revision
+      WHERE manual_revision.id = ${value('revisionId')} AND manual_revision.source_item_id = ${alias}.id
       AND BINARY manual_revision.source_hash = BINARY ${alias}.raw_hash
-      AND BINARY manual_revision.content_hash = BINARY manual_body.content_hash
-      AND BINARY ${value('contentHash')} = BINARY manual_body.content_hash
-      AND manual_body.status = 'AVAILABLE' AND manual_body.language = 'en'
-      AND BINARY JSON_UNQUOTE(JSON_EXTRACT(manual_body.rights_policy_json, '$.rightsMode')) = BINARY ${alias}.rights_mode
-      AND JSON_EXTRACT(manual_body.rights_policy_json, '$.metadataStorageAllowed') = true
-      AND JSON_EXTRACT(manual_body.rights_policy_json, '$.displayAllowed') = true
-      AND JSON_EXTRACT(manual_body.rights_policy_json, '$.fullTextStorageAllowed') = true
-      AND JSON_EXTRACT(manual_body.rights_policy_json, '$.aiAllowed') = true
-      AND JSON_EXTRACT(manual_body.manual_translation_json, '$.version') = 1
-      AND BINARY JSON_UNQUOTE(JSON_EXTRACT(manual_body.manual_translation_json, '$.revisionId')) = BINARY ${value('revisionId')}
-      AND BINARY JSON_UNQUOTE(JSON_EXTRACT(manual_body.manual_translation_json, '$.editedAt')) = BINARY ${value('editedAt')}
-      AND BINARY JSON_UNQUOTE(JSON_EXTRACT(manual_body.manual_translation_json, '$.editedByAdminId')) = BINARY ${value('editedByAdminId')}
-      AND BINARY JSON_UNQUOTE(JSON_EXTRACT(manual_body.manual_translation_json, '$.sourceHash')) = BINARY ${alias}.raw_hash
-      AND BINARY JSON_UNQUOTE(JSON_EXTRACT(manual_body.manual_translation_json, '$.contentHash')) = BINARY manual_body.content_hash
-      AND JSON_TYPE(JSON_EXTRACT(manual_body.manual_translation_json, '$.blocks')) = 'ARRAY'
-      AND JSON_LENGTH(JSON_EXTRACT(manual_body.manual_translation_json, '$.blocks')) BETWEEN 1 AND 2000))`;
+      AND BINARY JSON_EXTRACT(manual_revision.manual_json, '$.metadata') = BINARY JSON_EXTRACT(${json}, '$')))`;
 }

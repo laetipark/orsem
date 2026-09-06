@@ -2,7 +2,8 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { marketFixtures, marketFixtureTime } from '../lib/market-fixtures';
+import { marketFixtures, marketFixtureTime, marketHistoryFixture } from '../lib/market-fixtures';
+import type { MarketHistory } from '../types';
 import { MarketOverview } from './market-overview';
 import { DashboardMarkets, useDashboardMarketRegion } from './dashboard-markets';
 
@@ -23,9 +24,13 @@ vi.mock('./tradingview-widget', () => ({
   ),
 }));
 
-function showMarkets(dashboard = true, items = marketFixtures) {
+function showMarkets(
+  dashboard = true,
+  items = marketFixtures,
+  histories?: Record<string, MarketHistory>,
+) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  client.setQueryData(['markets', 'all'], { asOf: marketFixtureTime, items });
+  client.setQueryData(['markets', 'all'], { asOf: marketFixtureTime, items, histories });
   const view = render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={['/?region=us']}>
@@ -173,22 +178,77 @@ it('orders the full market screen by Korea, US, commodities and crypto with sepa
   view.client.clear();
 });
 
-it('hides metadata only on the two US index cards while retaining their official TradingView attribution', () => {
+it('shows a compact basis date and time beside native names and retains official TradingView attribution', () => {
   vi.useRealTimers();
   const view = showMarkets(false);
   for (const item of marketFixtures) {
     const card = screen.getByRole('link', { name: `${item.name} 상세 차트` }).closest('article')!;
-    const meta = card.querySelector('.market-card__meta');
+    const time = card.querySelector('.market-card__heading time');
     if (item.region === 'us' && item.category === 'INDEX') {
-      expect(meta).toBeNull();
+      expect(time).toBeNull();
+      expect(card.querySelector('.market-card__meta')).toBeNull();
       expect(within(card).getByText(`${item.widgetSymbol} 공식 위젯`)).toBeInTheDocument();
       expect(
         within(card).getByRole('link', { name: `${item.name} by TradingView` }),
       ).toHaveAttribute('href', item.sourceUrl);
     } else {
-      expect(meta).toBeInTheDocument();
+      expect(time).toHaveTextContent('09.03 17:42');
+      expect(time).toHaveAttribute('dateTime', marketFixtureTime);
+      expect(time).toHaveAttribute('title', expect.stringContaining('2026. 09. 03. 17:42 KST'));
+      expect(time).toHaveAccessibleName(expect.stringContaining('출처'));
+      expect(card.querySelector('.market-card__meta time')).toBeNull();
     }
   }
+  view.unmount();
+  view.client.clear();
+});
+
+it('pairs native values with real history in each card while keeping missing history explicit', () => {
+  vi.useRealTimers();
+  const view = showMarkets(false, marketFixtures, {
+    us2y: marketHistoryFixture('us2y'),
+  });
+  for (const item of marketFixtures.filter((quote) => quote.displayKind === 'NATIVE')) {
+    const card = screen.getByRole('link', { name: `${item.name} 상세 차트` }).closest('article')!;
+    const body = card.querySelector('.market-card__body');
+    expect(body?.querySelector('.market-value')).toBeInTheDocument();
+    expect(body?.querySelector('.market-sparkline')).toBeInTheDocument();
+    expect(card.querySelector('.market-card__heading time')).toBeInTheDocument();
+    if (item.id === 'us2y')
+      expect(body?.querySelector('.market-sparkline svg')).toBeInTheDocument();
+    else expect(body?.querySelector('.market-sparkline svg')).toBeNull();
+  }
+  view.unmount();
+  view.client.clear();
+});
+
+it('preserves date-only and observed-time provenance in headings without adding a widget time hint', () => {
+  vi.useRealTimers();
+  const items = marketFixtures.map((item) =>
+    item.id === 'us2y'
+      ? { ...item, providerAt: null, valueDate: '2026-09-02' }
+      : item.id === 'sp500'
+        ? { ...item, providerAt: marketFixtureTime }
+        : item.id === 'gold'
+          ? { ...item, providerAt: null, valueDate: null, observedAt: '2026-09-04T15:05:00.000Z' }
+          : item,
+  );
+  const view = showMarkets(true, items);
+  const bond = screen.getByRole('link', { name: '미국 국채 2년 상세 차트' });
+  expect(bond.querySelector('time')).toHaveTextContent('09.02');
+  expect(bond.querySelector('time')).toHaveAttribute('dateTime', '2026-09-02');
+  expect(
+    screen.getByRole('link', { name: 'S&P500 상세 차트' }).querySelector('time'),
+  ).toHaveTextContent('09.03 17:42');
+  expect(
+    screen.getByRole('link', { name: '나스닥종합 상세 차트' }).querySelector('time'),
+  ).toBeNull();
+  const gold = screen.getByRole('link', { name: '금 상세 차트' });
+  const observed = gold.querySelector('.dashboard-global-quote__heading time');
+  expect(observed).toHaveTextContent('09.05 00:05');
+  expect(observed).toHaveAttribute('title', expect.stringContaining('공급자 기준 시각 미확인'));
+  expect(observed).toHaveAccessibleName(expect.stringContaining('2026. 09. 05. 00:05 KST'));
+  expect(gold.querySelector('.dashboard-global-quote__detail time')).toBeNull();
   view.unmount();
   view.client.clear();
 });

@@ -1,5 +1,6 @@
+import { companyPath } from '../lib/company-path';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Copy, LayoutGrid, List, Plus, RefreshCw, Settings2, Users } from 'lucide-react';
+import { Copy, LayoutGrid, List, RefreshCw, Settings2, Users } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useOutletContext, useSearchParams } from 'react-router-dom';
 import { api, ApiError } from '../lib/api';
@@ -7,17 +8,11 @@ import { formatDate, formatMoney, formatPercent } from '../lib/format';
 import { useVisiblePanel } from '../lib/use-visible-panel';
 import type { Session, WatchlistGroupItem } from '../types';
 import { CompanyAvatar } from './company-avatar';
-import { Button, Card, EmptyState, ErrorState, Input, LoadingState } from './ui';
-import { WatchlistDialog, moveEntry } from './watchlist-dialog';
-import {
-  ChangeError,
-  CopyGroupDialog,
-  GroupEditor,
-  StockEditor,
-  useWatchChange,
-  watchActorKey,
-} from './watchlist-group-editors';
+import { Button, Card, EmptyState, ErrorState, LoadingState } from './ui';
+import { moveEntry } from './watchlist-dialog';
+import { ChangeError, CopyGroupDialog, watchActorKey } from './watchlist-group-editors';
 import { RoomDirectoryDialog, RoomManageDialog, RoomOrderDialog } from './watchlist-room-dialogs';
+import { GroupManagerDialog } from './group-manager-dialog';
 import './watchlist-groups-panel.css';
 export const movedIds = (ids: string[], index: number, direction: -1 | 1) =>
   moveEntry(ids, index, index + direction);
@@ -48,19 +43,20 @@ export function StockSparkline({ points }: { points: WatchlistGroupItem['sparkli
     </svg>
   );
 }
-export function WatchlistGroupStock({ item }: { item: WatchlistGroupItem }) {
+export function WatchlistGroupStock({
+  item,
+  measurement = false,
+}: {
+  item: WatchlistGroupItem;
+  measurement?: boolean;
+}) {
   const location = useLocation(),
     { company, displayPrice: price, recentActivity } = item;
   const basis = { LIVE: '실시간', STALE: '최근 체결', CLOSE: '종가', NONE: '시세 대기' };
-  return (
-    <Link
-      to={`/companies/${encodeURIComponent(company.id)}`}
-      state={{ watchlistReturn: location.pathname + location.search }}
-      className="watch-group-stock"
-      aria-label={`${company.nameKo} 종목 상세`}
-    >
+  const contents = (
+    <>
       <div className="watch-group-stock__company">
-        <CompanyAvatar company={company} />
+        {measurement ? <span className="company-avatar" /> : <CompanyAvatar company={company} />}
         <span>
           <strong>{company.nameKo}</strong>
           <small>
@@ -100,6 +96,18 @@ export function WatchlistGroupStock({ item }: { item: WatchlistGroupItem }) {
         <b>공시 {recentActivity.filingCount}</b>
         <b>이벤트 {recentActivity.eventCount}</b>
       </div>
+    </>
+  );
+  // The hidden sizing grid has no links, IDs, image requests or interaction handlers.
+  if (measurement) return <div className="watch-group-stock">{contents}</div>;
+  return (
+    <Link
+      to={companyPath(company)}
+      state={{ watchlistReturn: location.pathname + location.search }}
+      className="watch-group-stock"
+      aria-label={`${company.nameKo} 종목 상세`}
+    >
+      {contents}
     </Link>
   );
 }
@@ -118,10 +126,8 @@ export function WatchlistGroupsPanel({ compact = false }: { compact?: boolean })
     Math.min(189, Math.floor(Number(params.get('watchPage') || 0) || 0) * 21),
   );
   const [dialog, setDialog] = useState<
-      'directory' | 'room' | 'roomOrder' | 'create' | 'groups' | 'stocks' | 'copy' | null
-    >(null),
-    [name, setName] = useState(''),
-    change = useWatchChange(actor);
+    'directory' | 'room' | 'roomOrder' | 'groups' | 'copy' | null
+  >(null);
   const rooms = useQuery({
     queryKey: ['watchlist-v2', actor, 'rooms'],
     queryFn: ({ signal }) => api.watchlistRooms(signal),
@@ -187,9 +193,9 @@ export function WatchlistGroupsPanel({ compact = false }: { compact?: boolean })
   const close = () => setDialog(null);
   return (
     <div ref={ref}>
-      <Card className="watch-groups" aria-label="관심종목 그룹">
+      <Card className="watch-groups" aria-label="관심 종목 그룹">
         <header className="watch-groups__header">
-          <h2>관심종목</h2>
+          <h2>관심 종목</h2>
           <div className="watch-groups__actions">
             <Button size="sm" variant="ghost" onClick={() => setDialog('directory')}>
               <Users size={15} />
@@ -198,7 +204,7 @@ export function WatchlistGroupsPanel({ compact = false }: { compact?: boolean })
             <Button
               size="sm"
               variant="ghost"
-              aria-label="관심종목 새로고침"
+              aria-label="관심 종목 새로고침"
               disabled={groups.isFetching || page.isFetching}
               onClick={() => {
                 setBlockedScope(null);
@@ -263,7 +269,7 @@ export function WatchlistGroupsPanel({ compact = false }: { compact?: boolean })
         {scopeReady ? (
           <>
             <div className="watch-groups__toolbar">
-              <div className="watch-groups__tabs" role="tablist" aria-label="관심종목 그룹 선택">
+              <div className="watch-groups__tabs" role="tablist" aria-label="관심 종목 그룹 선택">
                 {groups.data?.items.map((g) => (
                   <button
                     key={g.id}
@@ -300,7 +306,7 @@ export function WatchlistGroupsPanel({ compact = false }: { compact?: boolean })
                   </button>
                 ))}
               </div>
-              <div className="watch-groups__views" role="group" aria-label="관심종목 보기 방식">
+              <div className="watch-groups__views" role="group" aria-label="관심 종목 보기 방식">
                 <button
                   aria-label="그리드 보기"
                   aria-pressed={view === 'grid'}
@@ -318,29 +324,9 @@ export function WatchlistGroupsPanel({ compact = false }: { compact?: boolean })
               </div>
             </div>
             <div className="watch-groups__tools">
-              {permissions?.canManageGroups ? (
-                <>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => {
-                      setName('');
-                      setDialog('create');
-                    }}
-                  >
-                    <Plus size={14} />
-                    그룹 추가
-                  </Button>
-                  {groups.data?.items.length ? (
-                    <Button size="sm" variant="ghost" onClick={() => setDialog('groups')}>
-                      그룹 편집
-                    </Button>
-                  ) : null}
-                </>
-              ) : null}
-              {editable?.canManageStocks ? (
-                <Button size="sm" variant="ghost" onClick={() => setDialog('stocks')}>
-                  종목 편집
+              {permissions?.canManageGroups || editable?.canManageStocks ? (
+                <Button size="sm" variant="ghost" onClick={() => setDialog('groups')}>
+                  <Settings2 size={14} /> 그룹 관리
                 </Button>
               ) : null}
               {selected && !roomId ? (
@@ -362,7 +348,7 @@ export function WatchlistGroupsPanel({ compact = false }: { compact?: boolean })
                 <ErrorState message={groups.error.message} onRetry={() => void groups.refetch()} />
               ) : !selected ? (
                 <EmptyState
-                  title="관심종목 그룹을 만들어 보세요"
+                  title="관심 종목 그룹을 만들어 보세요"
                   description={
                     permissions?.canManageGroups
                       ? '그룹을 만들고 종목을 추가하세요.'
@@ -381,17 +367,30 @@ export function WatchlistGroupsPanel({ compact = false }: { compact?: boolean })
                 />
               ) : page.data ? (
                 <>
-                  <div className={`watch-groups__stocks watch-groups__stocks--${view}`}>
-                    {page.data.items.map((item) => (
-                      <WatchlistGroupStock key={item.company.id} item={item} />
-                    ))}
+                  <div className="watch-groups__stock-viewport" data-view={view}>
+                    <div
+                      className="watch-groups__stocks watch-groups__stocks--grid watch-groups__grid-measure"
+                      aria-hidden="true"
+                      inert
+                    >
+                      {page.data.items.map((item) => (
+                        <WatchlistGroupStock key={item.company.id} item={item} measurement />
+                      ))}
+                    </div>
+                    <div
+                      className={`watch-groups__stocks watch-groups__stocks--${view} watch-groups__stocks--display`}
+                    >
+                      {page.data.items.map((item) => (
+                        <WatchlistGroupStock key={item.company.id} item={item} />
+                      ))}
+                    </div>
                   </div>
                   {!page.data.items.length ? (
                     <EmptyState
                       title="아직 종목이 없습니다"
                       description={
                         editable?.canManageStocks
-                          ? '종목 편집에서 관심종목을 추가하세요.'
+                          ? '그룹 관리에서 관심 종목을 추가하세요.'
                           : '종목 관리자가 등록하면 표시됩니다.'
                       }
                     />
@@ -444,18 +443,8 @@ export function WatchlistGroupsPanel({ compact = false }: { compact?: boolean })
       {dialog === 'roomOrder' ? (
         <RoomOrderDialog actor={actor} rooms={rooms.data?.items ?? []} onClose={close} />
       ) : null}
-      {dialog === 'groups' && groups.data ? (
-        <GroupEditor
-          actor={actor}
-          roomId={roomId}
-          groups={groups.data.items}
-          revision={groups.data.revision}
-          canStocks={permissions?.canManageStocks ?? false}
-          onClose={close}
-        />
-      ) : null}
-      {dialog === 'stocks' && selected ? (
-        <StockEditor actor={actor} group={selected} onClose={close} />
+      {dialog === 'groups' ? (
+        <GroupManagerDialog actor={actor} roomId={roomId} onClose={close} />
       ) : null}
       {dialog === 'copy' && selected ? (
         <CopyGroupDialog
@@ -464,40 +453,6 @@ export function WatchlistGroupsPanel({ compact = false }: { compact?: boolean })
           rooms={rooms.data?.items ?? []}
           onClose={close}
         />
-      ) : null}
-      {dialog === 'create' ? (
-        <WatchlistDialog title="그룹 추가" onClose={close}>
-          <form
-            className="watch-room-form"
-            onSubmit={(e) => {
-              e.preventDefault();
-              change.mutate(async () => {
-                const g = await api.createWatchlistGroup(name.trim(), roomId);
-                updateParams({ watchGroup: g.id, watchPage: null });
-                close();
-              });
-            }}
-          >
-            <label>
-              그룹 이름
-              <Input
-                autoFocus
-                value={name}
-                maxLength={80}
-                onChange={(e) => setName(e.target.value)}
-              />
-            </label>
-            <ChangeError error={change.error} />
-            <footer className="watch-dialog__footer">
-              <Button type="button" variant="ghost" onClick={close}>
-                취소
-              </Button>
-              <Button type="submit" disabled={!name.trim() || change.isPending}>
-                추가
-              </Button>
-            </footer>
-          </form>
-        </WatchlistDialog>
       ) : null}
     </div>
   );

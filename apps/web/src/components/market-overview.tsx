@@ -52,13 +52,20 @@ export function MarketOverview({
             ) : null}
             <div className="market-group__cards">
               {items.map((item) => (
-                <MarketCard key={item.id} item={item} compact={dashboard} />
+                <MarketCard
+                  key={item.id}
+                  item={item}
+                  history={markets.data.histories?.[item.id]}
+                  compact={dashboard}
+                />
               ))}
             </div>
           </section>
         );
       })}
-      {dashboard && globalItems.length ? <DashboardGlobalMarkets items={globalItems} /> : null}
+      {dashboard && globalItems.length ? (
+        <DashboardGlobalMarkets items={globalItems} histories={markets.data.histories} />
+      ) : null}
       {!markets.data.items.length ? <p>이 지역에 표시할 시장 지표가 없습니다.</p> : null}
     </section>
   );

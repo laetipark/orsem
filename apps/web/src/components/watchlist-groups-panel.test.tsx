@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Outlet, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ApiError, api } from '../lib/api';
@@ -209,7 +209,11 @@ it('saves group names with the space revision in a separate editor', async () =>
   const save = vi.spyOn(api, 'saveWatchlistGroups').mockResolvedValue();
   show();
   await screen.findByRole('tab', { name: /반도체/ });
-  fireEvent.click(screen.getByRole('button', { name: '그룹 편집' }));
+  fireEvent.click(screen.getByRole('button', { name: '그룹 관리' }));
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: '그룹 이름·순서·삭제' })).toBeEnabled(),
+  );
+  fireEvent.click(screen.getByRole('button', { name: '그룹 이름·순서·삭제' }));
   fireEvent.change(screen.getByRole('textbox', { name: '1번 그룹 이름' }), {
     target: { value: 'AI 기업' },
   });
@@ -231,8 +235,8 @@ it('hides edits from viewers even though they are approved service users', async
   vi.mocked(api.watchlistGroupItems).mockResolvedValue(page(shared));
   show();
   await screen.findByRole('link', { name: '삼성전자 종목 상세' });
-  expect(screen.queryByRole('button', { name: '그룹 편집' })).not.toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: '종목 편집' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: '그룹 관리' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: '종목 추가·삭제' })).not.toBeInTheDocument();
 });
 it('opens room directory and requests membership instead of following', async () => {
   vi.spyOn(api, 'watchlistRoomDirectory').mockResolvedValue({
@@ -268,7 +272,8 @@ it('edits all 22 stocks and cancels without saving', async () => {
   const save = vi.spyOn(api, 'saveWatchlistGroupItems').mockResolvedValue();
   show();
   await screen.findByRole('tab', { name: /반도체/ });
-  fireEvent.click(screen.getByRole('button', { name: '종목 편집' }));
+  fireEvent.click(screen.getByRole('button', { name: '그룹 관리' }));
+  fireEvent.click(await screen.findByRole('button', { name: '종목 추가·삭제' }));
   await screen.findByText('기업 21');
   fireEvent.change(screen.getByLabelText('기업 21 위치'), { target: { value: 1 } });
   fireEvent.click(screen.getByRole('button', { name: '취소' }));
@@ -318,7 +323,8 @@ it('saves ordering across the 21-stock page boundary and preserves a conflicting
     .mockRejectedValue(new ApiError(409, 'CONFLICT', '다른 참여자가 변경했습니다.'));
   show();
   await screen.findByRole('tab', { name: /반도체/ });
-  fireEvent.click(screen.getByRole('button', { name: '종목 편집' }));
+  fireEvent.click(screen.getByRole('button', { name: '그룹 관리' }));
+  fireEvent.click(await screen.findByRole('button', { name: '종목 추가·삭제' }));
   const position = await screen.findByLabelText('기업 21 위치');
   fireEvent.change(position, { target: { value: 1 } });
   fireEvent.blur(position);
@@ -350,7 +356,11 @@ it('canceling a group edit form never submits its draft', async () => {
   const save = vi.spyOn(api, 'saveWatchlistGroups').mockResolvedValue();
   show();
   await screen.findByRole('tab', { name: /반도체/ });
-  fireEvent.click(screen.getByRole('button', { name: '그룹 편집' }));
+  fireEvent.click(screen.getByRole('button', { name: '그룹 관리' }));
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: '그룹 이름·순서·삭제' })).toBeEnabled(),
+  );
+  fireEvent.click(screen.getByRole('button', { name: '그룹 이름·순서·삭제' }));
   fireEvent.click(screen.getByRole('button', { name: '취소' }));
   expect(save).not.toHaveBeenCalled();
 });
@@ -361,7 +371,11 @@ it('keeps the edit-start revision when automatic background refresh updates the 
     .mockRejectedValue(new ApiError(409, 'CONFLICT', '새 변경을 확인해 주세요.'));
   show();
   await screen.findByRole('tab', { name: /반도체/ });
-  fireEvent.click(screen.getByRole('button', { name: '그룹 편집' }));
+  fireEvent.click(screen.getByRole('button', { name: '그룹 관리' }));
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: '그룹 이름·순서·삭제' })).toBeEnabled(),
+  );
+  fireEvent.click(screen.getByRole('button', { name: '그룹 이름·순서·삭제' }));
   fireEvent.change(screen.getByLabelText('1번 그룹 이름'), { target: { value: '내 초안' } });
   vi.mocked(api.watchlistGroups).mockResolvedValue({
     items: [{ ...own, name: '다른 사람 변경' }],
@@ -378,4 +392,85 @@ it('keeps the edit-start revision when automatic background refresh updates the 
     groups: [{ id: 'own', name: '내 초안' }],
   });
   expect(screen.getByLabelText('1번 그룹 이름')).toHaveValue('내 초안');
+});
+
+it('creates the first group inside management and exposes group and stock editing in that dialog', async () => {
+  vi.mocked(api.watchlistGroups).mockResolvedValue({
+    items: [],
+    revision: 0,
+    permissions: { canManageGroups: true, canManageStocks: true, canManageMembers: false },
+  });
+  const create = vi.spyOn(api, 'createWatchlistGroup').mockImplementation(async () => {
+    vi.mocked(api.watchlistGroups).mockResolvedValue({
+      items: [own],
+      revision: 1,
+      permissions: { canManageGroups: true, canManageStocks: true, canManageMembers: false },
+    });
+    return own;
+  });
+  show();
+  fireEvent.click(await screen.findByRole('button', { name: '그룹 관리' }));
+  fireEvent.change(await screen.findByRole('textbox', { name: '새 그룹 이름' }), {
+    target: { value: '반도체' },
+  });
+  vi.spyOn(api, 'editWatchlistGroup').mockResolvedValue({ group: own, revision: 0, items: [] });
+  fireEvent.click(screen.getByRole('button', { name: '그룹 추가' }));
+  await waitFor(() => expect(create).toHaveBeenCalledWith('반도체', undefined));
+  expect(await screen.findByRole('combobox', { name: '추가할 종목 검색' })).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: '취소' }));
+  expect(await screen.findByRole('button', { name: '종목 추가·삭제' })).toBeVisible();
+  expect(screen.getByRole('button', { name: '그룹 이름·순서·삭제' })).toBeVisible();
+  expect(screen.getAllByRole('dialog')).toHaveLength(1);
+});
+
+it.each(['grid', 'list'])(
+  'keeps the same inert grid height baseline when starting in %s and switching views',
+  async (initial) => {
+    const rendered = show(`/?watchGroup=own&watchView=${initial}`);
+    await screen.findByRole('link', { name: '삼성전자 종목 상세' });
+    const baseline = rendered.container.querySelector('.watch-groups__grid-measure')!;
+    expect(baseline).toHaveAttribute('aria-hidden', 'true');
+    expect(baseline).toHaveAttribute('inert');
+    expect(baseline).toHaveClass('watch-groups__stocks--grid');
+    expect(baseline.querySelectorAll('.watch-group-stock')).toHaveLength(1);
+    expect(baseline.querySelector('a,button,input,select,[tabindex],[id],img')).toBeNull();
+    expect(screen.getAllByRole('link', { name: '삼성전자 종목 상세' })).toHaveLength(1);
+    for (const label of ['목록 보기', '그리드 보기', '목록 보기']) {
+      fireEvent.click(screen.getByRole('button', { name: label }));
+      expect(rendered.container.querySelector('.watch-groups__grid-measure')).toBe(baseline);
+      expect(baseline).toHaveClass('watch-groups__stocks--grid');
+      expect(baseline).not.toHaveClass('watch-groups__stocks--list');
+      expect(rendered.container.querySelector('.watch-groups__stocks--display')).toHaveClass(
+        label === '그리드 보기' ? 'watch-groups__stocks--grid' : 'watch-groups__stocks--list',
+      );
+    }
+    expect(api.watchlistGroupItems).toHaveBeenCalledOnce();
+  },
+);
+
+it('updates the grid baseline from the same current page data while list mode is selected', async () => {
+  const rendered = show('/?watchGroup=own&watchView=list');
+  await screen.findByRole('link', { name: '삼성전자 종목 상세' });
+  const changed = {
+    ...page(own),
+    total: 2,
+    items: [
+      stock,
+      { ...stock, company: { ...stock.company, id: 'second', nameKo: '두 번째 종목' } },
+    ],
+  };
+  await act(async () => {
+    client.setQueryData(['watchlist-v2', 'MEMBER:viewer1', 'items', 'personal', 'own', 0], changed);
+  });
+  await screen.findByRole('link', { name: '두 번째 종목 종목 상세' });
+  const baseline = rendered.container.querySelector('.watch-groups__grid-measure')!;
+  expect(baseline.querySelectorAll('.watch-group-stock')).toHaveLength(2);
+  expect(rendered.container.querySelector('.watch-groups__stocks--display')?.children).toHaveLength(
+    2,
+  );
+  expect(rendered.container.querySelector('.watch-groups__stock-viewport')).toHaveAttribute(
+    'data-view',
+    'list',
+  );
+  expect(api.watchlistGroupItems).toHaveBeenCalledOnce();
 });

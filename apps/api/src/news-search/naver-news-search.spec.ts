@@ -13,6 +13,7 @@ import { AuthService } from '../auth/auth.service';
 import { MemberService } from '../auth/member.service';
 import { AdminSessionGuard, HybridRateLimitGuard } from '../security/security';
 import { SessionRuntimeService } from '../security/session-runtime.service';
+import { NaverFocusNewsService } from './naver-focus-news.service';
 import { NaverNewsSearchController } from './naver-news-search.controller';
 import {
   NAVER_NEWS_FETCH,
@@ -51,6 +52,33 @@ function config(provider: 'developers' | 'ncloud' = 'developers') {
     NAVER_CLIENT_SECRET: 'synthetic-client-secret',
   });
 }
+
+test('네이버 사용량 예약이 거절되면 기존 결과를 유지하고 HTTP 요청 직전에만 무효화한다', async () => {
+  let allowed = false;
+  let invalidations = 0;
+  let calls = 0;
+  const service = new NaverNewsSearchService(
+    config(),
+    (async () => {
+      assert.equal(invalidations, 1);
+      calls++;
+      return Response.json(providerResult);
+    }) as typeof fetch,
+    {
+      reserve: async () => {
+        if (!allowed) throw new Error('budget exhausted');
+      },
+    } as never,
+  );
+  const input = { q: '삼성전자', start: 1, sort: 'date' as const };
+  await assert.rejects(() => service.search(input, () => invalidations++), /budget exhausted/);
+  assert.equal(invalidations, 0);
+  assert.equal(calls, 0);
+  allowed = true;
+  await service.search(input, () => invalidations++);
+  assert.equal(invalidations, 1);
+  assert.equal(calls, 1);
+});
 
 test('네이버 검색은 제공자별 고정 주소로 요청하고 원래 순서와 표시 필드를 보존한다', async () => {
   for (const provider of ['developers', 'ncloud'] as const) {
@@ -184,6 +212,10 @@ test('네이버 HTTP 경로는 인증·승인·요청 한도를 적용하고 성
       { provide: APP_CONFIG, useValue: config() },
       { provide: NAVER_NEWS_FETCH, useValue: http },
       NaverNewsSearchService,
+      {
+        provide: NaverFocusNewsService,
+        useValue: { company: async () => ({ focus: false, result: null }) },
+      },
       { provide: AuthService, useValue: { getAdmin: async () => ({ id: 'admin' }) } },
       {
         provide: MemberService,

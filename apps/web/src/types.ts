@@ -133,6 +133,17 @@ export interface NewsTranslation {
 }
 
 export interface SourceItem {
+  translationStatus?: 'PENDING' | 'COMPLETED' | 'FAILED' | 'UNAVAILABLE';
+  expiresAt?: string;
+  collectedAt?: string;
+  providerOriginal?: {
+    title: string;
+    description: string;
+    link: string;
+    originallink: string;
+    pubDate: string;
+  };
+  summaryLine?: string;
   id: string;
   articleId?: string | null;
   sourceCount?: number;
@@ -188,6 +199,17 @@ export interface NewsDetail extends SourceItem {
 }
 
 export interface SearchItem {
+  translationStatus?: 'PENDING' | 'COMPLETED' | 'FAILED' | 'UNAVAILABLE';
+  description?: string | null;
+  relatedCompanies?: SourceItem['relatedCompanies'];
+  company?: {
+    id: string;
+    nameKo: string;
+    nameEn: string | null;
+    stockCode: string | null;
+    ticker: string | null;
+    market: CompanySummary['market'];
+  };
   id: string;
   type: 'COMPANY' | 'NEWS' | 'FILING';
   title: string;
@@ -351,6 +373,19 @@ export interface ParseIntegrityMetrics {
 }
 
 export interface CompanySummary {
+  canonicalPath?: string;
+  quote?: {
+    price: string | null;
+    currency: 'KRW' | 'USD' | null;
+    changePercent: number | null;
+    volume: string | null;
+    basisDate: string | null;
+    referenceDate: string | null;
+    observedAt: string | null;
+    source: string | null;
+    marketCap: string | null;
+    capBasisDate: string | null;
+  } | null;
   id: string;
   nameKo: string;
   nameEn: string | null;
@@ -417,6 +452,7 @@ export interface CompanyTimeline {
   status?: 'READY' | 'NOT_CONFIGURED' | 'PENDING';
   currency: 'KRW' | 'USD';
   prices: PricePoint[];
+  indicatorWarmupPrices?: PricePoint[];
   priceSources: PriceSource[];
   markers: TimelineMarker[];
   returns: {
@@ -639,4 +675,18 @@ export interface BrowserSubscriptionInput {
   expirationTime: number | null;
   keys: { p256dh: string; auth: string };
   deviceName: string;
+}
+
+export interface PersonalFiling {
+  id: string;
+  source: 'OPENDART' | 'SEC';
+  externalId: string;
+  title: string;
+  filingDate: string | null;
+  publishedAt: string | null;
+  firstObservedAt: string;
+  url: string;
+  relatedCompanies: Array<
+    Pick<CompanySummary, 'id' | 'nameKo' | 'nameEn' | 'stockCode' | 'ticker' | 'market'>
+  >;
 }

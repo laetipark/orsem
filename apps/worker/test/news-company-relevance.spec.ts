@@ -5,6 +5,8 @@ import {
 } from '../src/connectors/news-company-matching';
 import {
   APPROVED_GROUP_COMPANIES_SQL,
+  MARKET_SELECTION_COMPANIES_SQL,
+  NEWS_COLLECTION_COMPANIES_SQL,
   replaceNewsCompanyRelevance,
 } from '../src/connectors/news-relevance';
 import { backfillNewsRelevance } from '../src/cli/backfill-news-relevance';
@@ -203,4 +205,11 @@ it('backfill defaults to read-only, then writes only locked relevance rows with 
     expect.objectContaining({ lock: { mode: 'pessimistic_write' } }),
   );
   expect(article).not.toHaveProperty('sourceKind');
+});
+
+it('news includes all verified leader classes while quote scope stays on representative memberships', () => {
+  expect(NEWS_COLLECTION_COMPANIES_SQL).toContain('market_leader_company_links');
+  expect(NEWS_COLLECTION_COMPANIES_SQL).toContain(APPROVED_GROUP_COMPANIES_SQL);
+  expect(MARKET_SELECTION_COMPANIES_SQL).toContain('market_cap_memberships');
+  expect(MARKET_SELECTION_COMPANIES_SQL).not.toContain('market_leader_company_links');
 });

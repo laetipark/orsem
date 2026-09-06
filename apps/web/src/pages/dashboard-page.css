@@ -131,3 +131,14 @@
     grid-column: 1 / -1;
   }
 }
+
+.priority-card__description {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 0;
+  padding: 0 18px 12px;
+}
+.personal-news .market-news__list {
+  border-top: 1px solid var(--border);
+}

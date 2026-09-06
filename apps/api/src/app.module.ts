@@ -1,3 +1,4 @@
+import { CompanyInformationApiService } from './resources/company-information.service';
 import { WatchlistAccessService } from './watchlist-groups/watchlist-access.service';
 import { WatchlistRoomsController } from './watchlist-groups/watchlist-rooms.controller';
 import { WatchlistRoomsService } from './watchlist-groups/watchlist-rooms.service';
@@ -44,6 +45,7 @@ import { NotificationsController } from './notifications/notifications.controlle
 import { NotificationsService } from './notifications/notifications.service';
 import { NaverNewsSearchController } from './news-search/naver-news-search.controller';
 import { NaverNewsSearchService } from './news-search/naver-news-search.service';
+import { NaverFocusNewsService } from './news-search/naver-focus-news.service';
 import { NaverNewsBudgetService } from './news-search/naver-news-budget.service';
 import { WatchlistGroupsController } from './watchlist-groups/watchlist-groups.controller';
 import { WatchlistGroupsService } from './watchlist-groups/watchlist-groups.service';
@@ -79,6 +81,7 @@ import { WatchlistGroupsService } from './watchlist-groups/watchlist-groups.serv
     SessionRuntimeService,
     FixtureStoreService,
     OrsemDataService,
+    CompanyInformationApiService,
     NewsTranslationEditorService,
     LivePriceService,
     AuthService,
@@ -86,6 +89,7 @@ import { WatchlistGroupsService } from './watchlist-groups/watchlist-groups.serv
     KakaoAuthService,
     SearchService,
     NaverNewsSearchService,
+    NaverFocusNewsService,
     NaverNewsBudgetService,
     WatchlistGroupsService,
     WatchlistAccessService,

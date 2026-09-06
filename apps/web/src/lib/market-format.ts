@@ -51,7 +51,7 @@ export function historyForRange(
   asOf: string,
 ) {
   const date = new Date(asOf);
-  date.setUTCMonth(date.getUTCMonth() - { '1m': 1, '3m': 3, '1y': 12 }[range]);
+  date.setUTCDate(date.getUTCDate() - { '1m': 31, '3m': 93, '1y': 366 }[range]);
   const start = date.toISOString().slice(0, 10);
   return points.filter((point) => point.date >= start && Number.isFinite(Number(point.value)));
 }
@@ -66,12 +66,12 @@ export function availableHistoryRanges(
     points[0]!.date,
   );
   const ranges: Array<'1m' | '3m' | '1y'> = ['1m'];
-  for (const [range, months] of [
-    ['3m', 1],
-    ['1y', 3],
+  for (const [range, days] of [
+    ['3m', 31],
+    ['1y', 93],
   ] as const) {
     const cutoff = new Date(asOf);
-    cutoff.setUTCMonth(cutoff.getUTCMonth() - months);
+    cutoff.setUTCDate(cutoff.getUTCDate() - days);
     if (oldest < cutoff.toISOString().slice(0, 10)) ranges.push(range);
   }
   return ranges;

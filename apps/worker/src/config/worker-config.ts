@@ -134,6 +134,7 @@ const workerConfigSchema = z
       ])
       .pipe(z.array(z.enum(DisclosureDetailType)).max(5))
       .transform((values) => Object.freeze(values)),
+    fscApiKey: optionalTrimmed,
     marketDataProvider: z.literal('toss').default('toss'),
     tossClientId: optionalTrimmed,
     tossClientSecret: optionalTrimmed,
@@ -244,6 +245,7 @@ export function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerCo
     rawDocumentDir: env.RAW_DOCUMENT_DIR,
     openDartApiKey: env.OPENDART_API_KEY,
     openDartGlobalAlertTypes: env.OPENDART_GLOBAL_ALERT_TYPES,
+    fscApiKey: env.FSC_API_KEY,
     marketDataProvider: env.MARKET_DATA_PROVIDER,
     tossClientId: env.TOSS_CLIENT_ID?.trim() || fileCredentials.clientId,
     tossClientSecret: env.TOSS_CLIENT_SECRET?.trim() || fileCredentials.clientSecret,

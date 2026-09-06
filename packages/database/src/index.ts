@@ -30,3 +30,7 @@ export * from './migrations/1788406000000-AddWatchlistGroups';
 export * from './migrations/1788407000000-AddNewsCompanyRelevance';
 
 export * from './migrations/1788408000000-AddWatchlistRooms';
+
+export * from './migrations/1788411000000-UseNewsMetadataOnly';
+export * from './migrations/1788412000000-UseMonthlyMarketLeaders';
+export * from './market-leader-scope';

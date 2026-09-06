@@ -516,9 +516,9 @@ export function NotificationSettingsContent({
                   }
                 />
                 <span>
-                  <strong>관심기업 소식만 받기</strong>
+                  <strong>국내·미국 시총 상위 20종목 소식만 받기</strong>
                   <small>
-                    등록된 관심기업과 연결된 공시·분석·뉴스만 받습니다.
+                    국내·미국 월간 시총 상위 20종목과 연결된 공시·분석·뉴스만 받습니다.
                     {isAdmin ? ' 운영 알림에는 적용되지 않습니다.' : ''}
                   </small>
                 </span>

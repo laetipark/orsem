@@ -58,7 +58,7 @@ it('SEC 접수 상세는 날짜와 원문을 보이고 거래 분석이나 파�
   expect(screen.getByRole('link', { name: /공식 원문/ })).toHaveAttribute('href', data.officialUrl);
 });
 
-it('검색 뉴스는 준비된 번역과 내부 상세 링크를 표시하고 공시의 원문 제목을 유지한다', async () => {
+it('검색 뉴스는 준비된 번역과 원문 링크를 표시하고 공시의 원문 제목을 유지한다', async () => {
   const newsResult = await fixtureRequest<SearchResults>('/api/v1/search?q=Samsung');
   const filingResult = await fixtureRequest<SearchResults>('/api/v1/search?q=Microsoft');
   const translated = newsResult.news[0]!;
@@ -74,7 +74,7 @@ it('검색 뉴스는 준비된 번역과 내부 상세 링크를 표시하고 �
   expect(container.querySelector('a button, a summary, a details')).toBeNull();
   const originalLink = screen.getByText(translated.translation!.title).closest('a');
   expect(originalLink).toHaveAttribute('href', translated.url);
-  expect(originalLink).not.toHaveAttribute('target');
+  expect(originalLink).toHaveAttribute('target', '_blank');
 });
 
 it('이벤트 탐색은 현재 화면에 필요한 목록 하나에 번역만 표시한다', async () => {

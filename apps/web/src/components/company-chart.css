@@ -231,6 +231,12 @@
 .indicator-legend__name {
   white-space: nowrap;
 }
+.chart-indicator-status {
+  margin: 4px 0 8px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
 .chart-plot-wrap {
   position: relative;
   min-width: 0;
@@ -332,5 +338,65 @@
   }
   .indicator-legend {
     height: 28px;
+  }
+}
+.chart-type-control,
+.chart-ma-control {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.chart-type-control {
+  padding: 2px;
+  border-radius: 7px;
+  background: var(--surface-2);
+}
+.chart-type-control button,
+.chart-ma-control button {
+  background: none;
+  border: 0;
+  color: var(--muted);
+  border-radius: 5px;
+  min-width: 34px;
+  height: 30px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.chart-type-control button[aria-pressed='true'] {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 1px 4px #0001;
+}
+.chart-ma-control > span {
+  color: var(--muted);
+  font-size: 11px;
+  padding: 0 4px;
+}
+.chart-ma-control button[aria-pressed='true'] {
+  background: var(--surface-2);
+}
+.chart-expand-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  color: var(--muted);
+  border: 0;
+  background: none;
+  min-height: 32px;
+  font-size: 12px;
+}
+@media (max-width: 620px) {
+  .chart-type-control button,
+  .chart-ma-control button,
+  .chart-expand-button {
+    min-height: 44px;
+  }
+  .indicator-toolbar {
+    gap: 4px 8px;
+  }
+  .chart-ma-control {
+    order: 5;
   }
 }

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SearchItem, SearchResults } from '../types';
 import { HeaderSearch } from './search-autocomplete';
 
-const mocks = vi.hoisted(() => ({ search: vi.fn() }));
+const mocks = vi.hoisted(() => ({ suggestions: vi.fn() }));
 vi.mock('../lib/api', () => ({ api: mocks }));
 
 function company(id = 'company-1', title = '삼성전자'): SearchItem {
@@ -96,8 +96,8 @@ function deferred<T>() {
 
 beforeEach(() => {
   vi.useFakeTimers();
-  mocks.search.mockReset();
-  mocks.search.mockResolvedValue(results());
+  mocks.suggestions.mockReset();
+  mocks.suggestions.mockResolvedValue(results());
   vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined);
 });
 afterEach(() => {
@@ -115,20 +115,19 @@ describe('HeaderSearch', () => {
     await waitForDebounce(100);
     fireEvent.change(input, { target: { value: ' Samsung ' } });
     await waitForDebounce(249);
-    expect(mocks.search).not.toHaveBeenCalled();
+    expect(mocks.suggestions).not.toHaveBeenCalled();
     expect(screen.getByRole('status')).toHaveTextContent('검색 중입니다.');
     await waitForDebounce(1);
-    expect(mocks.search).toHaveBeenCalledExactlyOnceWith(
+    expect(mocks.suggestions).toHaveBeenCalledExactlyOnceWith(
       'Samsung',
-      5,
-      'us',
+      { region: 'us' },
       expect.any(AbortSignal),
     );
     expect(screen.getByRole('listbox')).toHaveAttribute('aria-busy', 'false');
   });
 
   it('shows separate bounded company/news groups and only translated news copy', async () => {
-    mocks.search.mockResolvedValue(
+    mocks.suggestions.mockResolvedValue(
       results({
         companies: Array.from({ length: 7 }, (_, i) => company(`company-${i}`, `종목 ${i}`)),
         news: Array.from({ length: 7 }, (_, i) => news(`news-${i}`, `번역 뉴스 ${i}`)),
@@ -150,7 +149,7 @@ describe('HeaderSearch', () => {
     expect(screen.queryByText('번역 뉴스 5')).not.toBeInTheDocument();
   });
 
-  it('omits missing translated summaries and English fallbacks while keeping Korean originals', async () => {
+  it('preserves original headlines and permits safe external news while rejecting unsafe URLs', async () => {
     const noSummary = news('no-summary');
     noSummary.translation!.description = null;
     const english = { ...news('english'), translation: null };
@@ -160,16 +159,26 @@ describe('HeaderSearch', () => {
       external: true,
       url: 'https://example.test',
     };
-    mocks.search.mockResolvedValue(results({ news: [noSummary, english, korean, external] }));
+    mocks.suggestions.mockResolvedValue(
+      results({
+        news: [
+          noSummary,
+          english,
+          korean,
+          external,
+          { ...news('unsafe'), url: 'javascript:alert(1)' },
+        ],
+      }),
+    );
     show();
     type('삼성');
     await waitForDebounce();
     expect(screen.getByText('삼성전자 신제품 발표')).toBeVisible();
     expect(screen.getByText('한국어 원문 뉴스')).toBeVisible();
-    expect(screen.queryByText('번역된 요약입니다.')).not.toBeInTheDocument();
-    expect(screen.queryByText('Original English headline')).not.toBeInTheDocument();
+    expect(screen.getAllByText('번역된 요약입니다.')).toHaveLength(1);
+    expect(screen.getByText('Original English headline')).toBeVisible();
     expect(screen.queryByText('Original source metadata')).not.toBeInTheDocument();
-    expect(screen.queryByText('외부 링크 뉴스')).not.toBeInTheDocument();
+    expect(screen.getByText('외부 링크 뉴스')).toBeVisible();
   });
 
   it('prevents composing requests and Enter, then searches the committed Korean input', async () => {
@@ -181,7 +190,7 @@ describe('HeaderSearch', () => {
     await waitForDebounce(500);
     fireEvent.keyDown(input, { key: 'Enter', isComposing: true, keyCode: 229 });
     fireEvent.submit(screen.getByRole('search'));
-    expect(mocks.search).not.toHaveBeenCalled();
+    expect(mocks.suggestions).not.toHaveBeenCalled();
     expect(screen.getByTestId('location')).toHaveTextContent('/markets?region=us');
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
     fireEvent.change(input, { target: { value: '삼성' } });
@@ -189,7 +198,11 @@ describe('HeaderSearch', () => {
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(screen.getByTestId('location')).toHaveTextContent('/markets?region=us');
     await waitForDebounce();
-    expect(mocks.search).toHaveBeenCalledExactlyOnceWith('삼성', 5, 'us', expect.any(AbortSignal));
+    expect(mocks.suggestions).toHaveBeenCalledExactlyOnceWith(
+      '삼성',
+      { region: 'us' },
+      expect.any(AbortSignal),
+    );
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(screen.getByTestId('location')).toHaveTextContent(
       `/search?${new URLSearchParams({ q: '삼성', region: 'us' })}`,
@@ -199,11 +212,11 @@ describe('HeaderSearch', () => {
   it('aborts superseded requests and ignores stale results even when the server still resolves', async () => {
     const first = deferred<SearchResults>();
     const second = deferred<SearchResults>();
-    mocks.search.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    mocks.suggestions.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
     show();
     const input = type('first');
     await waitForDebounce();
-    const signal = mocks.search.mock.calls[0]![3] as AbortSignal;
+    const signal = mocks.suggestions.mock.calls[0]![2] as AbortSignal;
     fireEvent.change(input, { target: { value: 'second' } });
     expect(signal.aborted).toBe(true);
     await waitForDebounce();
@@ -224,7 +237,11 @@ describe('HeaderSearch', () => {
     fireEvent.change(input, { target: { value: ' Samsung ' } });
     await waitForDebounce();
     expect(screen.getByText('삼성전자')).toBeVisible();
-    expect(mocks.search).toHaveBeenLastCalledWith('Samsung', 5, 'us', expect.any(AbortSignal));
+    expect(mocks.suggestions).toHaveBeenLastCalledWith(
+      'Samsung',
+      { region: 'us' },
+      expect.any(AbortSignal),
+    );
   });
 
   it('moves across groups with arrow keys and opens the selected existing news URL', async () => {
@@ -270,35 +287,35 @@ describe('HeaderSearch', () => {
     const input = type('삼성');
     await waitForDebounce();
     fireEvent.keyDown(input, { key: 'ArrowDown' });
-    fireEvent.click(screen.getByRole('button', { name: '‘삼성’ 전체 검색' }));
+    fireEvent.click(screen.getByRole('button', { name: '‘삼성’ 검색' }));
     expect(screen.getByTestId('location')).toHaveTextContent(
       `/search?${new URLSearchParams({ q: '삼성' })}`,
     );
   });
 
   it('closes and aborts on Escape, outside pointer, clearing and unmount', async () => {
-    mocks.search.mockImplementation(() => new Promise(() => undefined));
+    mocks.suggestions.mockImplementation(() => new Promise(() => undefined));
     const { unmount } = show();
     const input = type('삼성');
     await waitForDebounce();
     fireEvent.keyDown(input, { key: 'Escape' });
-    expect((mocks.search.mock.calls[0]![3] as AbortSignal).aborted).toBe(true);
+    expect((mocks.suggestions.mock.calls[0]![2] as AbortSignal).aborted).toBe(true);
     expect(input).toHaveValue('삼성');
     expect(input).toHaveAttribute('aria-expanded', 'false');
     fireEvent.click(input);
     await waitForDebounce();
     fireEvent.pointerDown(screen.getByLabelText('다른 입력'));
-    expect((mocks.search.mock.calls[1]![3] as AbortSignal).aborted).toBe(true);
+    expect((mocks.suggestions.mock.calls[1]![2] as AbortSignal).aborted).toBe(true);
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
     fireEvent.click(input);
     await waitForDebounce();
     fireEvent.change(input, { target: { value: ' ' } });
-    expect((mocks.search.mock.calls[2]![3] as AbortSignal).aborted).toBe(true);
+    expect((mocks.suggestions.mock.calls[2]![2] as AbortSignal).aborted).toBe(true);
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
     fireEvent.change(input, { target: { value: '삼성' } });
     await waitForDebounce();
     unmount();
-    expect((mocks.search.mock.calls[3]![3] as AbortSignal).aborted).toBe(true);
+    expect((mocks.suggestions.mock.calls[3]![2] as AbortSignal).aborted).toBe(true);
   });
 
   it('closes on route changes and queries the newly selected region on reopening', async () => {
@@ -309,18 +326,21 @@ describe('HeaderSearch', () => {
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
     fireEvent.click(input);
     await waitForDebounce();
-    expect(mocks.search).toHaveBeenLastCalledWith('삼성', 5, 'kr', expect.any(AbortSignal));
+    expect(mocks.suggestions).toHaveBeenLastCalledWith(
+      '삼성',
+      { region: 'kr' },
+      expect.any(AbortSignal),
+    );
   });
 
   it('shows empty and error states while keeping whole-search available', async () => {
-    mocks.search
+    mocks.suggestions
       .mockResolvedValueOnce(results({ companies: [], news: [] }))
       .mockRejectedValueOnce(new Error('private server detail'));
     show();
     const input = type('없는 결과');
     await waitForDebounce();
-    expect(screen.getByText('일치하는 종목 검색 결과가 없습니다.')).toBeVisible();
-    expect(screen.getByText('일치하는 뉴스 검색 결과가 없습니다.')).toBeVisible();
+    expect(screen.getByText('일치하는 검색 후보가 없습니다.')).toBeVisible();
     fireEvent.change(input, { target: { value: '실패' } });
     await waitForDebounce();
     expect(screen.getByRole('status')).toHaveTextContent('검색 후보를 불러오지 못했습니다.');

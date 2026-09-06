@@ -17,6 +17,8 @@ import { DatabaseRuntimeService } from '../persistence/database-runtime.service'
 
 const dayMs = 86_400_000;
 const dailyProviders = new Set(['TREASURY', 'EIA']);
+// EIA는 일별 관측값을 주 단위로 묶어 발표하며 미국 공휴일에는 발표가 늦어집니다.
+const sourceDateMaxAgeDays = (provider: string) => (provider === 'EIA' ? 14 : 7);
 const failed = new Set(['FAILED', 'DEGRADED']);
 const number = (value: string | null | undefined): number | null =>
   value != null && value.trim() !== '' && Number.isFinite(Number(value)) ? Number(value) : null;
@@ -61,7 +63,10 @@ export function projectMarketQuote(
   const observationAge = latest ? now.getTime() - latest.lastObservedAt.getTime() : Infinity;
   const providerAge = latest?.providerAt ? now.getTime() - latest.providerAt.getTime() : 0;
   // 일별 자료는 휴장일에도 마지막 값을 유지하며 수집 시각과 제공 시각을 구분합니다.
-  const oldDaily = isDaily && period ? now.getTime() - Date.parse(period) > 7 * dayMs : false;
+  const oldDaily =
+    isDaily && period
+      ? now.getTime() - Date.parse(period) > sourceDateMaxAgeDays(instrument.provider) * dayMs
+      : false;
   const closedKr =
     instrument.region === 'kr' &&
     instrument.category === 'INDEX' &&
@@ -175,9 +180,9 @@ export class MarketsService {
     return true;
   }
 
-  async overview(region: Region = 'all') {
+  async overview(region: Region = 'all', historyRange?: '1m') {
     const now = new Date();
-    const { rows, health } = await this.readSnapshots(now);
+    const { rows, health } = await this.readSnapshots(now, historyRange ? 31 : 14);
     const items = convertCryptoQuotes(
       MARKET_INSTRUMENTS.map((instrument) =>
         projectMarketQuote(
@@ -197,10 +202,22 @@ export class MarketsService {
         ),
       ),
     ).filter((item) => region === 'all' || item.region === region);
-    return marketOverviewSchema.parse({ asOf: now.toISOString(), items });
+    const histories = historyRange
+      ? Object.fromEntries(
+          await Promise.all(
+            items
+              .filter((item) => item.displayKind === 'NATIVE')
+              .map(async (item) => [
+                item.id,
+                await this.history(item.id, historyRange, { rows, health, now }),
+              ]),
+          ),
+        )
+      : undefined;
+    return marketOverviewSchema.parse({ asOf: now.toISOString(), items, histories });
   }
 
-  private async readSnapshots(now: Date) {
+  private async readSnapshots(now: Date, days = 14) {
     if (this.config.fixtureMode)
       return { rows: [] as MarketObservationEntity[], health: [] as ConnectorHealthEntity[] };
     const source = this.database.requireDataSource();
@@ -215,7 +232,7 @@ export class MarketsService {
             instrumentId: In(ids),
             kind: 'DAILY',
             sourceDate: Between(
-              new Date(now.getTime() - 14 * dayMs).toISOString().slice(0, 10),
+              new Date(now.getTime() - days * dayMs).toISOString().slice(0, 10),
               providerDate(MARKET_INSTRUMENTS[0]!, now),
             ),
           },
@@ -228,15 +245,30 @@ export class MarketsService {
     return { rows, health };
   }
 
-  async history(id: string, range: MarketHistoryRange): Promise<MarketHistory> {
+  async history(
+    id: string,
+    range: MarketHistoryRange,
+    batch?: { rows: MarketObservationEntity[]; health: ConnectorHealthEntity[]; now: Date },
+  ): Promise<MarketHistory> {
     const instrument = MARKET_INSTRUMENTS.find((item) => item.id === id);
     if (!instrument) throw new NotFoundException('시장 지표를 찾을 수 없습니다.');
-    const now = new Date();
+    const now = batch?.now ?? new Date();
     const start = new Date(now.getTime() - { '1m': 31, '3m': 93, '1y': 366 }[range] * dayMs)
       .toISOString()
       .slice(0, 10);
-    const rows =
-      this.config.fixtureMode || instrument.displayKind === 'WIDGET'
+    const rows = batch
+      ? batch.rows
+          .filter(
+            (row) =>
+              row.instrumentId === id &&
+              row.source === instrument.provider &&
+              row.kind === 'DAILY' &&
+              row.sourceDate &&
+              row.sourceDate >= start &&
+              row.sourceDate <= providerDate(instrument, now),
+          )
+          .sort((a, b) => a.sourceDate!.localeCompare(b.sourceDate!))
+      : this.config.fixtureMode || instrument.displayKind === 'WIDGET'
         ? []
         : await this.database
             .requireDataSource()
@@ -258,8 +290,13 @@ export class MarketsService {
       this.config.fixtureMode || instrument.displayKind === 'WIDGET'
         ? null
         : this.database.requireDataSource();
-    const health =
-      source && instrument.provider !== 'TRADINGVIEW'
+    const health = batch
+      ? batch.health.find(
+          (row) =>
+            row.connector ===
+            MARKET_CONNECTOR_IDS[instrument.provider as keyof typeof MARKET_CONNECTOR_IDS],
+        )
+      : source && instrument.provider !== 'TRADINGVIEW'
         ? await source
             .getRepository(ConnectorHealthEntity)
             .findOneBy({ connector: MARKET_CONNECTOR_IDS[instrument.provider] })
@@ -275,7 +312,8 @@ export class MarketsService {
       historyFailed ||
       (latest
         ? now.getTime() - latest.lastObservedAt.getTime() > 7 * 3_600_000 ||
-          now.getTime() - Date.parse(latest.sourceDate!) > 7 * dayMs
+          now.getTime() - Date.parse(latest.sourceDate!) >
+            sourceDateMaxAgeDays(instrument.provider) * dayMs
         : false);
     const status =
       instrument.displayKind === 'WIDGET'

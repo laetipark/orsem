@@ -1,10 +1,15 @@
+import { NaverFocusNewsService } from '../news-search/naver-focus-news.service';
+import { CompanyInformationApiService } from './company-information.service';
+import { groupActor } from '../watchlist-groups/watchlist-access.service';
 import { CompanyObservationService } from '../watchlist-groups/company-observation.service';
 import {
   Body,
   Controller,
   Delete,
   Get,
+  GoneException,
   HttpCode,
+  Header,
   Param,
   Patch,
   Post,
@@ -14,7 +19,6 @@ import {
 import type { Request } from 'express';
 import { z } from 'zod';
 import {
-  createWatchlistItemSchema,
   companyTimelineQuerySchema,
   createIrSourceSchema,
   cursorQuerySchema,
@@ -23,7 +27,6 @@ import {
   resolveReviewSchema,
   updateIrSourceSchema,
   updateReviewSchema,
-  updateWatchlistItemSchema,
   watchlistQuotesQuerySchema,
   NewsSourceKind,
 } from '@orsem/contracts';
@@ -37,7 +40,40 @@ import { MarketsService } from '../markets/markets.service';
 @Controller('dashboard')
 @ReadOnlyMemberAccess()
 export class DashboardController {
-  constructor(private readonly data: OrsemDataService) {}
+  constructor(
+    private readonly data: OrsemDataService,
+    private readonly information: CompanyInformationApiService,
+    private readonly naver: NaverFocusNewsService,
+  ) {}
+  @Get('market-selection')
+  marketSelection() {
+    return this.information.selection();
+  }
+  @Get('personal-filings')
+  @Header('Cache-Control', 'private, no-store')
+  personalFilings(@Req() request: Request) {
+    return this.data.personalFilings(groupActor(request).key);
+  }
+  @Get('personal-news')
+  @Header('Cache-Control', 'private, no-store')
+  async personalNews(@Req() request: Request) {
+    const actor = groupActor(request).key;
+    const [page, provider] = await Promise.all([
+      this.data.personalNews(actor),
+      this.naver.feed({ scope: 'personal' }, actor).catch(() => null),
+    ]);
+    return {
+      ...page,
+      providerGroups: provider?.groups ?? [],
+      naver: provider
+        ? {
+            fetchedAt: provider.fetchedAt,
+            status: provider.status,
+            nextRequestAt: provider.nextRequestAt,
+          }
+        : null,
+    };
+  }
   @Get()
   dashboard(): Promise<Record<string, unknown>> {
     return this.data.dashboardView();
@@ -70,20 +106,48 @@ export class CompaniesController {
     private readonly livePrices: LivePriceService,
     private readonly workerQueue: WorkerQueueService,
     private readonly observations: CompanyObservationService,
+    private readonly information: CompanyInformationApiService,
   ) {}
 
   @Get()
-  list(@Query() query: unknown) {
+  async list(@Query() query: unknown) {
     const parsed = parseWith(
       cursorQuerySchema.extend({ q: z.string().trim().max(120).optional() }),
       query,
     );
-    return this.data.listCompanyViews(parsed);
+    const page = await this.data.listCompanyViews(parsed);
+    const [quotes, paths] = await Promise.all([
+      this.information.quotes(page.items.map((item) => item.id)),
+      this.information.canonicalPaths(page.items),
+    ]);
+    return {
+      ...page,
+      items: page.items.map((item) => ({
+        ...item,
+        canonicalPath: paths.get(item.id),
+        quote: quotes.get(item.id) ?? null,
+      })),
+    };
   }
 
   @Get(':id')
-  get(@Param('id') id: string) {
-    return this.data.getCompanyView(id);
+  async get(@Param('id') id: string) {
+    const view = await this.data.getCompanyView(await this.information.resolveId(id));
+    const paths = await this.information.canonicalPaths([
+      view as unknown as {
+        id: string;
+        market: string;
+        stockCode: string | null;
+        ticker: string | null;
+        isListed: boolean;
+      },
+    ]);
+    return { ...view, canonicalPath: paths.get(String(view.id)) };
+  }
+
+  @Get(':id/information')
+  informationForCompany(@Param('id') id: string) {
+    return this.information.company(parseWith(z.uuid(), id));
   }
 
   @Get(':id/timeline')
@@ -153,22 +217,50 @@ export class EventsController {
 @Controller('news')
 @ReadOnlyMemberAccess()
 export class NewsController {
-  constructor(private readonly data: OrsemDataService) {}
+  constructor(
+    private readonly data: OrsemDataService,
+    private readonly naver: NaverFocusNewsService,
+  ) {}
 
   @Get()
-  list(@Query() query: unknown) {
+  @Header('Cache-Control', 'private, no-store')
+  async list(@Query() query: unknown, @Req() request: Request) {
     const parsed = parseWith(
       cursorQuerySchema.extend({
         q: z.string().trim().max(120).optional(),
         source: z.enum(['NEWS_RSS', 'IR', 'SEC', 'GDELT', 'ALPACA_NEWS', 'OPENDART']).optional(),
         sourceKind: z.enum(NewsSourceKind).optional(),
         scope: z.enum(['all', 'market', 'company']).default('all'),
+        asset: z.enum(['gold', 'silver', 'wti', 'btc', 'eth']).optional(),
         publisher: z.string().trim().max(255).optional(),
         companyId: z.string().uuid().optional(),
       }),
       query,
     );
-    return this.data.listNews(parsed);
+    const page = await this.data.listNews(parsed);
+    const include = !parsed.cursor && !parsed.source && !parsed.publisher && !parsed.sourceKind;
+    const provider = include
+      ? await this.naver.feed(parsed, groupActor(request).key).catch(() => null)
+      : null;
+    const term = parsed.q?.toLocaleLowerCase();
+    return {
+      ...page,
+      providerGroups:
+        provider?.groups.map((items) =>
+          term
+            ? items.filter((item) =>
+                `${item.title} ${item.description ?? ''}`.toLocaleLowerCase().includes(term),
+              )
+            : items,
+        ) ?? [],
+      naver: provider
+        ? {
+            fetchedAt: provider.fetchedAt,
+            status: provider.status,
+            nextRequestAt: provider.nextRequestAt,
+          }
+        : null,
+    };
   }
 
   @Get(':id')
@@ -228,26 +320,20 @@ export class WatchlistController {
 
   @Post()
   @RateLimit(30)
-  create(@Body() body: unknown) {
-    const input = parseWith(createWatchlistItemSchema, body);
-    const { note, ...values } = input;
-    const notes = input.notes !== undefined ? input.notes : (note ?? null);
-    return this.data.createWatchlist({ ...values, notes });
+  create(): never {
+    throw new GoneException('운영 관심 목록은 월간 시가총액 상위 20종목으로 대체되었습니다.');
   }
 
   @Patch(':id')
   @RateLimit(60)
-  update(@Param('id') id: string, @Body() body: unknown) {
-    const input = parseWith(updateWatchlistItemSchema, body);
-    const { note, ...values } = input;
-    const notes = input.notes !== undefined ? input.notes : note;
-    return this.data.updateWatchlist(id, notes === undefined ? values : { ...values, notes });
+  update(): never {
+    throw new GoneException('시가총액 상위 종목은 매월 자동 선정되며 수동으로 변경할 수 없습니다.');
   }
 
   @Delete(':id')
   @HttpCode(204)
-  async remove(@Param('id') id: string): Promise<void> {
-    await this.data.deleteWatchlist(id);
+  remove(): never {
+    throw new GoneException('시가총액 상위 종목은 매월 자동 선정되며 수동으로 변경할 수 없습니다.');
   }
 }
 

@@ -253,6 +253,31 @@ export class OpenDartClient {
     return this.requestSummary('majorstock.json', corpCode, majorStockItemSchema);
   }
 
+  public async companyInformation(corpCode: string, year: number, reportCode: string) {
+    if (
+      !/^\d{8}$/u.test(corpCode) ||
+      !Number.isInteger(year) ||
+      year < 2015 ||
+      !['11011', '11012', '11013', '11014'].includes(reportCode)
+    )
+      throw new Error('Invalid company report request.');
+    const read = async (endpoint: string, params: Record<string, string>) => {
+      const raw = await this.requestJson(endpoint, params);
+      if (this.handleEnvelope(envelopeSchema.parse(raw), 'SUMMARY')) return null;
+      return z.record(z.string(), z.unknown()).parse(raw);
+    };
+    const params = { corp_code: corpCode, bsns_year: String(year), reprt_code: reportCode };
+    const profile = await read('company.json', { corp_code: corpCode });
+    let financials = await read('fnlttSinglAcntAll.json', { ...params, fs_div: 'CFS' });
+    let statement = 'CFS';
+    if (!financials) {
+      financials = await read('fnlttSinglAcntAll.json', { ...params, fs_div: 'OFS' });
+      statement = 'OFS';
+    }
+    const dividends = await read('alotMatter.json', params);
+    return { profile, financials, dividends, statement };
+  }
+
   private async requestSummary<T>(
     endpoint: string,
     corpCode: string,

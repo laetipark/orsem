@@ -1,3 +1,6 @@
+import { UseMonthlyMarketLeaders1788412000000 } from './migrations/1788412000000-UseMonthlyMarketLeaders';
+import { UseNewsMetadataOnly1788411000000 } from './migrations/1788411000000-UseNewsMetadataOnly';
+import { AddMarketSelectionProfiles1788410000000 } from './migrations/1788410000000-AddMarketSelectionProfiles';
 import { AddWatchlistRooms1788408000000 } from './migrations/1788408000000-AddWatchlistRooms';
 import { AddManualNewsTranslations1788405000000 } from './migrations/1788405000000-AddManualNewsTranslations';
 import { AddWatchlistGroups1788406000000 } from './migrations/1788406000000-AddWatchlistGroups';
@@ -64,6 +67,9 @@ export function createTypeOrmOptions(databaseUrl: string): DataSourceOptions {
       AddWatchlistGroups1788406000000,
       AddNewsCompanyRelevance1788407000000,
       AddWatchlistRooms1788408000000,
+      AddMarketSelectionProfiles1788410000000,
+      UseNewsMetadataOnly1788411000000,
+      UseMonthlyMarketLeaders1788412000000,
     ],
     migrationsTableName: 'typeorm_migrations',
   };

@@ -34,6 +34,78 @@ function fixtureSearch() {
   return { fixtures, service, controller: new SearchController(service) };
 }
 
+test('suggestions query only requested domains and bind every news filter before limiting', async () => {
+  const metadata = new DataSource({
+    type: 'mysql',
+    database: 'test',
+    entities: [CompanyEntity, FilingEntity, SourceItemEntity, NewsArticleContentEntity],
+    synchronize: false,
+  });
+  await (metadata as unknown as { buildMetadatas(): Promise<void> }).buildMetadatas();
+  const captured: Array<{ sql: string; parameters: unknown[] }> = [];
+  const source = {
+    getRepository(entity: EntityTarget<CompanyEntity | FilingEntity | SourceItemEntity>) {
+      return {
+        createQueryBuilder(alias: string) {
+          const qb = metadata.getRepository(entity).createQueryBuilder(alias);
+          qb.getRawMany = async <T>() => {
+            const [sql, parameters] = qb.getQueryAndParameters();
+            captured.push({ sql, parameters });
+            return [] as T[];
+          };
+          return qb;
+        },
+      };
+    },
+  } as unknown as DataSource;
+  const service = new SearchService(
+    loadAppConfig({ NODE_ENV: 'test' }),
+    { requireDataSource: () => source } as DatabaseRuntimeService,
+    new FixtureStoreService(),
+  );
+  for (const kind of ['companies', 'events'] as const) {
+    captured.length = 0;
+    await service.suggestions({ kind, q: '삼성', limit: 3, region: 'kr' });
+    assert.equal(captured.length, 1);
+    assert.match(captured[0]!.sql, /FROM `companies`/);
+    assert.doesNotMatch(captured[0]!.sql, /FROM `filings`/);
+  }
+  captured.length = 0;
+  const q = "NVDA%' OR 1=1 --_!",
+    publisher = "publisher' OR 1=1",
+    companyId = '11111111-1111-4111-8111-111111111111';
+  await service.suggestions({
+    kind: 'news',
+    q,
+    limit: 3,
+    region: 'kr',
+    scope: 'market',
+    sourceKind: 'OFFICIAL_RELEASE',
+    publisher,
+    companyId,
+  });
+  assert.equal(captured.length, 1);
+  const query = captured[0]!;
+  assert.ok(query.parameters.includes(searchPattern(q)));
+  assert.ok(query.parameters.includes(publisher));
+  assert.ok(query.parameters.includes(companyId));
+  assert.ok(query.parameters.includes('KOSPI'));
+  assert.equal(query.sql.includes(q), false);
+  assert.equal(query.sql.includes(publisher), false);
+  assert.match(query.sql, /IN \('federal-reserve', 'bls'\)/);
+  assert.doesNotMatch(query.sql, /news_article_contents/);
+  assert.match(query.sql, /LIMIT 4$/);
+  const controller = new SearchController(service);
+  for (const extra of [
+    { scope: 'invalid' },
+    { companyId: 'bad' },
+    { sourceKind: 'bad' },
+    { ownerKey: 'MEMBER:other' },
+  ])
+    assert.throws(() => controller.suggestions({ q: '삼성', ...extra }), HttpException);
+  assert.throws(() => controller.suggestions({}, '%E0%A4%A'), HttpException);
+});
+
 test('검색어와 그룹 한도를 검증하고 빈 검색으로 전체 목록을 반환하지 않는다', async () => {
   const { controller } = fixtureSearch();
   const result = await controller.search({ q: '  삼성  ' });
@@ -80,6 +152,39 @@ test('예시에서도 티커 검색과 그룹별 한도, 공시 날짜와 출처
     news: false,
     filings: false,
   });
+});
+
+test('domestic ETFs remain discoverable by name and code without inheriting an issuer filing', async () => {
+  const { fixtures, controller } = fixtureSearch();
+  const issuer = fixtures.companies.find((company) => company.stockCode === '005930')!;
+  const etf = {
+    ...issuer,
+    id: '77777777-7777-4777-a777-777777777777',
+    nameKo: '국내 ETF 회귀 확인',
+    nameEn: null,
+    stockCode: '00AB12',
+    corpCode: null,
+    cik: null,
+    ticker: null,
+    isListed: true,
+  };
+  fixtures.companies.push(etf);
+  for (const q of [etf.nameKo, '00ab12']) {
+    const result = await controller.search({ q, region: 'kr' });
+    assert.deepEqual(
+      result.companies.map((company) => company.id),
+      [etf.id],
+    );
+    assert.equal(result.companies[0]?.url, `/companies/${etf.id}`);
+    assert.equal(result.companies[0]?.company?.stockCode, etf.stockCode);
+    assert.equal(etf.corpCode, null);
+    assert.deepEqual(result.filings, []);
+  }
+  assert.deepEqual((await controller.search({ q: etf.stockCode, region: 'us' })).companies, []);
+  assert.equal(
+    (await controller.search({ q: '005930', region: 'kr' })).companies[0]?.id,
+    issuer.id,
+  );
 });
 
 test('검색은 지역을 그룹별 한도 전에 적용하고 미승인 뉴스는 모든 지역에서 제외한다', async () => {
@@ -269,11 +374,12 @@ test('실제 TypeORM SQL은 입력을 바인딩하고 원문·권리 제한 데�
       nextAttemptAt: null,
       prompt: '공개하면 안 되는 내부 값',
     },
-    description: '노출되면 안 되는 본문',
+    description: '공급자가 제공한 요약',
     rawMetadataJson: { private: 'raw' },
     rawObjectUri: '/private/document',
   };
   const source = {
+    query: async () => [],
     getRepository(entity: EntityTarget<CompanyEntity | FilingEntity | SourceItemEntity>) {
       return {
         createQueryBuilder(alias: string) {
@@ -381,7 +487,8 @@ test('실제 TypeORM SQL은 입력을 바인딩하고 원문·권리 제한 데�
   assert.equal(sec?.firstObservedAt, now.toISOString());
   assert.equal(sec?.translation, null);
   for (const item of [...result.news, ...result.filings]) {
-    assert.ok(!('description' in item));
+    assert.ok(item.external);
+    if (item.type === 'NEWS') assert.equal(item.description, '공급자가 제공한 요약');
     assert.ok(!('rawMetadataJson' in item));
     assert.ok(!('rawObjectUri' in item));
     assert.ok(!('rawListJson' in item));

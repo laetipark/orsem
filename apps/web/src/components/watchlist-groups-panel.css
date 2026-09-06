@@ -115,10 +115,29 @@
 .watch-groups__content {
   padding: 4px 14px 10px;
 }
+/* The inert grid remains in normal flow, so either presentation uses the current grid height.
+   Its real text/layout responds to viewport width, group contents and live quote wrapping. */
+.watch-groups__stock-viewport {
+  position: relative;
+  min-height: min-content;
+}
+.watch-groups__grid-measure {
+  visibility: hidden;
+  pointer-events: none;
+  user-select: none;
+}
+.watch-groups__stock-viewport > .watch-groups__stocks--display {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+}
 .watch-groups__stocks {
   display: grid;
   gap: 10px;
   align-items: start;
+  align-content: start;
 }
 .watch-groups__stocks--grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -589,4 +608,34 @@
   .watch-groups__pagination > a {
     margin-left: 0;
   }
+}
+
+.watch-manager-list {
+  list-style: none;
+  margin: 16px 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.watch-manager-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.watch-manager-list li > span {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.watch-manager-list small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.watch-manager-list .button {
+  flex-shrink: 0;
 }

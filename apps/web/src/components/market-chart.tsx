@@ -6,27 +6,32 @@ import {
   type IChartApi,
   type ISeriesApi,
   type Time,
+  type MouseEventParams,
 } from 'lightweight-charts';
 import { useTheme } from '../theme';
 import { formatDate } from '../lib/format';
 import { marketAmount } from '../lib/market-format';
+import './market-chart.css';
 
 export function MarketChart({
   points,
   name,
   unit,
   currency,
+  rangeKey,
 }: {
   points: Array<{ date: string; value: string }>;
   name: string;
   unit: string;
   currency?: string | null;
+  rangeKey?: string;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<'Line'> | null>(null);
   const fittedIdentity = useRef<string | null>(null);
   const [showData, setShowData] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const { theme } = useTheme();
   const visiblePoints = useMemo(
     () =>
@@ -40,6 +45,8 @@ export function MarketChart({
     [points],
   );
   const hasPoints = visiblePoints.length > 0;
+  const selected =
+    visiblePoints.find((point) => point.date === selectedDate) ?? visiblePoints.at(-1);
 
   useEffect(() => {
     if (!container.current || !hasPoints) return;
@@ -59,7 +66,20 @@ export function MarketChart({
       lineWidth: 2,
       priceLineVisible: false,
     });
+    const selectPoint = (event: MouseEventParams<Time>) => {
+      if (event.time === undefined) return;
+      const time = event.time;
+      setSelectedDate(
+        typeof time === 'object'
+          ? `${time.year}-${String(time.month).padStart(2, '0')}-${String(time.day).padStart(2, '0')}`
+          : String(time),
+      );
+    };
+    chart.subscribeCrosshairMove(selectPoint);
+    chart.subscribeClick(selectPoint);
     return () => {
+      chart.unsubscribeCrosshairMove(selectPoint);
+      chart.unsubscribeClick(selectPoint);
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;
@@ -82,7 +102,7 @@ export function MarketChart({
     const chart = chartRef.current;
     const series = seriesRef.current;
     if (!chart || !series) return;
-    const identity = JSON.stringify([name, unit, currency]);
+    const identity = JSON.stringify([name, unit, currency, rangeKey]);
     const range = chart.timeScale().getVisibleLogicalRange();
     series.setData(
       visiblePoints.map((point) => ({ time: point.date as Time, value: Number(point.value) })),
@@ -93,9 +113,30 @@ export function MarketChart({
     } else if (range) {
       chart.timeScale().setVisibleLogicalRange(range);
     }
-  }, [visiblePoints, name, unit, currency, hasPoints]);
+  }, [visiblePoints, name, unit, currency, rangeKey, hasPoints]);
   return (
     <figure className="market-chart">
+      {selected ? (
+        <div className="market-chart__readout">
+          <label>
+            기준일
+            <select
+              aria-label="시장 지표 기준일"
+              value={selected.date}
+              onChange={(event) => setSelectedDate(event.target.value)}
+            >
+              {[...visiblePoints].reverse().map((point) => (
+                <option key={point.date} value={point.date}>
+                  {formatDate(point.date)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <strong>
+            {marketAmount(selected.value, currency)} <small>{unit}</small>
+          </strong>
+        </div>
+      ) : null}
       <div
         ref={container}
         className="market-chart__canvas"

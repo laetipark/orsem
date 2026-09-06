@@ -6,6 +6,7 @@ import {
   NewsItemEntity,
   SourceCheckpointEntity,
   SourceItemEntity,
+  MarketLeaderScopeEntity,
   WatchlistItemEntity,
 } from '@orsem/database';
 import { DataSource, FindOperator } from 'typeorm';
@@ -147,7 +148,11 @@ function memoryDatabase() {
     transaction: async (callback: (manager: unknown) => unknown) => callback(manager),
   } as unknown as DataSource;
   rows(CompanyEntity).push(GOOG, GOOGL);
-  rows(WatchlistItemEntity).push({ id: 'watch', companyId: GOOG.id, priority: WatchPriority.P1 });
+  rows(MarketLeaderScopeEntity).push({
+    id: 'watch',
+    companyId: GOOG.id,
+    priority: WatchPriority.P1,
+  });
   return { dataSource, rows };
 }
 
@@ -289,7 +294,7 @@ describe('SEC recent submissions metadata', () => {
 describe('SEC ingestion baselines and share classes', () => {
   it('collects the approved personal-group union when the legacy watchlist is empty, deduplicating one issuer', async () => {
     const db = memoryDatabase();
-    db.rows(WatchlistItemEntity).length = 0;
+    db.rows(MarketLeaderScopeEntity).length = 0;
     (db.dataSource.query as jest.Mock).mockResolvedValue([
       { companyId: GOOG.id },
       { companyId: GOOGL.id },
@@ -356,7 +361,7 @@ describe('SEC ingestion baselines and share classes', () => {
 
   it('distinguishes an empty US watch scope from missing issuer mappings', async () => {
     const db = memoryDatabase();
-    db.rows(WatchlistItemEntity).length = 0;
+    db.rows(MarketLeaderScopeEntity).length = 0;
     const fetch = jest.fn();
     const service = new NewsDiscoveryService(db.dataSource, config, fetch, {
       enqueueNews: jest.fn(),
@@ -485,7 +490,7 @@ describe('SEC ingestion baselines and share classes', () => {
         `CLASS${index}`,
       );
       db.rows(CompanyEntity).push(row);
-      db.rows(WatchlistItemEntity).push({
+      db.rows(MarketLeaderScopeEntity).push({
         id: `watch-${index}`,
         companyId: row.id,
         priority: WatchPriority.P1,
@@ -513,5 +518,25 @@ describe('SEC ingestion baselines and share classes', () => {
       db.rows(SourceCheckpointEntity).some((row) => row.stream === `SUBMISSIONS:CIK:${CIK}`),
     ).toBe(false);
     expect(db.rows(SourceItemEntity)).toHaveLength(0);
+  });
+});
+
+describe('monthly leader class discovery coverage', () => {
+  it('discovers a verified secondary class from the expanded scope while representative rows are empty', async () => {
+    const db = memoryDatabase();
+    db.rows(WatchlistItemEntity).length = 0;
+    db.rows(MarketLeaderScopeEntity).splice(0, 1, {
+      id: 'class-scope',
+      companyId: GOOG.id,
+      representativeCompanyId: GOOGL.id,
+      priority: WatchPriority.P1,
+    });
+    const fetch = jest.fn().mockResolvedValue(jsonResponse(response(1)));
+    const service = new NewsDiscoveryService(db.dataSource, config, fetch, {
+      enqueueNews: jest.fn(),
+    } as unknown as PushFanoutService);
+    expect(await service.discover(scheduled())).toMatchObject([{ seen: 1, created: 1 }]);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(db.rows(WatchlistItemEntity)).toHaveLength(0);
   });
 });

@@ -348,4 +348,24 @@ describe('Toss official stock names', () => {
       client.onModuleDestroy();
     }
   });
+
+  it('filters Korean ETF snapshots explicitly without changing default universe calls', async () => {
+    const client = new TossMarketClient(
+      { redisUrl: 'redis://127.0.0.1:6379', redisPrefix: 'test:' } as WorkerConfig,
+      jest.fn(),
+    );
+    const get = jest.spyOn(client, 'get').mockResolvedValue({ result: [] });
+    try {
+      expect(await client.stocksAll('KOSPI', { status: 'DELISTED', securityType: 'ETF' })).toEqual(
+        [],
+      );
+      expect(get).toHaveBeenCalledWith('/api/v1/stocks/all', {
+        market: 'KOSPI',
+        status: 'DELISTED',
+        securityType: 'ETF',
+      });
+    } finally {
+      client.onModuleDestroy();
+    }
+  });
 });

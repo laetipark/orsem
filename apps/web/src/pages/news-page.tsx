@@ -1,8 +1,9 @@
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import { SearchInput } from '../components/search-input';
+import { useInfiniteQuery } from '@tanstack/react-query';
 import { Newspaper, RefreshCw, Search } from 'lucide-react';
-import { type FormEvent, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
-import { CompanyNaverNews } from '../components/company-naver-news';
+import { type FormEvent, useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { newsItems } from '../lib/news-feed';
 import { api } from '../lib/api';
 import type { NewsSourceKind } from '../types';
 import {
@@ -35,9 +36,19 @@ const publishers = [
   ['samsung-global-newsroom', 'Samsung Global Newsroom'],
   ['federal-reserve', 'Federal Reserve'],
   ['bls', 'Bureau of Labor Statistics'],
+  ['eia', 'U.S. Energy Information Administration'],
 ];
 
 export function NewsPage() {
+  const [filtersOpen, setFiltersOpen] = useState(
+    () => window.matchMedia('(min-width: 768px)').matches,
+  );
+  useEffect(() => {
+    const media = window.matchMedia('(min-width: 768px)');
+    const change = () => setFiltersOpen(media.matches);
+    media.addEventListener('change', change);
+    return () => media.removeEventListener('change', change);
+  }, []);
   const [params, setParams] = useSearchParams();
   const [draft, setDraft] = useState(params.get('q') ?? '');
   const filters = {
@@ -50,12 +61,6 @@ export function NewsPage() {
     q: params.get('q') || undefined,
     companyId: params.get('companyId') || undefined,
   };
-  const company = useQuery({
-    queryKey: ['company', filters.companyId],
-    queryFn: ({ signal }) => api.company(filters.companyId!, signal),
-    enabled: !!filters.companyId,
-    staleTime: 30_000,
-  });
   const news = useInfiniteQuery({
     queryKey: ['news', filters],
     queryFn: ({ pageParam, signal }) =>
@@ -64,14 +69,9 @@ export function NewsPage() {
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     refetchInterval: NEWS_REFRESH_INTERVAL,
     staleTime: 30_000,
+    gcTime: 0,
   });
-  const items = Array.from(
-    new Map(
-      news.data?.pages
-        .flatMap((page) => page.items)
-        .map((item) => [item.articleId ?? item.id, item]),
-    ).values(),
-  );
+  const items = newsItems(news.data?.pages ?? []);
   const setFilter = (name: string, value: string) =>
     setParams((current) => {
       const next = new URLSearchParams(current);
@@ -89,12 +89,9 @@ export function NewsPage() {
     <div className="page-stack news-page">
       <div className="page-lead">
         <p>
-          시장 공통 소식과 기업 관련 뉴스를 구분해 확인합니다. 언론 기사는 원문 링크로 제공합니다.
+          시장 공통 소식과 기업 관련 뉴스를 구분해 확인합니다. 모든 기사는 원문 링크로 제공합니다.
         </p>
         <div className="news-page__actions">
-          <Link className="button button--secondary button--sm" to="/news/naver">
-            네이버 직접 검색
-          </Link>
           <Button
             variant="secondary"
             size="sm"
@@ -106,63 +103,81 @@ export function NewsPage() {
           </Button>
         </div>
       </div>
-      <form className="news-page__filters" onSubmit={submit} aria-label="뉴스 필터">
-        <select
-          aria-label="뉴스 범위"
-          value={filters.scope}
-          onChange={(event) => setFilter('scope', event.target.value)}
-        >
-          <option value="all">전체 뉴스</option>
-          <option value="market">시장 공통</option>
-          <option value="company">기업 관련</option>
-        </select>
-        <RegionTabs />
-        <select
-          aria-label="출처 유형"
-          value={filters.sourceKind ?? ''}
-          onChange={(event) => setFilter('sourceKind', event.target.value)}
-        >
-          {sourceKinds.map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </select>
-        <select
-          aria-label="제공자"
-          value={filters.publisher ?? ''}
-          onChange={(event) => setFilter('publisher', event.target.value)}
-        >
-          {publishers.map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </select>
-        <label className="news-page__search">
-          <span className="sr-only">뉴스 제목 검색</span>
-          <Search size={15} aria-hidden="true" />
-          <input
-            value={draft}
-            maxLength={120}
-            onChange={(event) => setDraft(event.target.value)}
-            placeholder="뉴스 제목 검색"
-          />
-        </label>
-        <Button type="submit" variant="secondary" size="sm">
-          적용
-        </Button>
-        {filters.companyId ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => setFilter('companyId', '')}
+      <details
+        className="responsive-filters"
+        open={filtersOpen}
+        onToggle={(event) => setFiltersOpen(event.currentTarget.open)}
+      >
+        <summary>뉴스 검색·필터</summary>
+        <form className="news-page__filters" onSubmit={submit} aria-label="뉴스 필터">
+          <RegionTabs />
+          <select
+            aria-label="뉴스 범위"
+            value={filters.scope}
+            onChange={(event) => setFilter('scope', event.target.value)}
           >
-            기업 필터 해제
+            <option value="all">전체 뉴스</option>
+            <option value="market">시장 공통</option>
+            <option value="company">기업 관련</option>
+          </select>
+          <select
+            aria-label="출처 유형"
+            value={filters.sourceKind ?? ''}
+            onChange={(event) => setFilter('sourceKind', event.target.value)}
+          >
+            {sourceKinds.map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+          <select
+            aria-label="제공자"
+            value={filters.publisher ?? ''}
+            onChange={(event) => setFilter('publisher', event.target.value)}
+          >
+            {publishers.map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+          <label className="news-page__search">
+            <span className="sr-only">뉴스 제목 검색</span>
+            <Search size={15} aria-hidden="true" />
+            <SearchInput
+              value={draft}
+              onChange={setDraft}
+              label="뉴스 제목 검색"
+              placeholder="뉴스 제목 검색"
+              filters={{
+                kind: 'news',
+                region: filters.region,
+                scope: filters.scope,
+                sourceKind: filters.sourceKind,
+                publisher: filters.publisher,
+                companyId: filters.companyId,
+              }}
+              contextKey={params.toString()}
+              onSelect={(item) => setFilter('q', item.translation?.title ?? item.title)}
+              onSubmit={() => setFilter('q', draft.trim())}
+            />
+          </label>
+          <Button type="submit" variant="secondary" size="sm">
+            적용
           </Button>
-        ) : null}
-      </form>
+          {filters.companyId ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setFilter('companyId', '')}
+            >
+              기업 필터 해제
+            </Button>
+          ) : null}
+        </form>
+      </details>
       <Card className="market-news" aria-labelledby="news-list-title">
         <CardHeader>
           <h2 id="news-list-title">
@@ -170,7 +185,25 @@ export function NewsPage() {
           </h2>
           <span className="market-news__refresh-note">목록 1분마다 갱신</span>
         </CardHeader>
-        <MarketNewsFreshness />
+        <div className="news-page__info" aria-label="뉴스 범위와 수집 상태">
+          <p className="market-news__scope">
+            <span className="news-page__scope-label">
+              {filters.scope === 'market'
+                ? '시장 공통'
+                : filters.scope === 'company'
+                  ? '기업 관련'
+                  : '전체 뉴스'}
+            </span>
+            <span>
+              {filters.scope === 'market'
+                ? '증시 · 금리 · 환율'
+                : filters.scope === 'company'
+                  ? '기업별 소식 · 산업 동향'
+                  : '시장 공통 소식 · 기업 관련 뉴스'}
+            </span>
+          </p>
+          <MarketNewsFreshness naver={news.data?.pages[0]?.naver} />
+        </div>
         {news.isPending ? <LoadingState label="뉴스를 불러오는 중입니다." /> : null}
         {news.isError ? (
           <ErrorState
@@ -200,19 +233,6 @@ export function NewsPage() {
           <p className="market-news__end">조건에 맞는 뉴스를 모두 확인했습니다.</p>
         ) : null}
       </Card>
-      {company.data ? (
-        <CompanyNaverNews
-          key={company.data.id}
-          companyId={company.data.id}
-          companyName={
-            company.data.nameKo ||
-            company.data.nameEn ||
-            company.data.ticker ||
-            company.data.stockCode ||
-            ''
-          }
-        />
-      ) : null}
     </div>
   );
 }

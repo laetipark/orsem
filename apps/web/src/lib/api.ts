@@ -25,21 +25,16 @@ import type {
   SourceFreshness,
   SourceItem,
   SearchResults,
-  WatchlistItem,
   KakaoConfig,
   Member,
   Region,
-  WatchlistQuote,
   MarketQuote,
   MarketHistory,
   NotificationSettings,
   NotificationPreferences,
   BrowserSubscriptionInput,
-  NaverNewsSearchResult,
   NewsDetail,
   NewsSourceKind,
-  NewsTranslationEdit,
-  NewsTranslationEditInput,
   NaverNewsStatus,
   WatchlistGroup,
   WatchlistGroupPage,
@@ -115,6 +110,7 @@ function queryString<T extends object>(values: T): string {
 }
 
 export interface EventFilters {
+  companyId?: string;
   region?: Region;
   q?: string;
   detailType?: string;
@@ -126,6 +122,7 @@ export interface EventFilters {
 
 export interface NewsFilters {
   scope?: 'all' | 'market' | 'company';
+  asset?: 'gold' | 'silver' | 'wti' | 'btc' | 'eth';
   region?: Region;
   sourceKind?: NewsSourceKind;
   publisher?: string;
@@ -275,34 +272,95 @@ export const api = {
     setCsrfToken(session.csrfToken);
     return session;
   },
+  marketSelection: (signal?: AbortSignal) =>
+    request<{
+      asOf: string;
+      regions: Array<{
+        region: string;
+        status: string;
+        reason: string | null;
+        basisDate: string | null;
+        observedAt: string | null;
+        sourceUrl: string | null;
+        updateNote: string | null;
+        currency?: 'KRW' | 'USD';
+        sourceName?: string | null;
+        selectionMonth?: string | null;
+        nextRefreshAt?: string | null;
+        refreshCadence?: 'MONTHLY';
+        providerScope?: string | null;
+        items: Array<{
+          rank: number;
+          id: string;
+          nameKo: string;
+          nameEn?: string | null;
+          marketCap: string;
+          market?: string;
+          stockCode?: string | null;
+          ticker?: string | null;
+          canonicalPath?: string;
+        }>;
+      }>;
+    }>('/dashboard/market-selection', { signal }),
+  companyInformation: (id: string, signal?: AbortSignal) =>
+    request<{
+      asOf: string;
+      status: string;
+      fields: Array<{
+        key: string;
+        label: string;
+        value: string | null;
+        unit: string | null;
+        basis: string;
+        source: string;
+        sourceUrl: string;
+        observedAt: string | null;
+      }>;
+    }>(`/companies/${encodeURIComponent(id)}/information`, { signal }),
   dashboard: () => request<DashboardData>('/dashboard'),
+  personalFilings: (signal?: AbortSignal) =>
+    request<{ asOf: string; companyCount: number; items: import('../types').PersonalFiling[] }>(
+      '/dashboard/personal-filings',
+      { signal, cache: 'no-store' },
+    ),
+  personalNews: (signal?: AbortSignal) =>
+    request<{
+      asOf: string;
+      companyCount: number;
+      events: DashboardData['priorities']['P1'];
+      news: SourceItem[];
+      providerGroups?: SourceItem[][];
+    }>('/dashboard/personal-news', { signal }),
   news: ({ limit = 20, ...filters }: NewsFilters = {}, signal?: AbortSignal) =>
-    request<CursorPage<SourceItem>>(`/news${queryString({ ...filters, limit })}`, { signal }),
+    request<
+      CursorPage<SourceItem> & {
+        providerGroups?: SourceItem[][];
+        naver?: {
+          fetchedAt: string | null;
+          status: string;
+          nextRequestAt: string | null;
+          reason?: string | null;
+        } | null;
+      }
+    >(`/news${queryString({ ...filters, limit })}`, { signal, cache: 'no-store' }),
   newsDetail: (id: string, signal?: AbortSignal) =>
-    request<NewsDetail>(`/news/${encodeURIComponent(id)}`, { signal }),
-  newsTranslationEdit: (id: string, signal?: AbortSignal) =>
-    request<NewsTranslationEdit>(`/news/${encodeURIComponent(id)}/translation-edit`, { signal }),
-  saveNewsTranslation: (id: string, input: NewsTranslationEditInput) =>
-    request<NewsTranslationEdit>(`/news/${encodeURIComponent(id)}/translation-edit`, {
-      method: 'PATCH',
-      body: JSON.stringify(input),
-    }),
-  naverNewsSearch: (
+    request<NewsDetail>(`/news/${encodeURIComponent(id)}`, { signal, cache: 'no-store' }),
+  suggestions: (
     q: string,
-    start = 1,
-    sort: 'date' | 'sim' = 'date',
+    filters: {
+      kind?: 'all' | 'companies' | 'news' | 'events';
+      region?: Region;
+      scope?: 'all' | 'market' | 'company';
+      sourceKind?: NewsSourceKind;
+      publisher?: string;
+      companyId?: string;
+    } = {},
     signal?: AbortSignal,
-    automatic = false,
   ) =>
-    request<NaverNewsSearchResult>('/news-search/naver', {
-      cache: 'no-store',
-      headers: {
-        'X-Orsem-News-Query': encodeURIComponent(q),
-        'X-Orsem-News-Start': String(start),
-        'X-Orsem-News-Sort': sort,
-        ...(automatic ? { 'X-Orsem-News-Mode': 'automatic' } : {}),
-      },
+    request<SearchResults>(`/search/suggestions${queryString({ ...filters, limit: 5 })}`, {
       signal,
+      cache: 'no-store',
+      headers: { 'X-Orsem-Search-Query': encodeURIComponent(q) },
     }),
   search: (q: string, limit = 5, region: Region = 'all', signal?: AbortSignal) =>
     request<SearchResults>(`/search${queryString({ q, limit, region })}`, { signal }),
@@ -310,8 +368,11 @@ export const api = {
     request<CursorPage<EventSummary>>(`/events${queryString(filters)}`, { signal }),
   event: (id: string, signal?: AbortSignal) =>
     request<EventDetail>(`/events/${encodeURIComponent(id)}`, { signal }),
-  companies: (q = '', region: Region = 'all') =>
-    request<CursorPage<CompanySummary>>(`/companies${queryString({ q, limit: 20, region })}`),
+  companies: (q = '', region: Region = 'all', cursor?: string | null, signal?: AbortSignal) =>
+    request<CursorPage<CompanySummary>>(
+      `/companies${queryString({ q, limit: 20, region, cursor })}`,
+      { signal },
+    ),
   company: (id: string, signal?: AbortSignal) =>
     request<CompanyDetail>(`/companies/${encodeURIComponent(id)}`, { signal }),
   companyTimeline: (
@@ -333,41 +394,14 @@ export const api = {
     >(`/companies/${encodeURIComponent(id)}/recent-activity${queryString({ limit })}`, { signal }),
   companyLivePrice: (id: string, signal?: AbortSignal) =>
     request<CompanyLivePrice>(`/companies/${encodeURIComponent(id)}/live-price`, { signal }),
-  watchlist: (region: Region = 'all', cursor: string | null = null) =>
-    request<CursorPage<WatchlistItem>>(`/watchlist${queryString({ region, cursor, limit: 21 })}`),
-  watchlistQuotes: (ids: string[]) =>
-    request<{ asOf: string; items: WatchlistQuote[] }>(
-      `/watchlist/quotes${queryString({ ids: ids.join(',') })}`,
-    ),
   sourceFreshness: () => request<{ asOf: string; items: SourceFreshness[] }>('/sources/freshness'),
   markets: (region: Region = 'all') =>
-    request<{ asOf: string; items: MarketQuote[] }>(`/markets/overview${queryString({ region })}`),
+    request<{ asOf: string; items: MarketQuote[]; histories?: Record<string, MarketHistory> }>(
+      `/markets/overview${queryString({ region, historyRange: '1m' })}`,
+    ),
   marketHistory: (id: string, range: '1m' | '3m' | '1y', signal?: AbortSignal) =>
     request<MarketHistory>(`/markets/${encodeURIComponent(id)}/history${queryString({ range })}`, {
       signal,
-    }),
-  addWatchlist: (payload: {
-    companyId: string;
-    priority: 'P1' | 'P2';
-    realtimeAlerts: boolean;
-    digestAlerts: boolean;
-    note?: string;
-  }) =>
-    request<WatchlistItem>('/watchlist', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
-  updateWatchlist: (
-    id: string,
-    payload: Partial<Pick<WatchlistItem, 'priority' | 'realtimeAlerts' | 'digestAlerts' | 'note'>>,
-  ) =>
-    request<WatchlistItem>(`/watchlist/${encodeURIComponent(id)}`, {
-      method: 'PATCH',
-      body: JSON.stringify(payload),
-    }),
-  removeWatchlist: (companyId: string) =>
-    request<void>(`/watchlist/${encodeURIComponent(companyId)}`, {
-      method: 'DELETE',
     }),
   reviews: (cursor?: string) =>
     request<CursorPage<ReviewItem>>(

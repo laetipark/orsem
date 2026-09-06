@@ -10,12 +10,10 @@ import {
 import { Link, useOutletContext } from 'react-router-dom';
 import { api } from '../lib/api';
 import { formatDate, formatKst, formatNumber } from '../lib/format';
-import { disclosureDescriptions, disclosureLabels, priorityLabels } from '../lib/domain-labels';
+import { disclosureDescriptions, disclosureLabels } from '../lib/domain-labels';
 import { DashboardMarkets } from '../components/dashboard-markets';
-import { WatchlistGroupsPanel } from '../components/watchlist-groups-panel';
-import { DashboardNews } from '../components/market-news';
+import { WatchlistNewsWorkspace } from '../components/watchlist-news-workspace';
 import { ParseIntegritySummary } from '../components/parse-integrity-summary';
-import { EventCompactRow } from '../components/event-row';
 import { ObservationDisclaimer } from '../components/disclaimer';
 import { Button, Card, CardContent, CardHeader, ErrorState, LoadingState } from '../components/ui';
 import type { Session } from '../types';
@@ -33,7 +31,7 @@ export function DashboardPage() {
   });
 
   if (dashboard.isPending)
-    return <LoadingState label="오늘 공시와 우선순위 큐를 불러오는 중입니다." />;
+    return <LoadingState label="오늘 공시와 시장 소식를 불러오는 중입니다." />;
   if (dashboard.isError)
     return (
       <ErrorState message={dashboard.error.message} onRetry={() => void dashboard.refetch()} />
@@ -60,43 +58,7 @@ export function DashboardPage() {
 
       <DashboardMarkets />
 
-      <DashboardNews />
-      <WatchlistGroupsPanel compact />
-
-      <section className="priority-grid" aria-label="우선순위 이벤트">
-        <Card>
-          <CardHeader className="priority-card__header">
-            <h2>
-              <span className="priority-card__dot priority-card__dot--focus" aria-hidden="true" />
-              {priorityLabels.P1}
-            </h2>
-            <Link className="text-link" to="/events?priority=P1">
-              전체 보기 <ChevronRight size={14} />
-            </Link>
-          </CardHeader>
-          <CardContent className="event-list">
-            {data.priorities.P1.map((event) => (
-              <EventCompactRow key={event.id} event={event} />
-            ))}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="priority-card__header">
-            <h2>
-              <span className="priority-card__dot" aria-hidden="true" />
-              {priorityLabels.P2}
-            </h2>
-            <Link className="text-link" to="/events?priority=P2">
-              전체 보기 <ChevronRight size={14} />
-            </Link>
-          </CardHeader>
-          <CardContent className="event-list">
-            {data.priorities.P2.map((event) => (
-              <EventCompactRow key={event.id} event={event} />
-            ))}
-          </CardContent>
-        </Card>
-      </section>
+      <WatchlistNewsWorkspace compact />
 
       {isAdmin ? (
         <section className="dashboard-controls">

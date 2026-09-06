@@ -1,6 +1,7 @@
 import { expect, it } from 'vitest';
-import type { CursorPage, NaverNewsSearchResult, SearchResults, SourceItem } from '../types';
+import type { CursorPage, SearchResults, SourceItem } from '../types';
 import { fixtureRequest } from './fixtures';
+import { fixtureGroups } from './company-membership-fixtures';
 
 it('수집 뉴스 fixture는 정렬된 커서 페이지를 중복 없이 반환한다', async () => {
   const first = await fixtureRequest<CursorPage<SourceItem>>('/api/v1/news?limit=2');
@@ -46,7 +47,7 @@ it('수집 뉴스 fixture는 지역·출처·제공자·기업·번역 검색 �
   expect(unapproved.items).toEqual([]);
 });
 
-it('통합 검색 fixture도 본문과 영어 번역이 준비된 승인 뉴스만 내부 상세로 연결한다', async () => {
+it('통합 검색 fixture는 본문 없이 승인된 뉴스 요약과 원문 링크를 반환한다', async () => {
   const [approved, unapproved] = await Promise.all([
     fixtureRequest<SearchResults>('/api/v1/search?q=Samsung'),
     fixtureRequest<SearchResults>('/api/v1/search?q=Microsoft'),
@@ -54,73 +55,88 @@ it('통합 검색 fixture도 본문과 영어 번역이 준비된 승인 뉴스�
   expect(approved.news).toHaveLength(1);
   expect(approved.news[0]).toMatchObject({
     id: 'fixture-news-samsung-global-01',
-    external: false,
-    url: '/news/fixture-article-samsung-global-01',
+    external: true,
+    url: 'https://example.test/orsem/news/samsung-global-01',
+    translationStatus: 'COMPLETED',
+    relatedCompanies: [expect.objectContaining({ id: 'company-samsung', nameKo: '삼성전자' })],
   });
   expect(unapproved.news).toEqual([]);
 });
 
-it('NAVER 검색 fixture는 헤더 입력을 안전하게 표시하고 20개 단위 페이지를 재현한다', async () => {
-  const query = '<b>& 삼성전자';
-  const headers = {
-    'X-Orsem-News-Query': encodeURIComponent(query),
-    'X-Orsem-News-Start': '21',
-    'X-Orsem-News-Sort': 'sim',
-  };
-  const first = await fixtureRequest<NaverNewsSearchResult>('/api/v1/news-search/naver', {
-    headers,
-  });
-  const repeated = await fixtureRequest<NaverNewsSearchResult>('/api/v1/news-search/naver', {
-    headers,
-  });
-  const last = await fixtureRequest<NaverNewsSearchResult>('/api/v1/news-search/naver', {
-    headers: { ...headers, 'X-Orsem-News-Start': '41' },
-  });
-
-  expect(first).toEqual(repeated);
-  expect(first).toMatchObject({ provider: 'NAVER', total: 45, start: 21, display: 20 });
-  expect(first.items[0]?.title).toContain('&lt;b&gt;&amp; 삼성전자');
-  expect(first.items[0]?.title).not.toContain('<b><b>');
-  expect(first.items.every((item) => new URL(item.link).hostname.endsWith('.example.test'))).toBe(
-    true,
-  );
-  expect(first.items.every((item) => !item.link.includes(encodeURIComponent(query)))).toBe(true);
-  expect(last).toMatchObject({ total: 45, start: 41, display: 5 });
+it('legacy news detail exposes only metadata and both body editor methods return 410', async () => {
+  const id = 'fixture-news-bls-release-01';
+  const detail = await fixtureRequest<import('../types').NewsDetail>(`/api/v1/news/${id}`);
+  expect(detail.content).toBeNull();
+  expect(detail.contentSourceId).toBeNull();
+  expect(detail.displayMode).toBe('EXTERNAL_LINK');
+  expect(detail.url).toBe('https://example.test/orsem/news/bls-release-01');
+  for (const method of ['GET', 'PATCH'])
+    await expect(
+      fixtureRequest(`/api/v1/news/${id}/translation-edit`, {
+        method,
+        ...(method === 'PATCH'
+          ? { body: JSON.stringify({ markdown: 'outdated cached body' }) }
+          : {}),
+      }),
+    ).rejects.toMatchObject({ statusCode: 410 });
+  const unchanged = await fixtureRequest<import('../types').NewsDetail>(`/api/v1/news/${id}`);
+  expect(unchanged).toEqual(detail);
 });
 
-it('translation-edit fixtures preserve the original, update displayed copies and reject stale revisions', async () => {
-  const id = 'fixture-news-bls-release-01';
-  const before = await fixtureRequest<import('../types').NewsDetail>(`/api/v1/news/${id}`);
-  const edit = await fixtureRequest<import('../types').NewsTranslationEdit>(
-    `/api/v1/news/${id}/translation-edit`,
+it('news scopes isolate common-market and related-company metadata while absent asset fixtures remain empty', async () => {
+  const market = await fixtureRequest<CursorPage<SourceItem>>('/api/v1/news?scope=market');
+  expect(market.items.map((item) => item.publisherId)).toEqual(['federal-reserve', 'bls']);
+  expect(market.items.every((item) => item.contentState === 'UNAVAILABLE')).toBe(true);
+  const company = await fixtureRequest<CursorPage<SourceItem>>('/api/v1/news?scope=company');
+  expect(company.items.map((item) => item.id)).toEqual(['fixture-news-samsung-global-01']);
+  expect(company.items[0]?.relatedCompanies?.[0]?.id).toBe('company-samsung');
+  expect((await fixtureRequest<CursorPage<SourceItem>>('/api/v1/news?asset=wti')).items).toEqual(
+    [],
   );
-  const input = {
-    revision: edit.revision,
-    title: '편집 검증 제목',
-    description: null,
-    markdown: '## 수정 문단\n\n**수정** 본문',
-  };
-  const saved = await fixtureRequest<import('../types').NewsTranslationEdit>(
-    `/api/v1/news/${id}/translation-edit`,
-    { method: 'PATCH', body: JSON.stringify(input) },
+  expect(
+    (await fixtureRequest<CursorPage<SourceItem>>('/api/v1/news?source=NEWS_RSS')).items.map(
+      (item) => item.publisherId,
+    ),
+  ).toEqual(['federal-reserve', 'bls']);
+  expect(
+    (await fixtureRequest<SearchResults>('/api/v1/search?q=Samsung&scope=market')).news,
+  ).toEqual([]);
+  expect(
+    (await fixtureRequest<SearchResults>('/api/v1/search?q=policy&scope=market')).news[0]?.external,
+  ).toBe(true);
+});
+
+it('personal-news fixtures derive their companies from personal groups and hide them when signed out', async () => {
+  const original = await fixtureRequest<{ companyCount: number; news: SourceItem[] }>(
+    '/api/v1/dashboard/personal-news',
   );
-  expect(saved.revision).not.toBe(edit.revision);
-  const after = await fixtureRequest<import('../types').NewsDetail>(`/api/v1/news/${id}`);
-  expect(after.content!.original).toEqual(before.content!.original);
-  expect(after.title).toBe(before.title);
-  expect(after.rightsMode).toBe(before.rightsMode);
-  expect(after.translation).toMatchObject({
-    title: input.title,
-    description: null,
-    editedAt: saved.editedAt,
-  });
-  expect(after.content!.translation).toMatchObject({ format: 'MARKDOWN' });
-  await expect(
-    fixtureRequest(`/api/v1/news/${id}/translation-edit`, {
-      method: 'PATCH',
-      body: JSON.stringify(input),
-    }),
-  ).rejects.toMatchObject({ statusCode: 409 });
-  const list = await fixtureRequest<CursorPage<SourceItem>>('/api/v1/news');
-  expect(list.items.find((item) => item.id === id)?.translation?.title).toBe(input.title);
+  expect(original.companyCount).toBeGreaterThan(0);
+  expect(
+    original.news.every((item) =>
+      item.relatedCompanies?.some((company) => company.id === 'company-samsung'),
+    ),
+  ).toBe(true);
+  const personal = fixtureGroups.filter((group) => group.kind === 'PERSONAL');
+  const originalIds = personal.map((group) => new Set(group.companyIds));
+  try {
+    personal.forEach((group) => {
+      group.companyIds = new Set();
+    });
+    expect(await fixtureRequest('/api/v1/dashboard/personal-news')).toMatchObject({
+      companyCount: 0,
+      news: [],
+      events: [],
+    });
+    await fixtureRequest('/api/v1/auth/logout', { method: 'POST' });
+    expect(await fixtureRequest('/api/v1/dashboard/personal-news')).toMatchObject({
+      companyCount: 0,
+      news: [],
+      events: [],
+    });
+  } finally {
+    personal.forEach((group, index) => {
+      group.companyIds = originalIds[index]!;
+    });
+    await fixtureRequest('/api/v1/auth/login', { method: 'POST' });
+  }
 });

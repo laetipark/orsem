@@ -1,4 +1,6 @@
 .app-shell {
+  --shell-max-width: 1480px;
+  --shell-gutter: 28px;
   display: flex;
   flex-direction: column;
   min-height: 100dvh;
@@ -16,10 +18,10 @@
   grid-template-columns: auto auto minmax(180px, 1fr) auto;
   align-items: center;
   gap: 28px;
-  width: min(100%, 1480px);
+  width: min(100%, var(--shell-max-width));
   min-height: 80px;
   margin-inline: auto;
-  padding: 12px 28px;
+  padding: 12px var(--shell-gutter);
 }
 .site-header .brand {
   color: var(--text);
@@ -105,9 +107,11 @@
 }
 .app-shell .main-content {
   flex: 1;
-  width: min(100%, 1480px);
+  width: min(100%, var(--shell-max-width));
+  min-width: 0;
   margin: 0 auto;
-  padding: 28px 28px 40px;
+  padding: 28px var(--shell-gutter) 40px;
+  outline: none;
 }
 .workspace-heading {
   display: flex;
@@ -149,10 +153,10 @@
   justify-content: space-between;
   align-items: center;
   gap: 16px;
-  width: min(100%, 1480px);
+  width: min(100%, var(--shell-max-width));
   min-height: 76px;
   margin-inline: auto;
-  padding: 20px 28px;
+  padding: 20px var(--shell-gutter);
   font-size: 12px;
 }
 .site-footer strong {
@@ -188,10 +192,12 @@
   font-weight: 700;
 }
 @media (max-width: 1100px) {
+  .app-shell {
+    --shell-gutter: 22px;
+  }
   .site-header__inner {
     grid-template-columns: auto 1fr auto;
     gap: 10px 24px;
-    padding: 12px 22px;
   }
   .header-navigation {
     justify-self: center;
@@ -207,6 +213,9 @@
   }
 }
 @media (max-width: 900px) {
+  .app-shell {
+    --shell-gutter: 16px;
+  }
   .site-header__inner {
     grid-template-columns: minmax(0, 1fr) auto;
   }
@@ -221,6 +230,9 @@
   }
 }
 @media (max-width: 620px) {
+  .app-shell {
+    --shell-gutter: 12px;
+  }
   .header-search input {
     font-size: 16px;
   }
@@ -230,7 +242,7 @@
   .site-header__inner {
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 12px;
-    padding: 14px 16px 8px;
+    padding: 14px var(--shell-gutter) 8px;
   }
   .site-header__actions {
     grid-column: 2;
@@ -251,7 +263,7 @@
     grid-row: 3;
     justify-self: stretch;
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 4px;
   }
   .header-navigation__link {
@@ -262,7 +274,7 @@
     font-size: 12px;
   }
   .app-shell .main-content {
-    padding: 22px 12px 28px;
+    padding: 22px var(--shell-gutter) 28px;
   }
   .workspace-heading {
     gap: 10px;
@@ -275,7 +287,7 @@
     font-size: 10px;
   }
   .site-footer__inner {
-    padding: 16px;
+    padding: 16px var(--shell-gutter);
     gap: 12px;
   }
 }
@@ -315,7 +327,6 @@
 @media (min-width: 621px) and (max-width: 900px) {
   .site-header__inner {
     gap: 10px 12px;
-    padding-inline: 16px;
   }
   .header-navigation__link {
     padding-inline: 8px;

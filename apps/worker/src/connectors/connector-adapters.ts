@@ -1,4 +1,5 @@
 import { AlpacaNewsConnector } from './alpaca-news.connector';
+import { safeSecAccessCode, secAccessGuidance } from './sec-access-diagnostics';
 import {
   recoverGdeltWindows,
   gdeltTimestamp,
@@ -512,6 +513,7 @@ export async function fetchJson(
         httpStatus?: unknown;
         retryAt?: unknown;
         requestAttempted?: unknown;
+        providerCode?: unknown;
       };
       if (
         (cooldown.httpStatus === 403 || cooldown.httpStatus === 429) &&
@@ -524,7 +526,7 @@ export async function fetchJson(
           cooldown.httpStatus,
           null,
           cooldown.retryAt,
-          null,
+          safeSecAccessCode(cooldown.providerCode),
           null,
           cooldown.requestAttempted === true,
         );
@@ -594,7 +596,8 @@ export function connectorFailureMessage(error: unknown): string {
       const retry = error.retryAt
         ? ` 재시도 가능 시각: ${error.retryAt.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })} KST.`
         : '';
-      return `SEC ${reason}. ${error.requestAttempted ? '공급자 응답을 확인했습니다.' : '대기 중이므로 요청하지 않았습니다.'}${retry}`;
+      const guidance = error.httpStatus === 403 ? ` ${secAccessGuidance(error.providerCode)}` : '';
+      return `SEC ${reason}. ${error.requestAttempted ? '공급자 응답을 확인했습니다.' : '대기 중이므로 요청하지 않았습니다.'}${guidance}${retry} 재시도 시각은 접근 복구를 보장하지 않습니다.`;
     }
     if (error.connector === 'NAVER') {
       const message = naverFailureMessage(
@@ -1644,7 +1647,7 @@ export class RegisteredIrFeedConnector extends ConnectorBase {
 
   public constructor(
     feedUrls: readonly string[],
-    private readonly timeoutMs: number,
+    timeoutMs: number,
     checkpointStore?: FeedCheckpointStore,
     transport?: FeedTransport,
   ) {
@@ -1923,15 +1926,6 @@ function parseRegisteredFeed(
       const publishedAt = parseFeedPublicationInstant(publication, feed);
       const descriptionHtml = textValue(entry.description) || textValue(entry.summary);
       const description = safeFeedExcerpt(descriptionHtml);
-      const embeddedHtml =
-        connector === 'IR' && feed.url === SAMSUNG_GLOBAL_FEED_URL
-          ? textValue(entry['content:encoded'])
-          : '';
-      const embeddedContent = embeddedHtml
-        ? embeddedArticleContent(embeddedHtml, feed.policy)
-        : connector === 'IR'
-          ? failedArticleContent('EMBEDDED_CONTENT_MISSING', feed.policy)
-          : undefined;
       candidates.push(
         Object.freeze({
           connector,
@@ -1947,7 +1941,6 @@ function parseRegisteredFeed(
           rightsMode: feed.policy.rightsMode,
           sourceKind: feed.sourceKind,
           sourcePolicy: feed.policy,
-          ...(embeddedContent ? { content: embeddedContent } : {}),
           metadata: Object.freeze({
             feedId,
             feedUrl: feed.url,
@@ -2046,140 +2039,19 @@ function safeFeedExcerpt(html: string): string | null {
   }
 }
 
-function failedArticleContent(
-  failureCode: string,
-  policy: NewsSourcePolicy,
-): DiscoveryArticleContent {
-  return Object.freeze({
-    status: 'FAILED',
-    blocks: null,
-    contentHash: null,
-    language: null,
-    fetchedAt: new Date().toISOString(),
-    failureCode,
-    rightsPolicy: policy,
-  });
-}
-
-function embeddedArticleContent(html: string, policy: NewsSourcePolicy): DiscoveryArticleContent {
-  try {
-    const blocks = htmlToNewsContentBlocks(html);
-    if (blocks.length === 0) return failedArticleContent('EMBEDDED_CONTENT_EMPTY', policy);
-    return Object.freeze({
-      status: 'AVAILABLE',
-      blocks,
-      contentHash: createHash('sha256').update(JSON.stringify(blocks)).digest('hex'),
-      language: 'en',
-      fetchedAt: new Date().toISOString(),
-      failureCode: null,
-      rightsPolicy: policy,
-    });
-  } catch {
-    return failedArticleContent('EMBEDDED_CONTENT_INVALID', policy);
+/** EIA explicitly declares ISO-8859-1; keep other publishers on strict UTF-8. */
+function decodeNewsRssBytes(feedId: NewsRssFeedId, bytes: Uint8Array): string {
+  let encoding = 'utf-8';
+  if (feedId === 'eia-today' || feedId === 'eia-press') {
+    const declaration = new TextDecoder('ascii').decode(bytes.slice(0, 256));
+    const declared = /^\s*<\?xml\b[^?]*\bencoding=["']([^"']+)["']/iu
+      .exec(declaration)?.[1]
+      ?.toLowerCase();
+    if (declared && !['utf-8', 'utf8', 'iso-8859-1', 'windows-1252'].includes(declared))
+      throw new Error('EIA RSS declared an unsupported encoding.');
+    encoding = declared ?? encoding;
   }
-}
-
-const OFFICIAL_ARTICLE_PROFILES = Object.freeze({
-  'fed-press': {
-    hostname: 'www.federalreserve.gov',
-    path: /^\/newsevents\/(?:pressreleases|speech|testimony)\//u,
-    roots: Object.freeze([
-      Object.freeze({ id: 'article' }),
-      Object.freeze({ id: 'content' }),
-      Object.freeze({ tag: 'main' }),
-    ]),
-  },
-  'fed-speeches': {
-    hostname: 'www.federalreserve.gov',
-    path: /^\/newsevents\/(?:pressreleases|speech|testimony)\//u,
-    roots: Object.freeze([
-      Object.freeze({ id: 'article' }),
-      Object.freeze({ id: 'content' }),
-      Object.freeze({ tag: 'main' }),
-    ]),
-  },
-  'bls-latest': {
-    hostname: 'www.bls.gov',
-    path: /^(?:\/bls\/$|\/(?:news\.release|opub)\/)/u,
-    roots: Object.freeze([Object.freeze({ id: 'homepage' })]),
-  },
-} satisfies Record<NewsRssFeedId, unknown>);
-
-const BLS_LATEST_FEED_ARTICLE_URL = 'https://www.bls.gov/bls/';
-const BLS_LATEST_CONTENT_URL = 'https://www.bls.gov/';
-
-async function fetchOfficialArticleContent(
-  candidate: DiscoveryCandidate,
-  feedId: NewsRssFeedId,
-  timeoutMs: number,
-  transport: ArticleTransport,
-): Promise<DiscoveryArticleContent> {
-  const policy = NEWS_RSS_FEEDS[feedId].policy;
-  const profile = OFFICIAL_ARTICLE_PROFILES[feedId] as {
-    hostname: string;
-    path: RegExp;
-    roots: readonly { tag?: string; id?: string; className?: string }[];
-  };
-  try {
-    if (
-      policy.fullTextStorageAllowed !== true ||
-      policy.displayAllowed !== true ||
-      policy.aiAllowed !== true
-    ) {
-      return failedArticleContent('CONTENT_POLICY_BLOCKED', policy);
-    }
-    const url = assertRegisteredFeedUrl(candidate.url);
-    if (
-      url.hostname.toLowerCase() !== profile.hostname ||
-      !profile.path.test(url.pathname) ||
-      (url.port && url.port !== '443')
-    ) {
-      return failedArticleContent('ARTICLE_URL_NOT_APPROVED', policy);
-    }
-    let requestUrl = url;
-    if (feedId === 'bls-latest' && url.pathname === '/bls/') {
-      const originalLink = candidate.metadata.originalLink;
-      // BLS publishes this one exact alias and redirects it to the site root. Resolve only that
-      // reviewed pair before transport; the HTTP client still rejects every redirect response.
-      if (
-        candidate.url !== BLS_LATEST_FEED_ARTICLE_URL ||
-        typeof originalLink !== 'string' ||
-        decodedFeedText(originalLink).trim() !== BLS_LATEST_FEED_ARTICLE_URL
-      ) {
-        return failedArticleContent('ARTICLE_URL_NOT_APPROVED', policy);
-      }
-      requestUrl = new URL(BLS_LATEST_CONTENT_URL);
-    }
-    const response = await transport(
-      'NEWS_RSS',
-      `${feedId}-article`,
-      requestUrl,
-      {
-        Accept: 'text/html, application/xhtml+xml',
-        'User-Agent': 'Orsem/0.1 (+https://orsem.laetipark.me; noncommercial RSS reader)',
-      },
-      timeoutMs,
-    );
-    const html = new TextDecoder('utf-8', { fatal: true }).decode(response.bytes);
-    const blocks = htmlToNewsContentBlocks(html, { roots: profile.roots });
-    if (blocks.length === 0) return failedArticleContent('ARTICLE_CONTENT_EMPTY', policy);
-    return Object.freeze({
-      status: 'AVAILABLE',
-      blocks,
-      contentHash: createHash('sha256').update(JSON.stringify(blocks)).digest('hex'),
-      language: 'en',
-      fetchedAt: new Date().toISOString(),
-      failureCode: null,
-      rightsPolicy: policy,
-    });
-  } catch (error) {
-    return failedArticleContent(
-      error instanceof ConnectorRequestError && error.httpStatus > 0
-        ? `ARTICLE_HTTP_${error.httpStatus}`
-        : 'ARTICLE_FETCH_OR_PARSE_FAILED',
-      policy,
-    );
-  }
+  return new TextDecoder(encoding, { fatal: true }).decode(bytes);
 }
 
 export class PublisherNewsRssConnector extends ConnectorBase {
@@ -2191,26 +2063,25 @@ export class PublisherNewsRssConnector extends ConnectorBase {
   private failedFeeds = 0;
   private skippedItems = 0;
   private truncated = false;
-  private contentFailures = 0;
   private readonly reader: ConditionalFeedReader;
 
   public constructor(
     feedIds: readonly NewsRssFeedId[],
-    private readonly timeoutMs: number,
+    timeoutMs: number,
     checkpointStore?: FeedCheckpointStore,
     transport?: FeedTransport,
-    articleTransport?: ArticleTransport,
+    _articleTransport?: ArticleTransport,
   ) {
     super();
     this.reader = new ConditionalFeedReader(this.name, timeoutMs, checkpointStore, transport);
-    this.articleTransport = articleTransport ?? transport ?? fetchPinnedHttpsBytes;
+    // Keep the legacy constructor argument inert for callers upgrading with queued jobs.
+    void _articleTransport;
     if (feedIds.some((id) => !NEWS_RSS_FEED_IDS.includes(id))) {
       throw new Error('NEWS_RSS feed is not allowlisted.');
     }
     this.feedIds = Object.freeze([...new Set(feedIds)]);
     this.configured = this.feedIds.length > 0;
   }
-  private readonly articleTransport: ArticleTransport;
 
   public override health(now = new Date()): ConnectorHealthCheck {
     return Object.freeze({
@@ -2240,7 +2111,7 @@ export class PublisherNewsRssConnector extends ConnectorBase {
   }
 
   public get discoveryFailureCount(): number {
-    return this.failedFeeds + this.skippedItems + this.contentFailures;
+    return this.failedFeeds + this.skippedItems;
   }
   public get discoveryWasTruncated(): boolean {
     return this.truncated;
@@ -2250,7 +2121,7 @@ export class PublisherNewsRssConnector extends ConnectorBase {
       failedFeedCount: this.failedFeeds,
       notModifiedCount: this.reader.notModifiedCount,
       skippedItemCount: this.skippedItems,
-      contentFailureCount: this.contentFailures,
+      collectionMode: 'METADATA_ONLY',
       truncated: this.truncated,
     };
   }
@@ -2264,40 +2135,21 @@ export class PublisherNewsRssConnector extends ConnectorBase {
     const url = assertRegisteredFeedUrl(NEWS_RSS_FEEDS[feedId].url);
     const bytes = await this.reader.fetch(url, feedId);
     if (bytes === null) return { candidates: [], skippedItems: 0, truncated: false };
-    const parsed = parseNewsRssFeed(
-      feedId,
-      new TextDecoder('utf-8', { fatal: true }).decode(bytes),
-    );
+    const parsed = parseNewsRssFeed(feedId, decodeNewsRssBytes(feedId, bytes));
     if (parsed.skippedItems > 0 || parsed.truncated)
       await this.reader.fail(
         url.toString(),
         `${parsed.skippedItems} malformed RSS item(s); truncated=${parsed.truncated}`,
       );
-    const candidates: DiscoveryCandidate[] = [];
-    for (const candidate of parsed.candidates) {
-      const content = await fetchOfficialArticleContent(
-        candidate,
-        feedId,
-        this.timeoutMs,
-        this.articleTransport,
-      );
-      if (content.status === 'FAILED') this.contentFailures += 1;
-      candidates.push(Object.freeze({ ...candidate, content }));
-    }
-    if (candidates.some((candidate) => candidate.content?.status === 'FAILED')) {
-      await this.reader.fail(
-        url.toString(),
-        `${candidates.filter((candidate) => candidate.content?.status === 'FAILED').length} official article content failure(s)`,
-      );
-    }
-    return Object.freeze({ ...parsed, candidates: Object.freeze(candidates) });
+    // RSS summaries are the only article text we collect. A queued job must never
+    // request a publisher article URL or recreate purged content rows.
+    return parsed;
   }
 
   public override async discoverLinks(): Promise<readonly DiscoveryCandidate[]> {
     this.reader.reset();
     this.failedFeeds = 0;
     this.skippedItems = 0;
-    this.contentFailures = 0;
     this.truncated = false;
     const candidates: DiscoveryCandidate[] = [];
     for (const feedId of this.feedIds) {

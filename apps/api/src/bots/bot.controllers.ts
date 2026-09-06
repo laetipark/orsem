@@ -158,6 +158,24 @@ export class DiscordBotController {
     return { items: result.events.map(discordEvent) };
   }
 
+  @Get('market')
+  market(@Query() query: unknown) {
+    const input = parseWith(z.object({ region: z.enum(['kr', 'us']).default('kr') }), query);
+    return this.bots.market(input.region);
+  }
+
+  @Get('news')
+  news(@Query() query: unknown) {
+    const input = parseWith(
+      z.object({
+        region: z.enum(['all', 'kr', 'us']).default('all'),
+        limit: z.coerce.number().int().min(1).max(5).default(5),
+      }),
+      query,
+    );
+    return this.bots.news(input.region, input.limit);
+  }
+
   @Post('outbox/pull')
   pull(@Body() body: unknown) {
     const input = parseWith(

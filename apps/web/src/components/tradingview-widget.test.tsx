@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ThemeProvider, useTheme } from '../theme';
 import { TradingViewWidget } from './tradingview-widget';
 
-const tickerScriptSelector = 'script[data-orsem-widget="tv-single-ticker"]';
+const tickerScriptSelector = 'script[data-orsem-widget="tv-mini-chart"]';
 class TickerStub extends HTMLElement {}
 let defined = false;
 let resolveDefinition: (constructor: CustomElementConstructor) => void;
@@ -49,14 +49,14 @@ it('loads the official Web Component and keeps the source link when the script f
   await waitFor(() => expect(document.querySelector(tickerScriptSelector)).not.toBeNull());
   const script = document.querySelector<HTMLScriptElement>(tickerScriptSelector)!;
   expect(script.type).toBe('module');
-  expect(script.src).toBe('https://widgets.tradingview-widget.com/w/en/tv-single-ticker.js');
-  expect(container.querySelector('tv-single-ticker')).toHaveAttribute('symbol', 'FRED:SP500');
+  expect(script.src).toBe('https://widgets.tradingview-widget.com/w/en/tv-mini-chart.js');
+  expect(container.querySelector('tv-mini-chart')).toHaveAttribute('symbol', 'FRED:SP500');
   expect(container.querySelector('iframe')).toBeNull();
   fireEvent.error(script);
   await waitFor(() =>
     expect(screen.getByRole('status')).toHaveTextContent('현재 지수 위젯을 이용할 수 없습니다'),
   );
-  expect(container.querySelector('tv-single-ticker')).toBeNull();
+  expect(container.querySelector('tv-mini-chart')).toBeNull();
   expect(screen.getByRole('link', { name: 'S&P500 by TradingView' })).toHaveAttribute(
     'href',
     'https://www.tradingview.com/symbols/FRED-SP500/',
@@ -96,7 +96,7 @@ it('shares one module across StrictMode, concurrent symbols and remounts while l
   await registerTicker();
   expect(document.querySelectorAll(tickerScriptSelector)).toHaveLength(1);
   expect(document.querySelector(tickerScriptSelector)).toBe(script);
-  expect(container.querySelector('.market-widget--compact tv-single-ticker')).toHaveAttribute(
+  expect(container.querySelector('.market-widget--compact tv-mini-chart')).toHaveAttribute(
     'symbol',
     'FRED:NDQCOM',
   );
@@ -122,11 +122,12 @@ it('updates theme attributes without replacing the quote element or loading the 
   );
   await waitFor(() => expect(document.querySelector(tickerScriptSelector)).not.toBeNull());
   await registerTicker();
-  const ticker = container.querySelector('tv-single-ticker');
+  const ticker = container.querySelector('tv-mini-chart');
   expect(ticker).toHaveAttribute('theme', 'dark');
   expect(ticker).toHaveAttribute('transparent', '');
+  expect(ticker).toHaveAttribute('time-frame', '3M');
   fireEvent.click(screen.getByRole('button', { name: '테마 전환' }));
-  expect(container.querySelector('tv-single-ticker')).toBe(ticker);
+  expect(container.querySelector('tv-mini-chart')).toBe(ticker);
   expect(ticker).toHaveAttribute('theme', 'light');
   expect(document.querySelectorAll(tickerScriptSelector)).toHaveLength(1);
 });

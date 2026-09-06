@@ -1,9 +1,5 @@
-import { companyMembershipFixture } from './company-membership-fixtures';
-import {
-  newsBlocksToMarkdown,
-  parseNewsMarkdown,
-  newsTranslationEditInputSchema,
-} from '@orsem/contracts';
+import { companyMembershipFixture, fixtureGroups } from './company-membership-fixtures';
+import { watchlistWorkspaceFixture } from './watchlist-workspace-fixtures';
 import {
   marketFixtures,
   marketFixtureTime,
@@ -30,9 +26,7 @@ import type {
   SearchItem,
   NotificationSettings,
   NotificationPreferences,
-  NaverNewsSearchResult,
   NewsDetail,
-  NewsTranslationEdit,
   SourceItem,
 } from '../types';
 
@@ -278,8 +272,8 @@ const fixtureNewsSeeds: FixtureNewsSeed[] = [
       id: 'fixture-news-samsung-global-01',
       articleId: 'fixture-article-samsung-global-01',
       sourceCount: 1,
-      contentState: 'AVAILABLE',
-      contentSourceId: 'fixture-news-samsung-global-01',
+      contentState: 'UNAVAILABLE',
+      contentSourceId: null,
       contentLanguage: 'en',
       translated: true,
       sourceKind: 'COMPANY_IR',
@@ -297,11 +291,11 @@ const fixtureNewsSeeds: FixtureNewsSeed[] = [
       externalId: 'fixture-samsung-global-01',
       url: 'https://example.test/orsem/news/samsung-global-01',
       title: '[Development fixture] Samsung announces a semiconductor update',
-      description: 'This is deterministic fixture content for the news detail screen.',
+      description: 'This is a deterministic provider summary for the external news link.',
       translation: {
         language: 'ko',
         title: '[개발 표본] 삼성전자, 반도체 사업 현황 발표',
-        description: '뉴스 상세 화면을 검증하기 위한 고정 표본입니다.',
+        description: '제목과 제공 요약, 원문 링크를 검증하기 위한 고정 표본입니다.',
         translatedAt: '2026-09-03T08:37:00.000Z',
         provider: 'LOCAL',
         model: 'fixture',
@@ -323,8 +317,8 @@ const fixtureNewsSeeds: FixtureNewsSeed[] = [
       id: 'fixture-news-fed-release-01',
       articleId: 'fixture-article-fed-release-01',
       sourceCount: 1,
-      contentState: 'AVAILABLE',
-      contentSourceId: 'fixture-news-fed-release-01',
+      contentState: 'UNAVAILABLE',
+      contentSourceId: null,
       contentLanguage: 'en',
       translated: true,
       sourceKind: 'OFFICIAL_RELEASE',
@@ -451,8 +445,8 @@ const fixtureNewsSeeds: FixtureNewsSeed[] = [
       id: 'fixture-news-bls-release-01',
       articleId: 'fixture-article-bls-release-01',
       sourceCount: 1,
-      contentState: 'AVAILABLE',
-      contentSourceId: 'fixture-news-bls-release-01',
+      contentState: 'UNAVAILABLE',
+      contentSourceId: null,
       contentLanguage: 'en',
       translated: true,
       sourceKind: 'OFFICIAL_RELEASE',
@@ -1164,9 +1158,46 @@ function fixtureNewsRegionMatches(item: SourceItem, region: string | null): bool
   return item.marketRegion === region || item.marketRegion === 'global';
 }
 
+const fixtureNewsPublishers = new Set(['samsung-global-newsroom', 'federal-reserve', 'bls', 'eia']);
+function approvedFixtureNews(seed: FixtureNewsSeed): boolean {
+  return (
+    ['OFFICIAL_RELEASE', 'COMPANY_IR'].includes(seed.item.sourceKind ?? '') &&
+    fixtureNewsPublishers.has(seed.item.publisherId ?? '') &&
+    ['OFFICIAL_PUBLIC_DATA', 'PRIVATE_DISPLAY_ONLY'].includes(seed.item.rightsMode)
+  );
+}
+function fixtureNewsProjection({ companyId, item }: FixtureNewsSeed): SourceItem {
+  const relatedCompanies = companies
+    .filter((company) => company.id === companyId)
+    .map(({ id, nameKo, nameEn, stockCode, ticker, market }) => ({
+      id,
+      nameKo,
+      nameEn,
+      stockCode,
+      ticker,
+      market,
+    }));
+  return {
+    ...item,
+    displayMode: 'EXTERNAL_LINK',
+    contentState: 'UNAVAILABLE',
+    contentSourceId: null,
+    translated: Boolean(item.translation),
+    translationStatus: item.translation
+      ? 'COMPLETED'
+      : item.contentLanguage === 'en'
+        ? 'PENDING'
+        : 'UNAVAILABLE',
+    relatedCompanies,
+    summaryLine: item.translation?.description ?? item.description ?? '요약 미제공',
+  };
+}
+
 function pageNews(url: URL): CursorPage<SourceItem> {
   const q = (url.searchParams.get('q') ?? '').trim().toLowerCase();
   const sourceKind = url.searchParams.get('sourceKind');
+  const source = url.searchParams.get('source');
+  const scope = url.searchParams.get('scope');
   const publisher = url.searchParams.get('publisher');
   const companyId = url.searchParams.get('companyId');
   const cursor = Math.max(0, Number.parseInt(url.searchParams.get('cursor') ?? '0', 10) || 0);
@@ -1175,22 +1206,31 @@ function pageNews(url: URL): CursorPage<SourceItem> {
     Math.max(1, Number.parseInt(url.searchParams.get('limit') ?? '20', 10) || 20),
   );
   const filtered = fixtureNewsSeeds
-    .filter(({ item }) => item.contentState === 'AVAILABLE')
-    .filter(
-      ({ item }) => item.sourceKind === 'OFFICIAL_RELEASE' || item.sourceKind === 'COMPANY_IR',
+    .filter(approvedFixtureNews)
+    .filter(() => !url.searchParams.has('asset'))
+    .filter((seed) =>
+      scope === 'market'
+        ? ['federal-reserve', 'bls'].includes(seed.item.publisherId ?? '')
+        : scope === 'company'
+          ? fixtureNewsProjection(seed).relatedCompanies!.length > 0
+          : true,
     )
-    .filter(({ item }) => item.contentLanguage !== 'en' || item.translated)
+    .filter(({ item }) => !source || item.source === source)
     .filter(({ item }) => fixtureNewsRegionMatches(item, url.searchParams.get('region')))
     .filter(({ item }) => !sourceKind || item.sourceKind === sourceKind)
     .filter(({ item }) => !publisher || (item.publisherId ?? item.sourceName) === publisher)
-    .filter((seed) => !companyId || seed.companyId === companyId)
+    .filter(
+      (seed) =>
+        !companyId ||
+        fixtureNewsProjection(seed).relatedCompanies!.some((company) => company.id === companyId),
+    )
     .filter(({ item }) => {
       if (!q) return true;
       return [item.title, item.description, item.translation?.title, item.translation?.description]
         .filter((value): value is string => Boolean(value))
         .some((value) => value.toLowerCase().includes(q));
     })
-    .map(({ item }) => item)
+    .map(fixtureNewsProjection)
     .sort((left, right) =>
       (right.publishedAt ?? right.firstObservedAt).localeCompare(
         left.publishedAt ?? left.firstObservedAt,
@@ -1203,157 +1243,13 @@ function pageNews(url: URL): CursorPage<SourceItem> {
   };
 }
 
-const fixtureManualTranslations = new Map<
-  string,
-  { markdown: string; revision: number; editedAt: string }
->();
-
-function fixtureNewsTranslationEdit(id: string, init?: RequestInit): NewsTranslationEdit {
-  if (!fixtureAuthenticated || fixtureSession.user?.role !== 'ADMIN')
-    throw Object.assign(new Error('관리자만 번역을 수정할 수 있습니다.'), { statusCode: 403 });
-  const detail = fixtureNewsDetail(id);
-  if (
-    detail.content?.original.language !== 'en' ||
-    !detail.content.translation ||
-    !detail.translation
-  )
-    throw Object.assign(new Error('수정할 번역 본문이 없습니다.'), { statusCode: 404 });
-  const previous = fixtureManualTranslations.get(detail.id);
-  const revision = (previous?.revision ?? 0).toString(16).padStart(64, '0');
-  if (init?.method?.toUpperCase() === 'PATCH') {
-    const payload = newsTranslationEditInputSchema.parse(JSON.parse(String(init.body ?? '{}')));
-    if (payload.revision !== revision)
-      throw Object.assign(new Error('다른 변경이 있습니다. 최신 번역을 확인해 주세요.'), {
-        statusCode: 409,
-      });
-    parseNewsMarkdown(payload.markdown);
-    const editedAt = new Date().toISOString();
-    const item = fixtureNewsSeeds.find((seed) => seed.item.id === detail.id)!.item;
-    item.translation = {
-      ...item.translation!,
-      title: payload.title,
-      description: payload.description,
-      editedAt,
-    };
-    fixtureManualTranslations.set(detail.id, {
-      markdown: payload.markdown,
-      revision: (previous?.revision ?? 0) + 1,
-      editedAt,
-    });
-    return fixtureNewsTranslationEdit(detail.id);
-  }
-  return {
-    sourceItemId: detail.id,
-    revision,
-    original: {
-      title: detail.title,
-      description: detail.description ?? null,
-      language: detail.content.original.language,
-      markdown: newsBlocksToMarkdown(detail.content.original.blocks),
-    },
-    translation: {
-      title: detail.translation.title,
-      description: detail.translation.description,
-      markdown: previous?.markdown ?? newsBlocksToMarkdown(detail.content.translation.blocks),
-    },
-    editedAt: previous?.editedAt ?? null,
-    editedByAdminId: previous ? fixtureSession.user!.id : null,
-  };
-}
-
 function fixtureNewsDetail(id: string): NewsDetail {
-  const item = fixtureNewsSeeds.find(
-    (seed) => seed.item.id === id || seed.item.articleId === id,
-  )?.item;
-  if (!item || item.contentState !== 'AVAILABLE' || !item.contentSourceId) {
-    throw new Error('해당 뉴스 본문을 찾을 수 없습니다.');
-  }
-  const manual = fixtureManualTranslations.get(item.id);
-  const originalText = item.description || item.title;
-  const translatedText = item.translation?.description || item.translation?.title;
-  return {
-    ...item,
-    content: {
-      sourceItemId: item.contentSourceId,
-      original: {
-        language: item.contentLanguage || 'en',
-        blocks: [{ type: 'PARAGRAPH', text: originalText }],
-        fetchedAt: item.processedAt || item.firstObservedAt,
-      },
-      translation:
-        item.translated && item.translation && translatedText
-          ? {
-              language: 'ko',
-              blocks: manual
-                ? parseNewsMarkdown(manual.markdown)
-                : [{ type: 'PARAGRAPH', text: translatedText }],
-              ...(manual ? { format: 'MARKDOWN' as const, editedAt: manual.editedAt } : {}),
-              translatedAt: item.translation.translatedAt,
-              provider: 'LOCAL',
-              model: item.translation.model,
-            }
-          : null,
-    },
-  };
-}
-
-function escapeFixtureNewsMarkup(value: string): string {
-  return value.replace(/[&<>"']/gu, (character) => {
-    const entities: Record<string, string> = {
-      '&': '&amp;',
-      '<': '&lt;',
-      '>': '&gt;',
-      '"': '&quot;',
-      "'": '&#39;',
-    };
-    return entities[character] ?? character;
-  });
-}
-
-function fixtureNaverNewsSearch(init?: RequestInit): NaverNewsSearchResult {
-  const headers = new Headers(init?.headers);
-  let decodedQuery = '';
-  try {
-    decodedQuery = decodeURIComponent(headers.get('X-Orsem-News-Query') ?? '').trim();
-  } catch {
-    throw new Error('잘못된 뉴스 검색 요청입니다.');
-  }
-  if (!decodedQuery || decodedQuery.length > 120) {
-    throw new Error('뉴스 검색어를 1자 이상 120자 이하로 입력해 주세요.');
-  }
-  const start = Number(headers.get('X-Orsem-News-Start') ?? '1');
-  if (!Number.isInteger(start) || start < 1 || start > 1000) {
-    throw new Error('잘못된 뉴스 검색 페이지입니다.');
-  }
-  const sortHeader = headers.get('X-Orsem-News-Sort') ?? 'date';
-  if (sortHeader !== 'date' && sortHeader !== 'sim') {
-    throw new Error('잘못된 뉴스 검색 정렬 방식입니다.');
-  }
-
-  const total = 45;
-  const indexes = Array.from({ length: total }, (_, index) => index);
-  if (sortHeader === 'sim') {
-    indexes.sort((left, right) => (left % 7) - (right % 7) || left - right);
-  }
-  const escapedQuery = escapeFixtureNewsMarkup(decodedQuery);
-  const items = indexes.slice(start - 1, start - 1 + 20).map((index) => {
-    const number = index + 1;
-    return {
-      title: `<b>${escapedQuery}</b> 관련 개발 fixture 뉴스 ${String(number).padStart(2, '0')}`,
-      originallink: `https://publisher.example.test/orsem/naver-fixture/${number}`,
-      link: `https://news.example.test/orsem/naver-fixture/${number}`,
-      description: '외부 API를 호출하지 않는 개발 화면 검증용 검색 결과입니다.',
-      pubDate: new Date(Date.parse('2026-09-03T08:40:00.000Z') - index * 3_600_000).toUTCString(),
-    };
-  });
-  return {
-    provider: 'NAVER',
-    lastBuildDate: 'Thu, 03 Sep 2026 17:42:00 +0900',
-    total,
-    start,
-    display: items.length,
-    items,
-  };
+  const seed = fixtureNewsSeeds.find(
+    (seed) => seed.item.id === id || seed.item.articleId === id || seed.item.externalId === id,
+  );
+  if (!seed || !approvedFixtureNews(seed))
+    throw Object.assign(new Error('해당 뉴스 원문 링크를 찾을 수 없습니다.'), { statusCode: 404 });
+  return { ...fixtureNewsProjection(seed), content: null };
 }
 
 function asSummary(company: CompanyDetail): CompanySummary {
@@ -1407,6 +1303,74 @@ export async function fixtureRequest<T>(path: string, init?: RequestInit): Promi
   const url = new URL(path, 'http://fixture.local');
   const pathname = url.pathname.replace(/^\/api\/v1/, '');
   const method = init?.method?.toUpperCase() ?? 'GET';
+  const workspace = watchlistWorkspaceFixture(
+    pathname,
+    method,
+    init?.body ? JSON.parse(String(init.body)) : null,
+    companies,
+    now,
+  );
+  if (workspace.handled) return workspace.value as T;
+  if (pathname === '/dashboard/personal-filings')
+    return { asOf: now, companyCount: 2, items: [] } as T;
+  if (pathname === '/dashboard/market-selection')
+    return {
+      asOf: now,
+      regions: ['kr', 'us'].map((region) => ({
+        region,
+        status: 'UNCONFIGURED',
+        reason: '공식 자료 연결 대기',
+        basisDate: null,
+        observedAt: null,
+        sourceUrl: null,
+        updateNote: null,
+        items: [],
+      })),
+    } as T;
+  const infoMatch = pathname.match(/^\/companies\/([^/]+)\/information$/u);
+  if (infoMatch) {
+    const company = companies.find((c) => c.id === infoMatch[1]);
+    const currency = company?.ticker ? 'USD' : 'KRW';
+    const prices = fixturePrices(company?.id ?? '', '1d', currency),
+      last = prices.at(-1),
+      previous = prices.at(-2);
+    const fields = [
+      ['close', '최근 종가', last?.close],
+      ['previousClose', '전 거래일 종가', previous?.close],
+      ['open', '시가', last?.open],
+      ['high', '고가', last?.high],
+      ['low', '저가', last?.low],
+      ['volume', '거래량', last?.volume],
+      ['marketCap', '시가총액', null],
+      ['ceo', '대표자', null],
+      ['industry', '업종 코드', null],
+      ['revenue', '매출액', null],
+      ['operatingProfit', '영업이익', null],
+      ['eps', 'EPS', null],
+      ['per', 'PER', null],
+      ['pbr', 'PBR', null],
+      ['dividend', '주당 현금배당', null],
+    ].map(([key, label, value]) => ({
+      key,
+      label,
+      value: value == null ? null : String(value),
+      unit: key === 'volume' ? '주' : currency,
+      basis: `${last?.time ?? ''} 일별 종가`,
+      source: '개발용 모의 데이터',
+      sourceUrl: 'https://example.test/',
+      observedAt: now,
+    }));
+    return { asOf: now, status: 'AVAILABLE', fields } as T;
+  }
+  const recentMatch = pathname.match(/^\/companies\/([^/]+)\/recent-activity$/u);
+  if (recentMatch)
+    return {
+      windowStartDate: '2026-08-31',
+      windowEndDate: '2026-09-06',
+      filingCount: 0,
+      eventCount: 0,
+      items: [],
+    } as T;
 
   const membershipMatch = pathname.match(/^\/watchlist-groups\/company-memberships\/([^/]+)$/);
   if (membershipMatch) {
@@ -1439,6 +1403,14 @@ export async function fixtureRequest<T>(path: string, init?: RequestInit): Promi
   if (pathname === '/markets/overview')
     return {
       asOf: marketFixtureTime,
+      histories: Object.fromEntries(
+        marketFixtures
+          .filter((item) => item.displayKind === 'NATIVE')
+          .map((item) => {
+            const history = marketHistoryFixture(item.id);
+            return [item.id, { ...history, points: history.points.slice(-31) }];
+          }),
+      ),
       items: marketFixtures.filter(
         (item) =>
           !url.searchParams.get('region') ||
@@ -1452,7 +1424,12 @@ export async function fixtureRequest<T>(path: string, init?: RequestInit): Promi
   if (pathname === '/auth/kakao/config') return { enabled: false, startUrl: null } as T;
   if (pathname === '/auth/members') return { items: [], nextCursor: null } as T;
 
-  if (pathname === '/search') {
+  if (pathname === '/search' || pathname === '/search/suggestions') {
+    if (pathname.endsWith('/suggestions'))
+      url.searchParams.set(
+        'q',
+        decodeURIComponent(new Headers(init?.headers).get('X-Orsem-Search-Query') ?? ''),
+      );
     const query = (url.searchParams.get('q') ?? '').trim();
     const needle = query.toLowerCase();
     const limit = Math.min(10, Math.max(1, Number(url.searchParams.get('limit')) || 5));
@@ -1466,6 +1443,7 @@ export async function fixtureRequest<T>(path: string, init?: RequestInit): Promi
       .map((company) => ({
         id: company.id,
         type: 'COMPANY',
+        company,
         title: company.nameKo,
         subtitle: [company.market, company.stockCode ?? company.ticker, company.nameEn]
           .filter(Boolean)
@@ -1510,18 +1488,42 @@ export async function fixtureRequest<T>(path: string, init?: RequestInit): Promi
       }))
       .filter((item) => item.url.startsWith('https://')) as SearchItem[];
     const news: SearchItem[] = fixtureNewsSeeds
+      .filter(approvedFixtureNews)
+      .filter(() => !url.searchParams.has('asset'))
+      .filter((seed) =>
+        url.searchParams.get('scope') === 'market'
+          ? ['federal-reserve', 'bls'].includes(seed.item.publisherId ?? '')
+          : url.searchParams.get('scope') === 'company'
+            ? seed.companyId !== null
+            : true,
+      )
+      .filter(
+        (seed) =>
+          !url.searchParams.get('companyId') ||
+          seed.companyId === url.searchParams.get('companyId'),
+      )
       .filter(
         ({ item }) =>
-          item.contentState === 'AVAILABLE' &&
-          (item.sourceKind === 'OFFICIAL_RELEASE' || item.sourceKind === 'COMPANY_IR') &&
-          (item.contentLanguage !== 'en' || (item.translated && Boolean(item.translation))),
+          !url.searchParams.get('source') || item.source === url.searchParams.get('source'),
+      )
+      .filter(
+        ({ item }) =>
+          !url.searchParams.get('sourceKind') ||
+          item.sourceKind === url.searchParams.get('sourceKind'),
+      )
+      .filter(
+        ({ item }) =>
+          !url.searchParams.get('publisher') ||
+          item.publisherId === url.searchParams.get('publisher'),
       )
       .filter(({ item }) => fixtureNewsRegionMatches(item, url.searchParams.get('region')))
       .filter(({ companyId, item }) => {
         const company = companies.find((value) => value.id === companyId);
         return [
           item.title,
+          item.description,
           item.translation?.title,
+          item.translation?.description,
           item.sourceName,
           company?.nameKo,
           company?.nameEn,
@@ -1533,6 +1535,9 @@ export async function fixtureRequest<T>(path: string, init?: RequestInit): Promi
         id: item.id,
         type: 'NEWS',
         title: item.title,
+        description: item.description ?? null,
+        relatedCompanies: fixtureNewsProjection({ companyId, item }).relatedCompanies,
+        translationStatus: fixtureNewsProjection({ companyId, item }).translationStatus,
         translation: item.translation ?? null,
         subtitle: [
           companies.find((company) => company.id === companyId)?.nameKo,
@@ -1540,8 +1545,8 @@ export async function fixtureRequest<T>(path: string, init?: RequestInit): Promi
         ]
           .filter(Boolean)
           .join(' · '),
-        url: `/news/${encodeURIComponent(item.articleId ?? item.id)}`,
-        external: false,
+        url: item.url,
+        external: true,
         companyId,
         source: item.source,
         rightsMode: item.rightsMode,
@@ -1591,10 +1596,31 @@ export async function fixtureRequest<T>(path: string, init?: RequestInit): Promi
     } as T;
   }
   if (pathname === '/dashboard') return dashboard() as T;
+  if (pathname === '/dashboard/personal-news') {
+    const ids = new Set(
+      fixtureAuthenticated
+        ? fixtureGroups
+            .filter((group) => group.kind === 'PERSONAL' && group.roomId === null)
+            .flatMap((group) => [...group.companyIds])
+        : [],
+    );
+    return {
+      asOf: now,
+      companyCount: ids.size,
+      events: eventSeeds.filter((event) => ids.has(event.companyId)),
+      news: fixtureNewsSeeds
+        .filter(approvedFixtureNews)
+        .filter((seed) => seed.companyId !== null && ids.has(seed.companyId))
+        .map(fixtureNewsProjection),
+    } as T;
+  }
   if (pathname === '/news' && method === 'GET') return pageNews(url) as T;
   const newsEditMatch = pathname.match(/^\/news\/([^/]+)\/translation-edit$/u);
   if (newsEditMatch && ['GET', 'PATCH'].includes(method))
-    return fixtureNewsTranslationEdit(decodeURIComponent(newsEditMatch[1] ?? ''), init) as T;
+    throw Object.assign(
+      new Error('기사 본문 편집이 종료되었습니다. 원문 페이지에서 기사를 확인해 주세요.'),
+      { statusCode: 410 },
+    );
   const newsMatch = pathname.match(/^\/news\/([^/]+)$/u);
   if (newsMatch && method === 'GET') return fixtureNewsDetail(newsMatch[1] ?? '') as T;
   if (pathname === '/news-search/naver/status' && method === 'GET')
@@ -1609,10 +1635,8 @@ export async function fixtureRequest<T>(path: string, init?: RequestInit): Promi
       remainingMonth: 2000,
       reason: null,
     } as T;
-  if (pathname === '/news-search/naver' && method === 'GET')
-    return fixtureNaverNewsSearch(init) as T;
-  if (pathname === '/events') return pageEvents(url) as T;
 
+  if (pathname === '/events') return pageEvents(url) as T;
   const eventMatch = pathname.match(/^\/events\/([^/]+)$/);
   if (eventMatch) {
     const detail = details.get(eventMatch[1] ?? '');
@@ -1631,7 +1655,29 @@ export async function fixtureRequest<T>(path: string, init?: RequestInit): Promi
             .toLowerCase()
             .includes(query),
       )
-      .map(asSummary);
+      .sort((a, b) => a.nameKo.localeCompare(b.nameKo, 'ko-KR'))
+      .map((company) => {
+        const currency = company.ticker ? 'USD' : 'KRW';
+        const prices = fixturePrices(company.id, '1d', currency);
+        const last = prices.at(-1)!,
+          previous = prices.at(-2)!;
+        return {
+          ...asSummary(company),
+          canonicalPath: `/companies/${company.stockCode ?? company.ticker ?? company.id}`,
+          quote: {
+            price: String(last.close),
+            currency,
+            changePercent: (last.close / previous.close - 1) * 100,
+            volume: String(last.volume),
+            basisDate: last.time,
+            referenceDate: previous.time,
+            observedAt: now,
+            source: 'FIXTURE',
+            marketCap: null,
+            capBasisDate: null,
+          },
+        };
+      });
     return { items, nextCursor: null } as T;
   }
 
@@ -1659,7 +1705,25 @@ export async function fixtureRequest<T>(path: string, init?: RequestInit): Promi
 
   const livePriceMatch = pathname.match(/^\/companies\/([^/]+)\/live-price$/);
   if (livePriceMatch) {
+    const company = companies.find((c) => c.id === livePriceMatch[1]);
+    const currency = company?.ticker ? 'USD' : 'KRW';
+    const prices = fixturePrices(company?.id ?? '', '1d', currency),
+      last = prices.at(-1)!,
+      previous = prices.at(-2)!;
     return {
+      displayPrice: {
+        price: String(last.close),
+        currency,
+        status: 'CLOSE',
+        basis: 'DAILY_CLOSE',
+        source: 'FIXTURE',
+        sessionDate: last.time,
+        providerAt: null,
+        referenceClose: String(previous.close),
+        referenceDate: previous.time,
+        change: last.close - previous.close,
+        changePercent: (last.close / previous.close - 1) * 100,
+      },
       companyId: livePriceMatch[1],
       provider: 'toss',
       status: 'NOT_CONFIGURED',
@@ -1670,9 +1734,20 @@ export async function fixtureRequest<T>(path: string, init?: RequestInit): Promi
 
   const companyMatch = pathname.match(/^\/companies\/([^/]+)$/);
   if (companyMatch) {
-    const company = companies.find((item) => item.id === companyMatch[1]);
+    const address = decodeURIComponent(companyMatch[1] ?? '').toUpperCase();
+    const company = companies.find(
+      (item) =>
+        item.id === companyMatch[1] ||
+        [item.stockCode, item.ticker, `${item.market}:${item.ticker ?? item.stockCode}`].some(
+          (value) => value?.toUpperCase() === address,
+        ),
+    );
     if (!company) throw new Error('해당 기업을 찾을 수 없습니다.');
-    return { ...company, isWatchlisted: watchlist.some((item) => item.id === company.id) } as T;
+    return {
+      ...company,
+      canonicalPath: `/companies/${company.stockCode ?? company.ticker ?? company.id}`,
+      isWatchlisted: watchlist.some((item) => item.id === company.id),
+    } as T;
   }
 
   if (pathname === '/watchlist' && method === 'GET')

@@ -1,6 +1,7 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { mockMediaQuery } from '../test/media-query';
 import type { NewsTranslation, SourceFreshness, SourceItem } from '../types';
 import { MarketNewsList, safeNewsUrl, summarizeNewsFreshness } from './market-news';
 
@@ -50,7 +51,7 @@ function newsItem(patch: Partial<SourceItem> = {}): SourceItem {
     publishedAt: '2026-09-05T00:00:00.000Z',
     firstObservedAt: '2026-09-05T00:02:00.000Z',
     processedAt: '2026-09-05T00:03:00.000Z',
-    rightsMode: 'STORE_METADATA_ONLY',
+    rightsMode: 'OFFICIAL_PUBLIC_DATA',
     provenanceUrl: null,
     tickers: [],
     tags: [],
@@ -59,6 +60,25 @@ function newsItem(patch: Partial<SourceItem> = {}): SourceItem {
 }
 
 describe('market news presentation', () => {
+  it('shows headline and summary in compact mode with an external original link', () => {
+    render(
+      <MemoryRouter>
+        <MarketNewsList
+          items={[newsItem({ rightsMode: 'OFFICIAL_PUBLIC_DATA', summaryLine: translation.title })]}
+          headlineOnly
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText(translation.title)).toBeVisible();
+    expect(screen.getByText(translation.description!)).toBeVisible();
+    expect(screen.getByText('자동 번역')).toBeVisible();
+    expect(screen.getByText('2개 출처에서 확인')).toBeVisible();
+    expect(screen.getByRole('link', { name: /원문 새 창에서 보기/ })).toHaveAttribute(
+      'href',
+      'https://publisher-one.example/story',
+    );
+  });
+
   it('shows a verified translation, unknown region, and each safe grouped source', () => {
     const { container } = render(
       <MemoryRouter>
@@ -84,9 +104,9 @@ describe('market news presentation', () => {
       'href',
       'https://publisher-two.example/story',
     );
-    expect(screen.getByRole('link', { name: /뉴스 상세 보기/ })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: /원문 새 창에서 보기/ })).toHaveAttribute(
       'href',
-      '/news/article-1',
+      'https://publisher-one.example/story',
     );
     expect(container.querySelector('a a')).toBeNull();
   });
@@ -118,10 +138,7 @@ describe('market news presentation', () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByRole('link', { name: /뉴스 상세 보기/ })).toHaveAttribute(
-      'href',
-      '/news/article-1',
-    );
+    expect(screen.queryByRole('link', { name: /원문 새 창에서 보기/ })).toBeNull();
     expect(container.querySelector('a[href^="javascript:"], a[href*="password"]')).toBeNull();
     fireEvent.click(screen.getByText('연결된 원문 출처 1개'));
     expect(screen.getByRole('link', { name: /검증된 링크/ })).toHaveAttribute(
@@ -180,6 +197,7 @@ it('keeps metadata-only media in original-link cards with related companies and 
         items={[
           newsItem({
             source: 'GDELT',
+            rightsMode: 'STORE_METADATA_ONLY',
             displayMode: 'EXTERNAL_LINK',
             sourceName: 'publisher-one.example',
             relatedCompanies: [
@@ -203,7 +221,7 @@ it('keeps metadata-only media in original-link cards with related companies and 
   expect(screen.queryByText(translation.title)).not.toBeInTheDocument();
   expect(screen.queryByText('The original verified summary.')).not.toBeInTheDocument();
   expect(screen.queryByRole('link', { name: /뉴스 상세 보기/ })).not.toBeInTheDocument();
-  expect(screen.getByRole('link', { name: '관련 기업 · 000000' })).toHaveAttribute(
+  expect(screen.getByRole('link', { name: '관련 기업' })).toHaveAttribute(
     'href',
     '/companies/company-1',
   );
@@ -213,4 +231,85 @@ it('keeps metadata-only media in original-link cards with related companies and 
   );
   expect(container.querySelector('a a')).toBeNull();
   expect(container.querySelector('img')).toBeNull();
+});
+
+it('keeps company navigation separate and adjusts the visible badge count after resize', () => {
+  const { resize } = mockMediaQuery(false);
+  const companies = ['삼성전자', 'SK하이닉스', '현대차'].map((nameKo, index) => ({
+    id: `company-${index}`,
+    nameKo,
+    nameEn: null,
+    market: 'KOSPI' as const,
+    stockCode: ['005930', '000660', '005380'][index]!,
+    ticker: null,
+  }));
+  const { container, unmount } = render(
+    <MemoryRouter>
+      <MarketNewsList items={[newsItem({ relatedCompanies: [...companies, companies[0]!] })]} />
+    </MemoryRouter>,
+  );
+  expect(screen.getByRole('link', { name: '삼성전자' })).toHaveAttribute(
+    'href',
+    '/companies/company-0',
+  );
+  expect(screen.getByRole('link', { name: 'SK하이닉스' })).toBeVisible();
+  expect(screen.queryByRole('link', { name: '현대차' })).toBeNull();
+  expect(screen.getByRole('button', { name: '관련 종목 1개 더 보기' })).toHaveTextContent('+1');
+  act(() => resize(true));
+  expect(screen.queryByRole('link', { name: 'SK하이닉스' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: '관련 종목 2개 더 보기' }));
+  expect(screen.getByRole('link', { name: '현대차' })).toBeVisible();
+  expect(container.querySelector('a a, a button')).toBeNull();
+  unmount();
+  vi.restoreAllMocks();
+});
+
+it('omits OTHER and invalid stock identities from cached news without dropping the article', () => {
+  const listed = {
+    id: 'samsung',
+    nameKo: '삼성전자',
+    nameEn: null,
+    market: 'KOSPI' as const,
+    stockCode: '005930',
+    ticker: null,
+  };
+  render(
+    <MemoryRouter>
+      <MarketNewsList
+        items={[
+          newsItem({
+            relatedCompanies: [
+              { ...listed, id: 'ordinary-word', nameKo: '자금', market: 'OTHER', stockCode: null },
+              { ...listed, id: 'invalid-code', nameKo: '대해', stockCode: null },
+              listed,
+            ],
+          }),
+        ]}
+      />
+    </MemoryRouter>,
+  );
+  expect(screen.getByRole('link', { name: /원문 새 창에서 보기/ })).toBeVisible();
+  expect(screen.getByRole('link', { name: '삼성전자' })).toBeVisible();
+  expect(screen.queryByRole('link', { name: '자금' })).toBeNull();
+  expect(screen.queryByRole('link', { name: '대해' })).toBeNull();
+  expect(screen.queryByRole('button', { name: /관련 종목 .*개 더 보기/ })).toBeNull();
+});
+
+it.each([
+  ['PENDING', '원문 · 번역 대기'],
+  ['FAILED', '원문 · 번역 실패'],
+  ['UNAVAILABLE', '원문 · 번역 미제공'],
+] as const)('shows original metadata with %s translation state', (translationStatus, label) => {
+  render(
+    <MemoryRouter>
+      <MarketNewsList
+        items={[
+          newsItem({ translation: null, translated: false, translationStatus, description: null }),
+        ]}
+      />
+    </MemoryRouter>,
+  );
+  expect(screen.getByText('Company publishes its outlook')).toBeVisible();
+  expect(screen.getByText('요약 미제공')).toBeVisible();
+  expect(screen.getByText(label)).toBeVisible();
 });

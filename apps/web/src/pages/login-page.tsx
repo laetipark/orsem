@@ -58,8 +58,8 @@ export function LoginPage({ session }: { session: Session }) {
 
   return (
     <LoginLayout
-      title={awaitingAccess ? '관측 공간 이용 안내' : '근거를 모아, 흐름을 읽다'}
-      description="공식 공시와 기업 소식, 시장 가격을 출처와 함께 확인합니다. 카카오로 가입한 회원은 관리자 승인 후 관측 화면과 개인 관심종목 그룹을 이용할 수 있습니다."
+      title={awaitingAccess ? '이용 안내' : '오르셈에 오신 것을 환영해요'}
+      description="시장과 기업의 소식을 한곳에서 확인하세요."
     >
       {awaitingAccess ? (
         <div className="login-options account-status" role="status">
@@ -93,7 +93,7 @@ export function LoginPage({ session }: { session: Session }) {
         <div className="login-options">
           <section className="kakao-signin" aria-labelledby="kakao-signin-title">
             <h2 id="kakao-signin-title">로그인 · 회원가입</h2>
-            <p>카카오 계정으로 시작할 수 있습니다. 처음 이용하면 가입 신청이 접수됩니다.</p>
+            <p>카카오 계정으로 간편하게 시작하세요.</p>
             <button
               type="button"
               className="kakao-login-button"
@@ -109,7 +109,7 @@ export function LoginPage({ session }: { session: Session }) {
                 : kakao.isError
                   ? '카카오 연결 상태를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.'
                   : kakaoEnabled
-                    ? '별도의 비밀번호나 이메일 입력 없이 가입합니다. 승인 후 관측 화면과 개인 관심종목 그룹을 이용할 수 있습니다.'
+                    ? '처음 가입하면 관리자 승인 후 이용할 수 있습니다.'
                     : '카카오 로그인은 연결 준비 중입니다. 연결이 완료되면 카카오 계정으로 시작할 수 있습니다.'}
             </p>
             {kakao.isError ? (

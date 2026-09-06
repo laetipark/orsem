@@ -24,7 +24,10 @@ import { dateOnlyInTimeZone } from './market-data-ingestion.service';
 import { TossMarketClient, type TossCandle, type TossStock } from './toss-market.client';
 import { TossStockInfoService } from './toss-stock-info.service';
 import { planTossViewFetch } from './toss-view-fetch-policy';
-import { APPROVED_GROUP_COMPANIES_SQL } from '../connectors/news-relevance';
+import {
+  APPROVED_GROUP_COMPANIES_SQL,
+  MARKET_SELECTION_COMPANIES_SQL,
+} from '../connectors/news-relevance';
 
 const KR_MARKETS: readonly string[] = [Market.KRX, Market.KOSPI, Market.KOSDAQ, Market.KONEX];
 const US_MARKETS: readonly string[] = [Market.NASDAQ, Market.NYSE, Market.AMEX];
@@ -168,6 +171,9 @@ export class TossMarketDataService {
     const grouped: Array<{ companyId: string }> = companyIds
       ? []
       : await this.dataSource.query(`${APPROVED_GROUP_COMPANIES_SQL} ORDER BY companyId`);
+    const automatic: Array<{ companyId: string }> = companyIds
+      ? []
+      : await this.dataSource.query(MARKET_SELECTION_COMPANIES_SQL);
     let requested = companyIds
       ? [...companyIds]
       : [...watches.map((watch) => watch.companyId), ...grouped.map((row) => row.companyId)];
@@ -190,7 +196,10 @@ export class TossMarketDataService {
         requested = [...active, ...requested];
       }
     }
-    const ids = [...new Set(requested)].slice(0, this.config.tossMaxSubscriptions);
+    const ids = [...new Set([...automatic.map((row) => row.companyId), ...requested])].slice(
+      0,
+      this.config.tossMaxSubscriptions,
+    );
     if (ids.length === 0) return [];
     const companies = await this.dataSource
       .getRepository(CompanyEntity)
@@ -235,8 +244,12 @@ export class TossMarketDataService {
       const grouped: Array<{ companyId: string }> = await this.dataSource.query(
         `${APPROVED_GROUP_COMPANIES_SQL} ORDER BY companyId`,
       );
+      const automatic: Array<{ companyId: string }> = await this.dataSource.query(
+        MARKET_SELECTION_COMPANIES_SQL,
+      );
       selected = [
         ...new Set([
+          ...automatic.map((row) => row.companyId),
           ...watches.map((watch) => watch.companyId),
           ...grouped.map((row) => row.companyId),
           ...recent

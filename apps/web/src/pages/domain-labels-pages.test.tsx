@@ -61,11 +61,9 @@ afterEach(() => {
 
 it('labels dashboard sections and disclosure counts without changing their coded filter destinations', async () => {
   show('/');
-  expect(await screen.findByRole('heading', { name: '중점 관찰' })).toBeInTheDocument();
-  expect(screen.getByRole('heading', { name: '관심 종목' })).toBeInTheDocument();
-  expect(
-    screen.getAllByRole('link', { name: '전체 보기' }).map((link) => link.getAttribute('href')),
-  ).toEqual(['/events?priority=P1', '/events?priority=P2']);
+  expect(await screen.findByRole('region', { name: '관심 그룹과 소식' })).toBeInTheDocument();
+  expect(screen.queryByRole('heading', { name: '중점 관찰' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: '그룹 관리' })).not.toBeInTheDocument();
   const summary = screen.getByRole('region', { name: 'OpenDART 공시 건수' });
   const massive = within(summary).getByRole('link', { name: /대량보유 공시/ });
   expect(massive).toHaveAttribute('href', '/events?detailType=D001');
@@ -100,8 +98,9 @@ it('keeps API and URL filter codes when choosing public names and clears the pre
   show('/events?region=kr&cursor=old');
   expect(screen.getByRole('option', { name: '의결권 위임 권유' })).toHaveValue('D003');
   expect(screen.getByRole('option', { name: '공개매수' })).toHaveValue('D004');
+  expect(screen.queryByRole('option', { name: '이전 관심 분류' })).not.toBeInTheDocument();
   expect(screen.getByRole('option', { name: '대량보유 공시' })).toHaveValue('D001');
-  expect(screen.getByRole('option', { name: '중점 관찰' })).toHaveValue('P1');
+  expect(screen.getByRole('option', { name: '시총 상위 20종목' })).toHaveValue('P1');
   expect(screen.getByRole('option', { name: '시장 동향' })).toHaveValue('P3');
   expect(screen.getByRole('option', { name: '일반 뉴스' })).toHaveValue('P4');
   fireEvent.change(screen.getByRole('combobox', { name: '공시 유형' }), {

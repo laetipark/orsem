@@ -22,7 +22,7 @@ export function naverStatusLabel(status: NaverNewsStatus | undefined, failed: bo
   if (!status) return failed ? '연결 확인 실패' : '연결 확인 중';
   if (!status.configured) return '미설정';
   if (status.remainingToday === 0 || status.remainingMonth === 0) return '검색 한도 소진';
-  return naverBudgetAvailable(status) ? '자동·직접 검색 가능' : '검색 일시 중단';
+  return naverBudgetAvailable(status) ? '자동 수집 가능' : '검색 일시 중단';
 }
 
 type ConnectorGroup = SourceFreshness['category'] | 'OTHER';
@@ -170,15 +170,15 @@ export function ConnectorFreshness({ isAdmin }: { isAdmin: boolean }) {
                           <p>
                             {naver.data?.reason ??
                               (naver.data && naverBudgetAvailable(naver.data)
-                                ? '기업 뉴스 영역에서 자동 또는 직접 검색할 수 있습니다.'
+                                ? '기업 뉴스 영역에서 관련 기사를 자동으로 불러옵니다.'
                                 : naver.isError
                                   ? '검색 연결 상태를 확인하지 못했습니다.'
                                   : naver.data
                                     ? '무료 검색 이용 조건을 확인해야 합니다.'
                                     : '검색 연결 상태를 확인 중입니다.')}
                           </p>
-                          <Link className="text-link" to="/news/naver">
-                            네이버 뉴스 직접 검색 <ArrowUpRight size={13} />
+                          <Link className="text-link" to="/news">
+                            시장 뉴스 <ArrowUpRight size={13} />
                           </Link>
                         </div>
                       ) : null}

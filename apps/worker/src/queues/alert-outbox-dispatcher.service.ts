@@ -12,7 +12,7 @@ import {
   FilingEntity,
   FILING_ALERT_INELIGIBLE,
   filingAlertIsEligible,
-  WatchlistItemEntity,
+  MarketLeaderScopeEntity,
 } from '@orsem/database';
 import { DataSource, IsNull, LessThanOrEqual, type EntityManager } from 'typeorm';
 import { PushFanoutService } from '../push/push-fanout.service';
@@ -286,7 +286,7 @@ export class AlertOutboxDispatcherService {
         return false;
       }
     }
-    const watch = await manager.getRepository(WatchlistItemEntity).findOne({
+    const watch = await manager.getRepository(MarketLeaderScopeEntity).findOne({
       where: { companyId: event.companyId },
     });
     return allowsExternalRealtime({

@@ -6,7 +6,7 @@
 var bot = BotManager.getCurrentBot();
 var CONFIG_FILE = 'orsem-config.json';
 var STATE_FILE = 'orsem-state.json';
-var BOT_VERSION = '0.1.0';
+var BOT_VERSION = '0.2.0';
 
 function loadConfig() {
   if (!Database.exists(CONFIG_FILE)) {
@@ -251,6 +251,31 @@ function executeCommand(message, command, query) {
   );
 }
 
+function parseCommand(content) {
+  if (content === '/오르셈 상태') return { command: 'STATUS', query: null };
+  if (content === '/오르셈 최근') return { command: 'RECENT', query: null };
+  if (content.indexOf('/오르셈 종목 ') === 0) {
+    var company = content.substring('/오르셈 종목 '.length).trim();
+    return company ? { command: 'COMPANY', query: company } : null;
+  }
+  var matched = /^\/오르셈 (시장|뉴스)(?:\s+(국내|한국|미국|전체|kr|us|all))?$/i.exec(content);
+  if (!matched) return null;
+  var command = matched[1] === '시장' ? 'MARKET' : 'NEWS';
+  var key = String(matched[2] || '').toLowerCase();
+  var region =
+    key === 'us' || key === '미국'
+      ? 'us'
+      : key === 'kr' || key === '국내' || key === '한국'
+        ? 'kr'
+        : key === 'all' || key === '전체'
+          ? 'all'
+          : command === 'MARKET'
+            ? 'kr'
+            : 'all';
+  if (command === 'MARKET' && region === 'all') return null;
+  return { command: command, query: region };
+}
+
 function onMessage(message) {
   var content = String(message.content || '').trim();
   if (content.indexOf('/오르셈 연결 ') === 0) {
@@ -267,14 +292,13 @@ function onMessage(message) {
     message.reply('연결된 관리자와 채팅방에서만 사용할 수 있습니다.');
     return;
   }
-  if (content === '/오르셈 상태') {
-    executeCommand(message, 'STATUS', null);
-  } else if (content === '/오르셈 최근') {
-    executeCommand(message, 'RECENT', null);
-  } else if (content.indexOf('/오르셈 종목 ') === 0) {
-    executeCommand(message, 'COMPANY', content.substring('/오르셈 종목 '.length).trim());
+  var parsed = parseCommand(content);
+  if (parsed) {
+    executeCommand(message, parsed.command, parsed.query);
   } else {
-    message.reply('명령어: /오르셈 상태, /오르셈 최근, /오르셈 종목 <회사명|종목코드>');
+    message.reply(
+      '명령어: /오르셈 상태, /오르셈 최근, /오르셈 종목 <회사명|종목코드>, /오르셈 시장 <국내|미국>, /오르셈 뉴스 [국내|미국|전체]',
+    );
   }
 }
 

@@ -291,9 +291,6 @@ describe('publisher RSS ingestion', () => {
       attempts: 1,
     };
     row.translationJson = audit;
-    const body = db.rows(NewsArticleContentEntity)[0]!;
-    body.translationJson = { status: 'COMPLETED', inputHash: body.contentHash, blocks: [] };
-    const bodyAudit = structuredClone(body.translationJson);
     await service.discover(job);
     expect(row.rawHash).not.toBe(beforeHash);
     expect(row.translationJson).toEqual({
@@ -301,13 +298,11 @@ describe('publisher RSS ingestion', () => {
       inputHash: row.rawHash,
       sourceTextHash: expect.stringMatching(/^[a-f0-9]{64}$/),
     });
-    expect(body.translationJson).toEqual(bodyAudit);
+    expect(db.rows(NewsArticleContentEntity)).toEqual([]);
     expect(db.repository(SourceItemEntity).findOne).toHaveBeenCalledWith(
       expect.objectContaining({ lock: { mode: 'pessimistic_write' } }),
     );
-    expect(db.repository(NewsArticleContentEntity).findOne).toHaveBeenCalledWith(
-      expect.objectContaining({ lock: { mode: 'pessimistic_write' } }),
-    );
+    expect(db.repository(NewsArticleContentEntity).findOne).not.toHaveBeenCalled();
   });
 
   it('keeps a prior translation bound to its old hash when the actual title changes', async () => {
@@ -330,35 +325,42 @@ describe('publisher RSS ingestion', () => {
     expect(row.rawHash).not.toBe(audit.inputHash);
   });
 
-  it.each([SourceItemEntity, NewsArticleContentEntity])(
-    'preserves manual edits and previous AI content when the original changes (%p)',
-    async (manualTarget) => {
-      const db = memoryDatabase();
-      const service = new NewsDiscoveryService(db.dataSource, config, jest.fn(), {
-        enqueueNews: jest.fn(),
-      } as unknown as PushFanoutService);
-      const original = withOfficialContent(
-        'fed-press',
-        parseNewsRssFeed('fed-press', rss(article())),
-      );
-      const revised = structuredClone(original);
-      revised.candidates[0]!.content!.contentHash = 'd'.repeat(64);
-      const fetch = jest.spyOn(PublisherNewsRssConnector.prototype, 'fetchFeed');
-      fetch.mockResolvedValueOnce(original).mockResolvedValueOnce(revised);
-      await service.discover(job);
-      const manual = { revisionId: 'manual-revision', sourceHash: 'old-hash' };
-      db.rows(manualTarget)[0]!.manualTranslationJson = manual;
-      const body = db.rows(NewsArticleContentEntity)[0]!;
-      const audit = { version: 1, status: 'COMPLETED', inputHash: body.contentHash, blocks: [] };
-      body.translationJson = audit;
-      await service.discover(job);
-      expect(db.rows(manualTarget)[0]!.manualTranslationJson).toEqual(manual);
-      expect(body.translationJson).toEqual(audit);
-      expect(body.contentHash).toBe('d'.repeat(64));
-    },
-  );
+  it('preserves manual metadata and existing body tombstones when feed text changes', async () => {
+    const db = memoryDatabase();
+    const service = new NewsDiscoveryService(db.dataSource, config, jest.fn(), {
+      enqueueNews: jest.fn(),
+    } as unknown as PushFanoutService);
+    const original = parseNewsRssFeed('fed-press', rss(article()));
+    const revised = parseNewsRssFeed('fed-press', rss(article('Revised official results')));
+    jest
+      .spyOn(PublisherNewsRssConnector.prototype, 'fetchFeed')
+      .mockResolvedValueOnce(original)
+      .mockResolvedValueOnce(revised);
+    await service.discover(job);
+    const row = db.rows(SourceItemEntity)[0]!;
+    const manual = {
+      version: 2,
+      revisionId: 'manual-revision',
+      sourceHash: row.rawHash,
+      title: '수동 제목',
+      description: '수동 요약',
+    };
+    row.manualTranslationJson = manual;
+    const tombstone = {
+      sourceItemId: row.id,
+      status: 'PURGED',
+      blocksJson: null,
+      translationJson: null,
+      contentHash: 'c'.repeat(64),
+    };
+    db.rows(NewsArticleContentEntity).push(tombstone);
+    await service.discover(job);
+    expect(row.manualTranslationJson).toEqual(manual);
+    expect(db.rows(NewsArticleContentEntity)).toEqual([tombstone]);
+    expect(db.repository(NewsArticleContentEntity).save).not.toHaveBeenCalled();
+  });
 
-  it('clears stale HTTP validators after a content failure so the next poll retries the full feed', async () => {
+  it('clears stale HTTP validators after a feed parser failure so the next poll retries the full feed', async () => {
     const db = memoryDatabase();
     const service = new NewsDiscoveryService(db.dataSource, config, jest.fn(), {
       enqueueNews: jest.fn(),
@@ -377,7 +379,7 @@ describe('publisher RSS ingestion', () => {
     await store.recordFailure?.(
       'NEWS_RSS',
       url,
-      'official article content failure',
+      'official feed parse failure',
       new Date('2026-09-05T00:15:00.000Z'),
     );
     expect(db.rows(SourceCheckpointEntity)[0]).toMatchObject({ lastSuccessAt: previousSuccess });
@@ -393,7 +395,7 @@ describe('publisher RSS ingestion', () => {
     });
   });
 
-  it('stores only normalized content and creates an explicit pending local translation', async () => {
+  it('ignores legacy candidate bodies and stores only source metadata', async () => {
     const db = memoryDatabase();
     const service = new NewsDiscoveryService(db.dataSource, config, jest.fn(), {
       enqueueNews: jest.fn(),
@@ -416,19 +418,13 @@ describe('publisher RSS ingestion', () => {
       })),
     });
     await service.discover(job);
-    expect(db.rows(NewsArticleContentEntity)).toHaveLength(1);
-    expect(db.rows(NewsArticleContentEntity)[0]).toMatchObject({
-      status: 'AVAILABLE',
-      language: 'en',
-      blocksJson: blocks,
-      contentHash: 'c'.repeat(64),
-      translationJson: expect.objectContaining({
-        status: 'PENDING',
-        inputHash: 'c'.repeat(64),
-        blocks: null,
-      }),
+    expect(db.rows(NewsArticleContentEntity)).toEqual([]);
+    expect(db.repository(NewsArticleContentEntity).save).not.toHaveBeenCalled();
+    expect(db.rows(NewsItemEntity)[0]).toMatchObject({
+      title: '시장 & 기업',
+      description: 'Do not store this summary.',
     });
-    expect(JSON.stringify(db.rows(NewsArticleContentEntity))).not.toContain('<p>');
+    expect(JSON.stringify(db.rows(SourceItemEntity))).not.toContain('Official body 12%.');
   });
 
   it('groups one article across feeds while retaining both provenance records and all aggregate feed items', async () => {

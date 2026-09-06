@@ -192,14 +192,28 @@ export class CompanyAliasEntity extends EntityBase {
   @Column({ name: 'alias_type', type: 'varchar', length: 32 }) aliasType!: string;
 }
 
-@Entity({ name: 'watchlist_items' })
-@Unique('ux_watchlist_company', ['companyId'])
-@Index('ix_watchlist_priority', ['priority'])
+/** Compatibility model for the read-only monthly market-leader projection.
+ * Historical manual watchlist_items rows remain stored but no longer drive collection or alerts.
+ */
+@Entity({ name: 'market_leader_watchlist', synchronize: false })
 export class WatchlistItemEntity extends EntityBase {
   @Column({ name: 'company_id', type: 'char', length: 36 }) companyId!: string;
   @Column({ type: 'varchar', length: 4 }) priority!: WatchPriority;
   @Column({ name: 'realtime_alerts', type: 'boolean', default: true }) realtimeAlerts!: boolean;
   @Column({ name: 'digest_alerts', type: 'boolean', default: false }) digestAlerts!: boolean;
+  @Column({ type: 'text', nullable: true }) notes!: string | null;
+}
+
+/** News and alert scope includes validated share classes; the public watchlist stays at 40. */
+@Entity({ name: 'market_leader_company_links', synchronize: false })
+export class MarketLeaderScopeEntity extends EntityBase {
+  @Column({ name: 'company_id', type: 'char', length: 36 }) companyId!: string;
+  @Column({ name: 'representative_company_id', type: 'char', length: 36 })
+  representativeCompanyId!: string;
+  @Column({ type: 'varchar', length: 2 }) region!: 'kr' | 'us';
+  @Column({ type: 'varchar', length: 4 }) priority!: WatchPriority;
+  @Column({ name: 'realtime_alerts', type: 'boolean' }) realtimeAlerts!: boolean;
+  @Column({ name: 'digest_alerts', type: 'boolean' }) digestAlerts!: boolean;
   @Column({ type: 'text', nullable: true }) notes!: string | null;
 }
 
@@ -211,10 +225,22 @@ export interface ManualNewsTranslationIdentity {
   editedAt: string;
   editedByAdminId: string;
 }
-export interface ManualNewsMetadataTranslation extends ManualNewsTranslationIdentity {
+export interface LegacyManualNewsMetadataTranslation extends ManualNewsTranslationIdentity {
   title: string;
   description: string | null;
 }
+export interface ManualNewsMetadataTranslationV2 {
+  version: 2;
+  revisionId: string;
+  sourceHash: string;
+  editedAt: string;
+  editedByAdminId: string;
+  title: string;
+  description: string | null;
+}
+/** Version 1 is read only while migrating historical administrator edits. */
+export type ManualNewsMetadataTranslation =
+  LegacyManualNewsMetadataTranslation | ManualNewsMetadataTranslationV2;
 export interface ManualNewsContentTranslation extends ManualNewsTranslationIdentity {
   markdown: string;
   blocks: NewsContentBlock[];
@@ -310,7 +336,7 @@ export interface StoredNewsContentTranslation {
 @Index('ix_news_article_contents_status_retry', ['status', 'nextAttemptAt'])
 export class NewsArticleContentEntity extends EntityBase {
   @Column({ name: 'source_item_id', type: 'char', length: 36 }) sourceItemId!: string;
-  @Column({ type: 'varchar', length: 16 }) status!: 'PENDING' | 'AVAILABLE' | 'FAILED';
+  @Column({ type: 'varchar', length: 16 }) status!: 'PENDING' | 'AVAILABLE' | 'FAILED' | 'PURGED';
   @Column({ type: 'varchar', length: 35, nullable: true }) language!: string | null;
   @Column({ name: 'blocks_json', type: 'json', nullable: true }) blocksJson!:
     NewsContentBlock[] | null;
@@ -344,11 +370,11 @@ export class NewsTranslationRevisionEntity extends EntityBase {
   @Column({ name: 'previous_manual_json', type: 'json', nullable: true })
   previousManualJson!: {
     metadata: ManualNewsMetadataTranslation | null;
-    content: ManualNewsContentTranslation | null;
+    content?: ManualNewsContentTranslation | null;
   } | null;
   @Column({ name: 'manual_json', type: 'json' }) manualJson!: {
     metadata: ManualNewsMetadataTranslation;
-    content: ManualNewsContentTranslation;
+    content?: ManualNewsContentTranslation;
   };
 }
 
@@ -998,6 +1024,7 @@ export const ENTITIES = [
   AlpacaAssetEntity,
   CompanyAliasEntity,
   WatchlistItemEntity,
+  MarketLeaderScopeEntity,
   SourceItemEntity,
   NewsArticleEntity,
   NewsArticleContentEntity,

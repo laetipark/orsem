@@ -99,13 +99,13 @@ describe('shared data sources page', () => {
     );
     expect(api.sourceFreshness).not.toHaveBeenCalled();
     expect(footer.queryByText('커넥터 신선도')).not.toBeInTheDocument();
-    expect(footer.queryByRole('link', { name: 'Logos by AllInvestView' })).not.toBeInTheDocument();
+    expect(footer.getByRole('link', { name: 'Logos by AllInvestView' })).toBeInTheDocument();
 
     fireEvent.click(footer.getByRole('link', { name: '데이터 출처·신선도' }));
     expect(await screen.findByText('NAVER 뉴스검색')).toBeInTheDocument();
     expect(api.sourceFreshness).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('데이터 출처·신선도');
-    fireEvent.click(screen.getByRole('link', { name: 'ORSEM 홈' }));
+    fireEvent.click(screen.getByRole('link', { name: '오르셈 홈' }));
     expect(await screen.findByText('오늘 화면')).toBeInTheDocument();
     expect(
       clients[0]!
@@ -122,10 +122,7 @@ describe('shared data sources page', () => {
       show(role);
       expect(await screen.findByText('NAVER 뉴스검색')).toBeInTheDocument();
       expect(await screen.findByText('검색 일시 중단')).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /네이버 뉴스 직접 검색/ })).toHaveAttribute(
-        'href',
-        '/news/naver',
-      );
+      expect(screen.getByRole('link', { name: /시장 뉴스/ })).toHaveAttribute('href', '/news');
       expect(screen.getByText('2026. 09. 04. 09:00 KST')).toBeInTheDocument();
       expect(screen.getByText('11분 전')).toBeInTheDocument();
       expect(screen.getByText('메타데이터만')).toBeInTheDocument();

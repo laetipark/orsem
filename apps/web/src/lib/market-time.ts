@@ -35,24 +35,25 @@ export function marketCollectionTime(item: MarketQuote) {
   };
 }
 
-function cardTimestamp(item: MarketQuote, compact: boolean): string | null {
-  const native = item.displayKind === 'NATIVE';
-  const value = native
-    ? item.observedAt
-    : (item.providerAt ?? (item.valueDate ? null : item.observedAt));
-  if (!value) return !native && item.valueDate ? formatDate(item.valueDate) : null;
-  const observed = !native && !item.providerAt;
-  const timestamp = compact ? shortMarketTimestamp(value) : formatKst(value);
-  return `${observed ? '관측 ' : ''}${timestamp}`;
-}
-
 export function marketCardTime(item: MarketQuote) {
-  const native = item.displayKind === 'NATIVE';
-  return {
-    text: cardTimestamp(item, true),
-    dateTime: native
-      ? (item.observedAt ?? undefined)
-      : (item.providerAt ?? item.valueDate ?? item.observedAt ?? undefined),
-    description: native ? marketCollectionTime(item).description : cardTimestamp(item, false),
-  };
+  const description = marketCollectionTime(item).description;
+  if (item.providerAt)
+    return {
+      text: shortMarketTimestamp(item.providerAt).replace(' KST', ''),
+      dateTime: item.providerAt,
+      description,
+    };
+  if (item.valueDate)
+    return {
+      text: item.valueDate.slice(5).replace('-', '.'),
+      dateTime: item.valueDate,
+      description,
+    };
+  if (item.observedAt)
+    return {
+      text: shortMarketTimestamp(item.observedAt).replace(' KST', ''),
+      dateTime: item.observedAt,
+      description: `${description} · 공급자 기준 시각 미확인`,
+    };
+  return { text: null, dateTime: undefined, description };
 }

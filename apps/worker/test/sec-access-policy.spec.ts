@@ -180,3 +180,60 @@ it('reserves request slots across independent worker DataSource handles sharing 
   await Promise.all([first, second]);
   expect(starts).toEqual([NOW, NOW + 250]);
 });
+
+it('keeps the SEC error classification across fresh wrappers without storing provider text', async () => {
+  const db = database();
+  const fetcher = jest.fn(
+    async () =>
+      new Response(
+        '<title>Your Request Originates from an Undeclared Automated Tool</title>private-contact@example.com 192.0.2.1',
+        { status: 403 },
+      ),
+  );
+  await expect(createSecFetch(db.dataSource, fetcher)(URL)).rejects.toMatchObject({
+    providerCode: 'SEC_UNDECLARED_AUTOMATION',
+    requestAttempted: true,
+  });
+  expect(db.row()?.metadataJson).toMatchObject({
+    providerCode: 'SEC_UNDECLARED_AUTOMATION',
+  });
+  const serialized = JSON.stringify(db.row());
+  expect(serialized).not.toContain('private-contact');
+  expect(serialized).not.toContain('192.0.2.1');
+  expect(serialized).not.toContain('<title>');
+  await expect(createSecFetch(db.dataSource, fetcher)(URL)).rejects.toMatchObject({
+    providerCode: 'SEC_UNDECLARED_AUTOMATION',
+    requestAttempted: false,
+  });
+  expect(fetcher).toHaveBeenCalledTimes(1);
+});
+
+it('commits the cooldown before reading a stalled diagnostic body and never waits for cancellation', async () => {
+  const db = database();
+  const cancel = jest.fn(() => new Promise<void>(() => undefined));
+  const response = new Response(new ReadableStream<Uint8Array>({ cancel }), {
+    status: 403,
+  });
+  const first = createSecFetch(
+    db.dataSource,
+    async () => response,
+  )(URL).catch((error: unknown) => error);
+  await jest.advanceTimersByTimeAsync(0);
+  expect(db.row()?.metadataJson?.retryAt).toBe(new Date(NOW + 600_000).toISOString());
+  const otherHandle = {
+    getRepository: db.dataSource.getRepository.bind(db.dataSource),
+    transaction: db.dataSource.transaction.bind(db.dataSource),
+  } as unknown as DataSource;
+  const fetcher = jest.fn();
+  await expect(createSecFetch(otherHandle, fetcher)(URL)).rejects.toMatchObject({
+    requestAttempted: false,
+  });
+  expect(fetcher).not.toHaveBeenCalled();
+  await jest.advanceTimersByTimeAsync(1000);
+  expect(await first).toMatchObject({
+    httpStatus: 403,
+    requestAttempted: true,
+    providerCode: null,
+  });
+  expect(cancel).toHaveBeenCalledTimes(1);
+});

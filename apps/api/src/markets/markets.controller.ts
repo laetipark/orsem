@@ -11,7 +11,11 @@ export class MarketsController {
   constructor(private readonly markets: MarketsService) {}
   @Get('overview')
   overview(@Query() query: unknown) {
-    return this.markets.overview(parseWith(z.object({ region: regionSchema }), query).region);
+    const parsed = parseWith(
+      z.object({ region: regionSchema, historyRange: z.literal('1m').optional() }),
+      query,
+    );
+    return this.markets.overview(parsed.region, parsed.historyRange);
   }
   @Get(':id/history')
   history(@Param('id') id: string, @Query() query: unknown) {

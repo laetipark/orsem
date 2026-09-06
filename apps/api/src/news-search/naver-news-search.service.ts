@@ -69,7 +69,10 @@ export class NaverNewsSearchService {
     });
   }
 
-  async search(input: z.infer<typeof naverNewsSearchQuerySchema>): Promise<NaverNewsSearchResult> {
+  async search(
+    input: z.infer<typeof naverNewsSearchQuerySchema>,
+    onRequest?: () => void,
+  ): Promise<NaverNewsSearchResult> {
     const { naverClientId, naverClientSecret, naverApiProvider } = this.config;
     if (!naverClientId || !naverClientSecret) {
       throw new ServiceUnavailableException('네이버 뉴스 검색이 아직 설정되지 않았습니다.');
@@ -104,6 +107,7 @@ export class NaverNewsSearchService {
     try {
       // NAVER 결과는 이 요청에서만 전달합니다. DB·캐시·수집기·AI 의존성을 두지 않습니다.
       // 리다이렉트를 거부해 다른 호스트로 인증 헤더가 전달되는 것도 방지합니다.
+      onRequest?.();
       const response = await this.fetchImpl(url, {
         headers: { ...credentials, Accept: 'application/json' },
         signal,

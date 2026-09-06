@@ -1,3 +1,5 @@
+import { companyPath } from '../lib/company-path';
+import { SearchInput } from '../components/search-input';
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { ColumnDef } from '@tanstack/react-table';
@@ -25,20 +27,13 @@ import {
   hasObservedOwnershipSemantics,
 } from '../components/event-row';
 import { TranslatedText } from '../components/translated-text';
-import {
-  Button,
-  Card,
-  EmptyState,
-  ErrorState,
-  Input,
-  LoadingState,
-  Select,
-} from '../components/ui';
+import { Button, Card, EmptyState, ErrorState, LoadingState, Select } from '../components/ui';
 import './events-page.css';
 
 function filtersFromSearch(params: URLSearchParams): EventFilters {
   return {
     q: params.get('q') ?? '',
+    companyId: params.get('companyId') || undefined,
     region: parseRegion(params.get('region')),
     detailType: params.get('detailType') ?? '',
     priority: params.get('priority') ?? '',
@@ -73,7 +68,13 @@ export function EventsPage() {
 
   function submitSearch(event: FormEvent) {
     event.preventDefault();
-    updateFilter('q', queryInput.trim());
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.delete('companyId');
+      next.set('q', queryInput.trim());
+      next.delete('cursor');
+      return next;
+    });
   }
 
   function clearFilters() {
@@ -108,7 +109,10 @@ export function EventsPage() {
         id: 'company',
         header: '기업',
         cell: ({ row }) => (
-          <Link className="table-company" to={`/companies/${row.original.companyId}`}>
+          <Link
+            className="table-company"
+            to={companyPath({ ...row.original, id: row.original.companyId })}
+          >
             <EventCompanyIdentity event={row.original} />
           </Link>
         ),
@@ -192,6 +196,7 @@ export function EventsPage() {
   );
 
   const hasFilters = Boolean(
+    filters.companyId ||
     filters.q ||
     filters.detailType ||
     filters.priority ||
@@ -212,10 +217,31 @@ export function EventsPage() {
           <label className="search-field">
             <span className="sr-only">기업명, 종목코드 또는 제목 검색</span>
             <Search size={17} aria-hidden="true" />
-            <Input
+            <SearchInput
               value={queryInput}
-              onChange={(event) => setQueryInput(event.target.value)}
+              onChange={setQueryInput}
+              label="기업명, 종목코드 또는 제목 검색"
               placeholder="기업명 · 종목코드 · 공시 제목"
+              filters={{ kind: 'events', region: filters.region }}
+              contextKey={searchParams.toString()}
+              onSelect={(item) => {
+                setSearchParams((current) => {
+                  const next = new URLSearchParams(current);
+                  next.set('companyId', item.id);
+                  next.delete('q');
+                  next.delete('cursor');
+                  return next;
+                });
+              }}
+              onSubmit={() => {
+                setSearchParams((current) => {
+                  const next = new URLSearchParams(current);
+                  next.delete('companyId');
+                  next.set('q', queryInput.trim());
+                  next.delete('cursor');
+                  return next;
+                });
+              }}
             />
           </label>
           <Select
@@ -239,7 +265,6 @@ export function EventsPage() {
           >
             <option value="">모든 우선순위</option>
             <option value="P1">{priorityLabels.P1}</option>
-            <option value="P2">{priorityLabels.P2}</option>
             <option value="P3">{priorityLabels.P3}</option>
             <option value="P4">{priorityLabels.P4}</option>
           </Select>

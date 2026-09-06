@@ -298,14 +298,14 @@ export class OpenDartIngestionService {
           .into(CompanyEntity)
           .values(chunk.map((row) => this.companyMasterValues(row)))
           .orUpdate([
-            'corpCode',
-            'stockCode',
+            'corp_code',
+            'stock_code',
             'ticker',
-            'nameKo',
-            'nameEn',
+            'name_ko',
+            'name_en',
             'market',
-            'isListed',
-            'sourceUpdatedDate',
+            'is_listed',
+            'source_updated_date',
           ])
           .execute();
       }

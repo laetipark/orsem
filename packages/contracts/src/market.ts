@@ -183,7 +183,7 @@ export const MARKET_INSTRUMENTS: readonly MarketInstrument[] = [
     attribution: 'U.S. Energy Information Administration',
     rightsMode: RightsMode.OFFICIAL_PUBLIC_DATA,
     historyKind: 'close',
-    description: 'Cushing WTI 현물 · 일별 발표 가격',
+    description: 'Cushing WTI 현물 · 일별 종가 · EIA 묶음 발표',
   },
   {
     ...native,
@@ -257,11 +257,6 @@ export const marketQuoteSchema = marketInstrumentSchema.extend({
   message: z.string().nullable(),
 });
 export type MarketQuote = z.infer<typeof marketQuoteSchema>;
-export const marketOverviewSchema = z.object({
-  asOf: z.string().datetime(),
-  items: z.array(marketQuoteSchema),
-});
-export type MarketOverview = z.infer<typeof marketOverviewSchema>;
 export const marketHistoryRangeSchema = z.enum(['1m', '3m', '1y']);
 export type MarketHistoryRange = z.infer<typeof marketHistoryRangeSchema>;
 export const marketHistorySchema = z.object({
@@ -275,3 +270,9 @@ export const marketHistorySchema = z.object({
   sourceUrl: z.string().url(),
 });
 export type MarketHistory = z.infer<typeof marketHistorySchema>;
+export const marketOverviewSchema = z.object({
+  asOf: z.string().datetime(),
+  items: z.array(marketQuoteSchema),
+  histories: z.record(z.string(), marketHistorySchema).optional(),
+});
+export type MarketOverview = z.infer<typeof marketOverviewSchema>;

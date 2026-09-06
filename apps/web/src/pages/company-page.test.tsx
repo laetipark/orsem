@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
@@ -29,10 +29,12 @@ vi.mock('../lib/api', async (importOriginal) => ({
       thesis: null,
       lastEventAt: null,
     }),
+    companyInformation: async () => ({ fields: [], status: 'PENDING' }),
     companyTimeline: mocks.timeline,
     companyLivePrice: mocks.live,
     news: async () => ({ items: [], nextCursor: null }),
     companyRecentActivity: async () => ({ filingCount: 0, eventCount: 0, items: [] }),
+    marketSelection: async () => ({ asOf: '2026-09-07T00:00:00.000Z', regions: [] }),
   },
 }));
 vi.mock('../components/company-chart', () => ({
@@ -52,6 +54,62 @@ vi.mock('../components/company-chart', () => ({
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+});
+
+it('refreshes basic prices when the first collected daily candle arrives without repeating for the same candle', async () => {
+  const timeline = await fixtureRequest<CompanyTimeline>(
+    '/api/v1/companies/company-samsung/timeline?range=3M&interval=1d',
+  );
+  mocks.timeline.mockResolvedValue({ ...timeline, prices: [] });
+  mocks.live.mockResolvedValue({ status: 'NOT_CONFIGURED', quote: null });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client.setQueryData(['market-selection'], {
+    asOf: '2026-09-07T00:00:00.000Z',
+    regions: [
+      {
+        region: 'kr',
+        status: 'AVAILABLE',
+        basisDate: '2026-09-04',
+        items: [{ id: 'test-company', nameKo: '삼성전자', rank: 1, marketCap: '420000000000000' }],
+      },
+    ],
+  });
+  const invalidate = vi.spyOn(client, 'invalidateQueries');
+  const view = render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={['/companies/test-company']}>
+        <Routes>
+          <Route path="/companies/:id" element={<CompanyPage />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+  await screen.findByRole('heading', { name: '삼성전자' });
+  expect(screen.getByRole('link', { name: '국내 시총 1위' })).toHaveAttribute(
+    'href',
+    '/watchlist#market-leaders-kr',
+  );
+  expect(screen.queryByText(/운영 관심|관심 해제|관심 추가/)).not.toBeInTheDocument();
+  await waitFor(() =>
+    expect(client.getQueryData(['company-timeline', 'test-company', '3M', '1d'])).toBeDefined(),
+  );
+  invalidate.mockClear();
+  act(() => {
+    client.setQueryData(['company-timeline', 'test-company', '3M', '1d'], timeline);
+  });
+  await waitFor(() =>
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['company-information', 'test-company'] }),
+  );
+  invalidate.mockClear();
+  act(() => {
+    client.setQueryData(['company-timeline', 'test-company', '3M', '1d'], {
+      ...timeline,
+      prices: [...timeline.prices],
+    });
+  });
+  expect(invalidate).not.toHaveBeenCalled();
+  view.unmount();
+  client.clear();
 });
 
 it('uses Toss only and keeps missing credentials explicit when switching to minute candles', async () => {
@@ -363,6 +421,7 @@ it.each(['before', 'first', 'inside'] as const)(
       expect(screen.getByText('20거래일 후')).toBeInTheDocument();
     }
     expect(screen.queryByText(/이벤트 당일 또는 이후 첫 일봉의 종가/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '이벤트' }));
     fireEvent.click(screen.getByRole('button', { name: '이벤트 등락률 계산 안내' }));
     expect(
       within(screen.getByRole('dialog')).getByText(/이벤트 당일 또는 이후 첫 일봉의 종가/),

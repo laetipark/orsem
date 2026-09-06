@@ -1,0 +1,200 @@
+.market-leaders > .card__header {
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.market-leaders h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.market-leaders__description {
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.market-leaders__cadence,
+.market-leaders__membership {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.market-leaders__membership {
+  color: var(--teal);
+  flex-wrap: wrap;
+}
+.market-leaders__membership:hover {
+  border-color: var(--teal);
+}
+.market-leaders__membership small {
+  font: inherit;
+  color: var(--muted);
+}
+.market-leaders__regions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.market-leaders__region {
+  min-width: 0;
+  scroll-margin-top: 90px;
+}
+.market-leaders__region + .market-leaders__region {
+  border-left: 1px solid var(--border);
+}
+.market-leaders__region-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 16px 18px 10px;
+}
+.market-leaders__region-header h3 {
+  margin: 0;
+  font-size: 15px;
+}
+.market-leaders__status {
+  color: var(--orange);
+  font-size: 11px;
+}
+.market-leaders__status[data-status='AVAILABLE'] {
+  color: var(--teal);
+}
+.market-leaders__basis {
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  padding: 0 18px 14px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.market-leaders__basis dl,
+.market-leaders__basis p,
+.market-leaders__basis dd {
+  margin: 0;
+}
+.market-leaders__basis dl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+.market-leaders__basis dl > div {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.market-leaders__basis dt,
+.market-leaders__note {
+  color: var(--subtle);
+}
+.market-leaders__notice {
+  color: var(--orange);
+  overflow-wrap: anywhere;
+}
+.market-leaders__source {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  justify-self: start;
+  color: var(--teal);
+  min-height: 24px;
+}
+.market-leaders__columns {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 18px;
+  background: var(--surface-2);
+  border-block: 1px solid var(--border);
+  color: var(--subtle);
+  font-size: 11px;
+}
+.market-leaders__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.market-leaders__list > li + li {
+  border-top: 1px solid var(--border);
+}
+.market-leaders__row {
+  display: grid;
+  grid-template-columns: 22px 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 18px;
+  color: var(--text);
+}
+.market-leaders__row:hover {
+  background: var(--surface-2);
+}
+.market-leaders__rank {
+  color: var(--subtle);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.market-leaders__row .company-avatar {
+  width: 30px;
+  height: 30px;
+}
+.market-leaders__company {
+  min-width: 0;
+}
+.market-leaders__company strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+}
+.market-leaders__company small {
+  display: block;
+  color: var(--subtle);
+  font-size: 10px;
+}
+.market-leaders__cap {
+  text-align: right;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.market-leaders__partial {
+  padding: 10px 18px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+@media (max-width: 900px) {
+  .market-leaders__regions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .market-leaders__region + .market-leaders__region {
+    border-left: 0;
+    border-top: 1px solid var(--border-strong);
+  }
+}
+@media (max-width: 480px) {
+  .market-leaders__region-header,
+  .market-leaders__basis,
+  .market-leaders__columns,
+  .market-leaders__row,
+  .market-leaders__partial {
+    padding-inline: 12px;
+  }
+  .market-leaders__row {
+    grid-template-columns: 16px 24px minmax(0, 1fr) auto;
+    gap: 7px;
+  }
+  .market-leaders__row .company-avatar {
+    width: 24px;
+    height: 24px;
+  }
+  .market-leaders__cap {
+    font-size: 11px;
+  }
+}

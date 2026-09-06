@@ -108,6 +108,7 @@ function dataService(rows: PriceBarEntity[], config = configured) {
                     row.interval === parameters.interval,
                 )
                 .filter((row) => !parameters.cutoff || row.barAt >= (parameters.cutoff as Date))
+                .filter((row) => !parameters.before || row.barAt < (parameters.before as Date))
                 .sort((a, b) => b.barAt.getTime() - a.barAt.getTime())
                 .slice(0, Number(parameters.limit));
             },
@@ -192,6 +193,7 @@ test('retired price providers are rejected with HTTP 400 and hidden from market 
     data,
     new LivePriceService(configured, data, sessions),
     queue,
+    {} as never,
     {} as never,
   );
   await assert.rejects(
@@ -535,4 +537,27 @@ test('domestic watchlist fallback stays batched when every quote is missing', as
       (item) => item.quote === null && item.change === null && item.status === 'UNAVAILABLE',
     ),
   );
+});
+
+test('timeline warmup reads earlier same-source candles without changing visible prices or returns', async () => {
+  const current = new Date();
+  current.setUTCHours(0, 0, 0, 0);
+  const rows = Array.from({ length: 160 }, (_, index) => {
+    const day = new Date(current.getTime() - (159 - index) * 86_400_000).toISOString().slice(0, 10);
+    return bar('TOSS_KR', '1d', `${day}T00:00:00.000Z`, index + 1, day);
+  });
+  const wrongSource = { ...rows[0]!, source: 'KRX' } as PriceBarEntity;
+  const wrongInterval = { ...rows[0]!, interval: '1m' } as PriceBarEntity;
+  const { data, queries } = dataService([...rows, wrongSource, wrongInterval]);
+  const value = companyTimelineSchema.parse(await data.companyTimeline(company.id, '1M'));
+  const warmup = value.indicatorWarmupPrices!;
+  assert.equal(warmup.length, 119);
+  assert.ok(
+    warmup.every((point) => point.source === 'TOSS_KR' && point.time < value.prices[0]!.time),
+  );
+  assert.ok(value.prices.length <= 32);
+  assert.equal(value.prices.at(-1)?.close, 160);
+  assert.equal(value.returns.oneDay, ((160 - 159) / 159) * 100);
+  assert.equal(queries[1]?.limit, 119);
+  assert.equal(queries[1]?.cutoff, undefined);
 });

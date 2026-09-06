@@ -7,11 +7,8 @@ import { newsFiltersSql, visibleNewsSql, representativeNewsSql } from './news-qu
 import { mapSourceItem } from './resource-mappers';
 import { publicDiscoveryStatus } from './connector-public-status';
 
-test('market excludes every confirmed company and company filtering uses the multi-company relation', () => {
-  assert.match(
-    newsFiltersSql('source', { scope: 'market' }),
-    /NOT \(EXISTS \(SELECT 1 FROM news_source_companies/,
-  );
+test('market selects Fed/BLS only and company filtering uses the multi-company relation', () => {
+  assert.match(newsFiltersSql('source', { scope: 'market' }), /IN \('federal-reserve', 'bls'\)/);
   assert.match(
     newsFiltersSql('source', { scope: 'company', companyId: 'company' }),
     /relevance.company_id = :newsCompanyId/,
@@ -24,12 +21,13 @@ test('market excludes every confirmed company and company filtering uses the mul
   assert.match(regional, /relevance_company.market IN \(:\.\.\.newsMarkets\)/);
   assert.match(regional, /OR \(NOT \(EXISTS \(SELECT 1 FROM news_source_companies/);
 });
-test('only approved publisher metadata bypasses the complete body requirement and official content wins deduplication', () => {
+test('metadata visibility needs explicit rights but never a body or translation and official sources win deduplication', () => {
   const sql = visibleNewsSql('content', 'source');
-  assert.match(sql, /APPROVED_PUBLISHER_METADATA/);
-  assert.match(sql, /fullTextStorageAllowed'\) = false/);
-  assert.match(sql, /aiAllowed'\) = false/);
-  assert.match(sql, /content.status = 'AVAILABLE'/);
+  assert.match(sql, /metadataStorageAllowed/);
+  assert.match(sql, /displayAllowed/);
+  assert.doesNotMatch(sql, /content\.|translation|fullText/);
+  assert.match(newsFiltersSql('source', {}), /APPROVED_PUBLISHER_METADATA/);
+  assert.match(newsFiltersSql('source', { asset: 'wti' }), /1 = 0/);
   assert.match(
     representativeNewsSql({}),
     /duplicate.source IN \('GDELT','ALPACA_NEWS'\)\) < \(source.source IN/,
@@ -81,4 +79,31 @@ test('cooldown status distinguishes observed denials from skipped work and never
   });
   assert.match(actual.message, /429/);
   assert.match(actual.message, /실제 공급자 응답/u);
+});
+
+test('metadata mapper exposes translation failure and waiting states without any body dependency', () => {
+  const row = Object.assign(new SourceItemEntity(), {
+    id: 'source',
+    source: 'IR',
+    title: 'Company releases new quarterly results',
+    rightsMode: 'PRIVATE_DISPLAY_ONLY',
+    firstObservedAt: new Date(),
+    rawHash: 'a'.repeat(64),
+    sourcePolicyJson: {
+      rightsMode: 'PRIVATE_DISPLAY_ONLY',
+      metadataStorageAllowed: true,
+      displayAllowed: true,
+      aiAllowed: true,
+      fullTextStorageAllowed: false,
+    },
+    rawMetadataJson: { description: 'Original feed summary' },
+  });
+  assert.equal(mapSourceItem(row).translationStatus, 'PENDING');
+  row.translationJson = { inputHash: row.rawHash, status: 'FAILED', error: 'private error' };
+  assert.equal(mapSourceItem(row).translationStatus, 'FAILED');
+  assert.equal(mapSourceItem(row).description, 'Original feed summary');
+  assert.equal(mapSourceItem(row).contentState, 'UNAVAILABLE');
+  assert.doesNotMatch(JSON.stringify(mapSourceItem(row)), /private error/);
+  row.source = 'NAVER';
+  assert.equal(mapSourceItem(row).translationStatus, 'UNAVAILABLE');
 });

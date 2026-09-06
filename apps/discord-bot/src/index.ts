@@ -12,9 +12,13 @@ import { resolve } from 'node:path';
 import { OrsemBotApiClient, type DiscordDelivery } from './api-client';
 import {
   formatRecent,
+  formatMarket,
+  formatNews,
   formatStatus,
   orsemCommand,
   type RecentResponse,
+  type MarketResponse,
+  type NewsResponse,
   type StatusResponse,
 } from './commands';
 import { loadConfig } from './config';
@@ -89,6 +93,23 @@ async function handleCommand(
       await interaction.editReply(formatRecent(value));
       return;
     }
+    if (subcommand === 'market') {
+      const region = interaction.options.getString('region', true);
+      const value = await api.command<MarketResponse>('market', { region });
+      await interaction.editReply({ content: formatMarket(value), allowedMentions: { parse: [] } });
+      return;
+    }
+    if (subcommand === 'news') {
+      const region = interaction.options.getString('region') ?? 'all';
+      const limit = String(interaction.options.getInteger('limit') ?? 5);
+      const value = await api.command<NewsResponse>('news', { region, limit });
+      const messages = formatNews(value);
+      await interaction.editReply({ content: messages[0]!, allowedMentions: { parse: [] } });
+      for (const content of messages.slice(1)) {
+        await interaction.followUp({ content, ephemeral: true, allowedMentions: { parse: [] } });
+      }
+      return;
+    }
     const query = interaction.options.getString('query', true);
     const value = await api.command<RecentResponse>('company', { q: query });
     await interaction.editReply(formatRecent(value, `${query} 최근 이벤트`));
@@ -140,12 +161,15 @@ async function deliver(
     if (delivery.operation === 'EDIT' && delivery.externalMessageId && 'messages' in channel) {
       try {
         const existing = await channel.messages.fetch(delivery.externalMessageId);
-        message = await existing.edit(delivery.content);
+        message = await existing.edit({
+          content: delivery.content,
+          allowedMentions: { parse: [] },
+        });
       } catch {
-        message = await channel.send(delivery.content);
+        message = await channel.send({ content: delivery.content, allowedMentions: { parse: [] } });
       }
     } else {
-      message = await channel.send(delivery.content);
+      message = await channel.send({ content: delivery.content, allowedMentions: { parse: [] } });
     }
     await api.acknowledge(delivery.deliveryId, { ok: true, externalMessageId: message.id });
   } catch (error) {

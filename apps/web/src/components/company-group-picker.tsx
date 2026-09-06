@@ -2,10 +2,11 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { CompanyWatchlistMembership, SaveCompanyWatchlistMemberships } from '@orsem/contracts';
 import { CircleHelp, LoaderCircle, LockKeyhole, Star } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { Link, useOutletContext } from 'react-router-dom';
+import { useOutletContext } from 'react-router-dom';
 import type { Session } from '../types';
 import { api, ApiError } from '../lib/api';
 import { Button } from './ui';
+import { GroupManagerDialog } from './group-manager-dialog';
 import { WatchlistDialog } from './watchlist-dialog';
 import { watchActorKey } from './watchlist-group-editors';
 import './watchlist-groups-panel.css';
@@ -25,6 +26,7 @@ export function CompanyGroupPicker({ companyId }: { companyId: string }) {
 function MembershipPicker({ actor, companyId }: { actor: string; companyId: string }) {
   const client = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [managing, setManaging] = useState(false);
   const [blocked, setBlocked] = useState(false);
   const [phase, setPhase] = useState<'idle' | 'saving' | 'refreshing' | 'unverified'>('idle');
   const [notice, setNotice] = useState<string | null>(null);
@@ -169,7 +171,16 @@ function MembershipPicker({ actor, companyId }: { actor: string; companyId: stri
           </span>
         ) : null}
       </Button>
-      {open ? (
+      {managing ? (
+        <GroupManagerDialog
+          actor={actor}
+          onClose={() => {
+            setManaging(false);
+            setOpen(true);
+            void refresh();
+          }}
+        />
+      ) : open ? (
         <WatchlistDialog
           title="관심그룹 설정"
           mobileSheet
@@ -201,6 +212,10 @@ function MembershipPicker({ actor, companyId }: { actor: string; companyId: stri
               items={memberships.data!.items}
               saving={phase === 'saving'}
               onSave={save}
+              onManage={() => {
+                setOpen(false);
+                setManaging(true);
+              }}
               onClose={() => setOpen(false)}
             />
           )}
@@ -214,12 +229,14 @@ function MembershipEditor({
   items,
   saving,
   onSave,
+  onManage,
   onClose,
 }: {
   items: CompanyWatchlistMembership[];
   saving: boolean;
   onSave: (changes: SaveCompanyWatchlistMemberships['changes']) => Promise<void>;
   onClose: () => void;
+  onManage: () => void;
 }) {
   // Keep the revision and selection snapshot together until save, cancel or an explicit reload.
   const [baseline] = useState(items);
@@ -284,9 +301,20 @@ function MembershipEditor({
         <div className="company-group-empty">
           <Star size={26} aria-hidden="true" />
           <p>아직 관심그룹이 없습니다.</p>
-          <Link to="/watchlist">관심기업에서 그룹 만들기</Link>
+          <p>아래 그룹 관리에서 새 그룹을 만들 수 있습니다.</p>
         </div>
       )}
+      <Button
+        type="button"
+        variant="secondary"
+        onClick={onManage}
+        disabled={saving || changes.length > 0}
+      >
+        그룹 관리
+      </Button>
+      {changes.length ? (
+        <p className="watch-help">선택한 종목 설정을 먼저 저장한 뒤 그룹을 관리할 수 있습니다.</p>
+      ) : null}
       <footer className="watch-dialog__footer company-group-footer">
         <Button type="button" variant="secondary" onClick={onClose} disabled={saving}>
           취소

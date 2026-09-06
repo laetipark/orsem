@@ -220,8 +220,7 @@ it('resets the dialog, draft and actor cache when the account or company changes
     client.getQueryData(['company-group-picker', 'MEMBER:viewer1', 'samsung']),
   ).toBeUndefined();
   fireEvent.click(screen.getByRole('button', { name: '관심그룹 추가' }));
-  const link = await screen.findByRole('link', { name: '관심기업에서 그룹 만들기' });
-  expect(link).toHaveAttribute('href', '/watchlist');
+  expect(await screen.findByRole('button', { name: '그룹 관리' })).toBeEnabled();
   expect(api.saveCompanyWatchlistMemberships).not.toHaveBeenCalled();
 });
 

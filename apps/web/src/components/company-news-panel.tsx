@@ -4,13 +4,12 @@ import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { formatDate } from '../lib/format';
 import { useVisiblePanel } from '../lib/use-visible-panel';
-import { CompanyNaverNews } from './company-naver-news';
+import { newsItems } from '../lib/news-feed';
 import { MarketNewsList } from './market-news';
 
 const tabs = [
   { id: 'activity', label: '공시·이벤트' },
   { id: 'news', label: '관련 뉴스' },
-  { id: 'naver', label: 'NAVER' },
 ] as const;
 type NewsTab = (typeof tabs)[number]['id'];
 
@@ -102,8 +101,10 @@ function RelatedNews({ companyId, visible }: { companyId: string; visible: boole
     refetchInterval: visible ? 60_000 : false,
     refetchIntervalInBackground: false,
     staleTime: 30_000,
+    gcTime: 0,
     retry: false,
   });
+  const items = query.data ? newsItems([query.data]) : [];
   return (
     <>
       <div className="company-news-summary">
@@ -116,21 +117,15 @@ function RelatedNews({ companyId, visible }: { companyId: string; visible: boole
       {query.isError ? (
         <PanelState message="관련 뉴스를 불러오지 못했습니다." retry={() => void query.refetch()} />
       ) : null}
-      {query.data?.items.length ? <MarketNewsList items={query.data.items} /> : null}
-      {query.data && !query.data.items.length ? (
+      {items.length ? <MarketNewsList items={items} /> : null}
+      {query.data && !items.length ? (
         <PanelState message="아직 연결된 기업 뉴스가 없습니다." />
       ) : null}
     </>
   );
 }
 
-export function CompanyNewsPanel({
-  companyId,
-  companyName,
-}: {
-  companyId: string;
-  companyName: string;
-}) {
+export function CompanyNewsPanel({ companyId }: { companyId: string; companyName: string }) {
   const [selected, setSelected] = useState<NewsTab>('activity');
   const { ref, visible } = useVisiblePanel();
   const prefix = useId();
@@ -180,9 +175,10 @@ export function CompanyNewsPanel({
         {selected === 'activity' ? (
           <RecentActivity companyId={companyId} visible={visible} />
         ) : null}
-        {selected === 'news' ? <RelatedNews companyId={companyId} visible={visible} /> : null}
-        {selected === 'naver' ? (
-          <CompanyNaverNews companyId={companyId} companyName={companyName} />
+        {selected === 'news' ? (
+          <>
+            <RelatedNews companyId={companyId} visible={visible} />
+          </>
         ) : null}
       </div>
     </aside>

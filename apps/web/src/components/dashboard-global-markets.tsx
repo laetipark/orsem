@@ -1,3 +1,4 @@
+import { Bitcoin, Coins } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { formatKst } from '../lib/format';
 import { globalMarketGroups, marketStatusLabel } from '../lib/market-display';
@@ -8,8 +9,9 @@ import {
   marketChangeDirection,
   marketNumber,
 } from '../lib/market-format';
-import { marketCollectionTime } from '../lib/market-time';
-import type { MarketQuote } from '../types';
+import { marketCardTime } from '../lib/market-time';
+import type { MarketQuote, MarketHistory } from '../types';
+import { MarketSparkline } from './market-sparkline';
 import './dashboard-global-markets.css';
 
 const names: Record<string, string> = {
@@ -20,7 +22,7 @@ const names: Record<string, string> = {
   eth: 'ETH',
 };
 
-function GlobalQuote({ item }: { item: MarketQuote }) {
+function GlobalQuote({ item, history }: { item: MarketQuote; history?: MarketHistory }) {
   const emoji = marketEmoji(item.id);
   const value = marketNumber(item.value, item.currency);
   const change = value === '—' ? '—' : marketChange(item);
@@ -28,7 +30,7 @@ function GlobalQuote({ item }: { item: MarketQuote }) {
   const unit = item.category === 'CRYPTO' ? null : item.category === 'METAL' ? '/oz t' : '/bbl';
   const unitDescription =
     item.category === 'CRYPTO' ? '원화' : item.category === 'METAL' ? 'USD/트로이온스' : 'USD/배럴';
-  const time = marketCollectionTime(item);
+  const basis = marketCardTime(item);
   const converted =
     item.category === 'CRYPTO' && item.convertedValue !== null
       ? marketNumber(item.convertedValue, 'USD')
@@ -37,7 +39,7 @@ function GlobalQuote({ item }: { item: MarketQuote }) {
     `${value} ${unitDescription}`,
     `${item.changeLabel} ${change}`,
     status,
-    time.description,
+    basis.description,
     converted && converted !== '—'
       ? `참고 환산 ${converted} 달러, 환율 기준 ${formatKst(item.conversionAt)}`
       : null,
@@ -62,6 +64,16 @@ function GlobalQuote({ item }: { item: MarketQuote }) {
           ) : null}
           {names[item.id] ?? item.name}
         </strong>
+        {basis.text ? (
+          <time
+            className="dashboard-global-quote__time"
+            dateTime={basis.dateTime}
+            title={basis.description}
+            aria-label={basis.description}
+          >
+            {basis.text}
+          </time>
+        ) : null}
       </span>
       <strong className="dashboard-global-quote__value">
         <span className="dashboard-global-quote__amount">
@@ -73,18 +85,12 @@ function GlobalQuote({ item }: { item: MarketQuote }) {
         <span data-direction={marketChangeDirection(item)}>{change}</span>
         {status ? <span className="dashboard-global-quote__status">{status}</span> : null}
       </span>
-      <span className="dashboard-global-quote__detail" aria-hidden="true">
-        {time.timestamp ? (
-          <time dateTime={item.observedAt ?? undefined} title={time.label}>
-            {time.timestamp}
-          </time>
-        ) : (
-          <span>{time.label}</span>
-        )}
-        {converted && converted !== '—' ? (
+      <MarketSparkline history={history} name={item.name} />
+      {converted && converted !== '—' ? (
+        <span className="dashboard-global-quote__detail">
           <span className="dashboard-global-quote__conversion">≈ ${converted} 참고 환산</span>
-        ) : null}
-      </span>
+        </span>
+      ) : null}
       <span className="sr-only" id={`global-quote-${item.id}-description`}>
         {description}
       </span>
@@ -92,7 +98,13 @@ function GlobalQuote({ item }: { item: MarketQuote }) {
   );
 }
 
-export function DashboardGlobalMarkets({ items }: { items: MarketQuote[] }) {
+export function DashboardGlobalMarkets({
+  items,
+  histories,
+}: {
+  items: MarketQuote[];
+  histories?: Record<string, MarketHistory>;
+}) {
   return (
     <section className="dashboard-global-strips" aria-label="원자재와 가상자산 시세">
       {globalMarketGroups.map((strip) => (
@@ -101,11 +113,18 @@ export function DashboardGlobalMarkets({ items }: { items: MarketQuote[] }) {
           className={`dashboard-global-strip dashboard-global-strip--${strip.key}`}
           aria-labelledby={`global-strip-${strip.key}`}
         >
-          <h3 id={`global-strip-${strip.key}`}>{strip.label}</h3>
+          <h3 id={`global-strip-${strip.key}`}>
+            {strip.key === 'crypto' ? (
+              <Bitcoin size={17} aria-hidden="true" />
+            ) : (
+              <Coins size={17} aria-hidden="true" />
+            )}
+            {strip.label}
+          </h3>
           <div className="dashboard-global-strip__items">
             {strip.dashboardIds.map((id) => {
               const item = items.find((entry) => entry.id === id);
-              return item ? <GlobalQuote key={id} item={item} /> : null;
+              return item ? <GlobalQuote key={id} item={item} history={histories?.[id]} /> : null;
             })}
           </div>
         </section>

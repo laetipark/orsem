@@ -400,3 +400,34 @@ test('history ages out when collection stops or the provider keeps returning an 
   assert.equal(fresh.status, 'AVAILABLE');
   assert.deepEqual(fresh.points, [{ date, value: '4.1' }]);
 });
+
+test('EIA daily spot observations allow a weekly holiday release gap without hiding their basis date', () => {
+  const checked = new Date('2026-09-09T12:00:00.000Z');
+  const eia = row('wti', '91.48', {
+    kind: 'DAILY',
+    period: '2026-09-01',
+    sourceDate: '2026-09-01',
+    providerAt: null,
+    lastObservedAt: checked,
+  });
+  const value = projectMarketQuote(instrument('wti'), [eia], undefined, true, checked);
+  assert.equal(value.status, 'AVAILABLE');
+  assert.equal(value.valueDate, '2026-09-01');
+  assert.equal(value.providerAt, null);
+  const old = new Date('2026-09-16T12:00:00.000Z');
+  assert.equal(
+    projectMarketQuote(instrument('wti'), [{ ...eia, lastObservedAt: old }], undefined, true, old)
+      .status,
+    'STALE',
+  );
+  assert.equal(
+    projectMarketQuote(
+      instrument('wti'),
+      [{ ...eia, lastObservedAt: new Date(checked.getTime() - 8 * 3_600_000) }],
+      undefined,
+      true,
+      checked,
+    ).status,
+    'STALE',
+  );
+});

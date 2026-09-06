@@ -9,3 +9,5 @@ export * from './news-markdown';
 export * from './watchlist-groups';
 
 export * from './watchlist-rooms';
+
+export * from './news-company-matching';

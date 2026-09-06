@@ -3,7 +3,7 @@ import './brand-logo.css';
 
 export function BrandLogo({ size = 'default' }: { size?: 'default' | 'large' | 'compact' }) {
   return (
-    <span className={`brand-logo brand-logo--${size}`} role="img" aria-label="ORSEM">
+    <span className={`brand-logo brand-logo--${size}`} role="img" aria-label="오르셈">
       <img
         className="brand-logo__mark"
         src={orsemMark}

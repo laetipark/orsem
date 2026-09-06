@@ -1,3 +1,4 @@
+import { newsSummaryLine } from './news-summary-line';
 import type {
   Company,
   Event,
@@ -20,8 +21,12 @@ import {
   type ReviewEntity,
   type SourceItemEntity,
 } from '@orsem/database';
-import { publicNewsDescription, publicNewsTranslation } from '../common/news-translation';
-import { contentSummary, type NewsContentRecord } from './news-content';
+import {
+  publicNewsDescription,
+  publicNewsTranslation,
+  publicNewsTranslationStatus,
+} from '../common/news-translation';
+import { type NewsContentRecord } from './news-content';
 
 export function mapCompany(row: CompanyEntity): Company {
   return {
@@ -45,7 +50,9 @@ export function mapFixtureSourceItem(item: SourceItem): SourceItem {
     sourceKind: item.sourceKind ?? sourceKindForSource(item.source),
     publisherId: item.publisherId ?? item.sourceName ?? item.source,
     sourceCount: item.sourceCount ?? 1,
-    contentState: item.contentState ?? 'UNAVAILABLE',
+    displayMode: 'EXTERNAL_LINK',
+    translationStatus: 'UNAVAILABLE',
+    contentState: 'UNAVAILABLE',
     contentSourceId: item.contentSourceId ?? null,
     contentLanguage: item.contentLanguage ?? null,
     translated: item.translated ?? false,
@@ -71,9 +78,11 @@ export function mapFixtureEvent(event: Event): Event {
 export function mapSourceItem(
   row: SourceItemEntity,
   news?: NewsItemEntity | null,
-  content?: NewsContentRecord | null,
-  validatedContent?: NewsArticleContentDetail | null,
+  _content?: NewsContentRecord | null,
+  _validatedContent?: NewsArticleContentDetail | null,
 ): SourceItem {
+  void _content;
+  void _validatedContent;
   const metadata = row.rawMetadataJson ?? {};
   const feed =
     typeof metadata.feedId === 'string'
@@ -82,20 +91,18 @@ export function mapSourceItem(
   const region = feed?.marketRegion ?? metadata.marketRegion;
   return {
     id: row.id,
-    displayMode: ['GDELT', 'ALPACA_NEWS'].includes(row.source)
-      ? 'EXTERNAL_LINK'
-      : 'INTERNAL_CONTENT',
+    displayMode: 'EXTERNAL_LINK',
+    translationStatus: publicNewsTranslationStatus(row),
     articleId: row.newsArticleId ?? null,
     sourceKind: row.sourceKind ?? feed?.sourceKind ?? sourceKindForSource(row.source),
     sourceCount: 1,
-    ...(['GDELT', 'ALPACA_NEWS'].includes(row.source)
-      ? {
-          contentState: 'UNAVAILABLE' as const,
-          contentSourceId: null,
-          contentLanguage: null,
-          translated: false,
-        }
-      : contentSummary(content, row.rightsMode, validatedContent)),
+    contentState: 'UNAVAILABLE',
+    contentSourceId: null,
+    contentLanguage:
+      typeof metadata.language === 'string' && ['ko', 'en'].includes(metadata.language)
+        ? (metadata.language as 'ko' | 'en')
+        : null,
+    translated: Boolean(publicNewsTranslation(row)),
     publisherId:
       feed?.publisherId ??
       (typeof metadata.publisherId === 'string'
@@ -113,6 +120,19 @@ export function mapSourceItem(
     externalId: row.externalId,
     url: row.url as IrSource['url'],
     title: news?.title ?? row.title,
+    summaryLine: newsSummaryLine(
+      {
+        title: news?.title ?? row.title,
+        description: publicNewsDescription(
+          row.rightsMode,
+          news?.description ?? row.rawMetadataJson?.description,
+        ),
+        translation: publicNewsTranslation(row),
+        source: row.source,
+        rightsMode: row.rightsMode,
+      },
+      row.sourcePolicyJson?.aiAllowed === true && row.sourcePolicyJson?.displayAllowed === true,
+    ),
     description: ['GDELT', 'ALPACA_NEWS'].includes(row.source)
       ? null
       : publicNewsDescription(

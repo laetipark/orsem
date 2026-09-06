@@ -1,64 +1,55 @@
-# 사이트 콘텐츠용 뉴스 수집
+# 뉴스 수집과 표시
 
-2026-09-05 구현. `/news`에는 본문을 저장하고 승인 회원에게 표시할 수 있으며, 영문인 경우 로컬 한국어 번역까지 완료된 기사만 나타납니다. 제목·링크만 허용되는 소스는 정기 수집과 통합 뉴스 DB에 넣지 않습니다. OpenDART와 SEC 공시는 기존 이벤트·공시 화면에서 계속 처리합니다.
+시장 공통 뉴스는 증시·금리·환율에 관한 네이버 키워드 검색 결과와 Federal Reserve·BLS 소식으로 구성합니다. 개인 뉴스는 로그인한 사용자의 개인 그룹에 등록된 기업을 기준으로 하며 다른 회원이나 공유방의 기업을 섞지 않습니다.
 
-## 활성 소스
+## 공식 뉴스 메타데이터
 
-| 런타임 ID        | 소스                       | 본문 경로                                                           | 권리와 표시                                         | 주기 |
-| ---------------- | -------------------------- | ------------------------------------------------------------------- | --------------------------------------------------- | ---- |
-| `samsung-global` | Samsung Global Newsroom    | 등록된 Global RSS의 `content:encoded`, 필요할 때 같은 공식 기사 URL | 로그인한 개인·승인 회원에게만 원문과 로컬 번역 표시 | 15분 |
-| `fed-press`      | Federal Reserve 보도자료   | 공식 RSS가 가리키는 Fed 본문                                        | 공식 사이트의 공개 영역 텍스트, 제3자 자료 제외     | 15분 |
-| `fed-speeches`   | Federal Reserve 연설·증언  | 공식 RSS가 가리키는 Fed 본문                                        | 공식 사이트의 공개 영역 텍스트, 제3자 자료 제외     | 15분 |
-| `bls-latest`     | Bureau of Labor Statistics | 공식 RSS가 가리키는 BLS 본문                                        | 공개 영역 텍스트, 사진·삽화·로고 제외               | 15분 |
+| 소스 ID                     | 공급자                  | 주기 | 권리와 표시 범위                         |
+| --------------------------- | ----------------------- | ---- | ---------------------------------------- |
+| `samsung-global`            | Samsung Global Newsroom | 15분 | `PRIVATE_DISPLAY_ONLY`, 승인된 개인 화면 |
+| `fed-press`, `fed-speeches` | Federal Reserve         | 15분 | 공식 공개 메타데이터                     |
+| `bls-latest`                | BLS                     | 15분 | 공식 공개 메타데이터                     |
+| `eia-today`, `eia-press`    | EIA                     | 15분 | 공식 공개 메타데이터                     |
 
-근거는 [Samsung Global 이용약관](https://news.samsung.com/global/terms), [Fed 저작권·면책 안내](https://www.federalreserve.gov/disclaimer.htm), [BLS 저작권 안내](https://www.bls.gov/opub/copyright-information.htm)입니다. Samsung 콘텐츠는 `PRIVATE_DISPLAY_ONLY`, Fed·BLS 텍스트는 `OFFICIAL_PUBLIC_DATA`로 기록합니다.
+RSS 요청만 수행하고 기사 URL을 서버에서 요청하지 않습니다. RSS `description`·Atom `summary`의 제공 요약을 정화해 저장합니다. `content:encoded` 등 임베디드 본문은 추출·저장하지 않습니다. 제공 요약이 없으면 빈 상태를 유지하며 제목이나 본문으로 요약을 만들지 않습니다.
 
-이투데이, Microsoft IR, GDELT와 NAVER는 사이트 본문으로 저장·번역할 권리가 확인된 활성 소스가 아닙니다. 이투데이·Microsoft IR 정기 수집과 GDELT는 비활성화합니다. NAVER는 사용자가 직접 실행하는 저장하지 않는 검색 화면만 유지하며, 통합 뉴스·검색·AI·알림에 연결하지 않습니다. 설정 스키마는 위 RSS ID 외의 값을 거절하고, IR 생성·수정 API는 정확한 Samsung Global URL·RSS·`PRIVATE_DISPLAY_ONLY` 조합만 허용합니다. 조사 후보를 환경 변수에 적어도 런타임 소스로 등록되지 않습니다.
+`source_items`와 `news_items`는 원제목·제공 요약·원문 URL·GUID·작성자·원래 발행 문자열·발행 시각·최초 관측 시각·권리를 보존합니다. 원래 등록 소스의 권리 스냅샷은 바꾸지 않으며 메타데이터 저장과 표시가 허용되는 후보만 저장합니다. 네이버는 저장 경로에서 명시적으로 차단합니다. 신규 수집은 `news_article_contents`를 읽거나 쓰지 않습니다.
 
-## 저장과 공개 조건
+Samsung Global의 KST 시각 규칙과 원본 문자열을 유지합니다. 다른 소스는 명시된 UTC 오프셋을 존중합니다. EIA XML의 ISO-8859-1 선언과 상대 기사 링크를 처리하며 EST를 임의로 EDT로 바꾸지 않습니다. 피드 요청의 크기·XML 구조·DNS·HTTPS·리디렉션 제한은 유지합니다.
 
-`source_items`는 원출처 제목·URL·GUID·작성자·원래 발행 문자열·발행 시각·최초 관측 시각·권리 정책을 보존합니다. `news_article_contents`는 출처 항목 하나에 대응하며 정화된 원문 블록, 언어, 본문 해시, 추출 상태·버전·시각, 정책 스냅샷과 번역 처리 이력을 저장합니다. 서로 다른 출처의 본문을 합치지 않습니다.
+소스 권리 기준은 등록 정책에 기록합니다. 기존 참고 문서는 [Samsung 이용약관](https://news.samsung.com/global/terms), [Fed 저작권](https://www.federalreserve.gov/disclaimer.htm), [BLS 저작권](https://www.bls.gov/opub/copyright-information.htm), [EIA 재사용 정책](https://www.eia.gov/about/copyrights_reuse.php)입니다.
 
-본문 프로필은 다음 조건을 모두 명시해야 합니다.
+## 네이버 검색
 
-- `fullTextStorageAllowed === true`
-- `displayAllowed === true`
-- 영문이면 `aiAllowed === true`
-- 정책 URL과 확인 날짜, 정확한 피드·기사 호스트
-- `OFFICIAL_PUBLIC_DATA` 또는 인증된 개인 화면용 `PRIVATE_DISPLAY_ONLY`
+기업과 주제 검색은 같은 순환 작업에서 전체 15분당 최대 10회와 기존 무료 호출 한도를 공유합니다. 시장 검색어는 증시·금리·환율입니다. 자산 뉴스 API의 `asset=gold|silver|wti|btc|eth`는 각각 `국제 금값`, `국제 은값`, `WTI 유가`, `비트코인`, `이더리움` 검색 결과를 사용합니다.
 
-`UNKNOWN`과 `false`는 허용으로 해석하지 않습니다. 기사 원문은 HTTPS와 등록된 공개 호스트에서만 가져오며 모든 리디렉션과 DNS 결과를 다시 검증합니다. HTML은 실행하지 않고 제목·문단·인용·목록의 일반 텍스트 블록으로 바꿉니다. 이미지·영상·광고·스크립트·스타일·폼·iframe과 추적 요소는 저장하거나 표시하지 않습니다.
+정기·기업 상세·수동 검색의 모든 공급자 호출은 공통 `source_checkpoints` 예산 잠금에서 최근 15분의 예약을 확인합니다. 이 잠금은 API 재시작과 월 경계에도 같으며, JSON에는 최대 10개의 UTC 예약 시각만 남깁니다. 실패한 호출도 예약과 일·월 사용량에 포함합니다. 한도가 차면 상태 응답에 다음 요청 가능 시각을 표시합니다. 기존 버전에서 전환할 때 개별 예약 이력이 없으면 마지막 호출로부터 15분이 지날 때까지 보수적으로 기다립니다. 검색어·기사·인증 값은 예산 기록에 저장하지 않습니다.
 
-한국어 본문은 추출이 끝나면 공개할 수 있습니다. 영문 본문은 원문 제목 번역과 모든 본문 블록 번역이 현재 해시와 일치해야 공개합니다. 추출·번역이 대기 또는 실패 상태인 항목은 내부 재시도 대상으로만 두고 `/news`에는 반환하지 않습니다.
+네이버 경제탭의 편집 순위나 주요 기사 목록을 그대로 가져오는 기능은 아닙니다. [뉴스 검색 API](https://developers.naver.com/docs/serviceapi/search/news/news.md)의 키워드 검색 결과를 사용하며 화면에도 이 범위를 설명합니다.
 
-## 삼성 발행 시각
+승인 개인 그룹과 국내·미국 월간 시총 상위 20개 기업을 정기 대상으로 사용하고, 공유방에만 등록된 기업은 넣지 않습니다. 월간 대표 종목의 검증된 보통주 클래스도 같은 범위로 확인합니다. 기업 상세 요청은 등록된 기업명만 사용합니다. 유효한 메모리 결과와 같은 대상의 진행 중 요청은 재사용하고 실패 뒤 기존 대기 시간을 유지합니다. 키·무료 이용 기한·일간/월간 잔량을 확인할 수 없으면 해당 검색만 중단합니다.
 
-Samsung Global RSS는 시·분을 `Asia/Seoul`의 wall clock으로 처리합니다. 예를 들어 원본 `Fri, 04 Sep 2026 21:30:00 +0000`은 `2026-09-04 21:30 KST`, 저장 instant는 `2026-09-04T12:30:00Z`입니다. 원본 문자열과 보정 규칙 버전을 함께 보존합니다. 다른 피드는 명시된 UTC 오프셋을 그대로 존중하며 시간대가 없는 값은 추정하지 않습니다.
+제목·설명·원문 링크·네이버 링크·발행 문자열은 짧은 프로세스 메모리에서만 유지합니다. DB·로그·AI·자동 알림 큐에는 넣지 않습니다. 봇의 명시적 뉴스 조회는 현재 유효한 메모리만 읽고 제목·제공 요약·원문 링크로 응답하며, 명령 DB 기록에는 기사 대신 명령 종류와 건수만 남깁니다. 일반 조회 TTL은 15분, 정기 결과는 대상 순환 주기에 맞추되 최대 24시간입니다. 새 공급자 검색이나 만료 때 이전 원문을 제거하며 브라우저도 만료된 객체를 제거합니다. 응답은 `private, no-store`를 사용합니다.
 
-기존 Samsung Global 행은 대상 피드 URL을 정확히 제한한 마이그레이션으로 9시간 보정합니다. `source_items.published_at`, 대응하는 `news_items.published_at`, 기사 묶음 정렬 시각만 갱신하고 `first_observed_at`은 바꾸지 않습니다.
+네이버 원제목은 재작성하지 않습니다. 안전한 강조 표시만 해석하고 HTML은 실행하지 않습니다. 원문 URL로 중복을 제거하며 수집 시각·다음 요청 시각과 대기·미설정·한도·실패 상태를 구분합니다.
 
-## 설정과 운영 확인
+## 목록·종목 연결·원문 이동
+
+모든 기사에 제목 한 줄과 요약 한 줄, 출처·KST 발행 시각을 표시하고 기사 원문을 새 탭으로 엽니다. 요약이 없으면 `요약 미제공`입니다. 유효한 제목·요약 번역이 없으면 원문 메타데이터와 번역 상태를 표시합니다. 기존 `/news/:id`는 안전한 원문 URL을 확인해 이동합니다.
+
+관련 종목은 기존 SEC CIK·등록 IR 관계와 제목·제공 요약의 명확한 기업명 증거를 사용합니다. 네이버 자동 배지는 현재 상장 여부·지원 거래소·유효 종목 코드를 확인한 등록 기업명과 명시적 심볼만 인정하며, 검수 여부가 없는 임의 별칭은 사용하지 않습니다. 영문 약어 `(DX)`만으로는 연결하지 않고 `$DX`, `NYSE:DX` 또는 기업명을 요구합니다. 한국 종목 코드 `(005930)`은 사용할 수 있습니다. 검색 대상 기업이라는 이유만으로 종목 관련성을 부여하지 않습니다. 기존 저장 관계는 유지하되 화면에서 `OTHER`·유효 종목 식별자가 없는 배지는 제외합니다. 제목 오른쪽 종목 배지는 기사 링크와 분리해 종목 페이지로 이동합니다.
+
+저장된 뉴스와 네이버 `providerGroups`는 분리해 응답하고 화면에서 병합합니다. DB 커서는 저장된 기사만 계산하므로 임시 기사 때문에 저장 뉴스가 누락되지 않습니다. 뉴스 검색은 메타데이터를 사용하며 본문 또는 본문 번역 존재를 요구하지 않습니다.
+
+## 설정과 정리
 
 ```dotenv
-NEWS_RSS_FEEDS=fed-press,fed-speeches,bls-latest
+NEWS_RSS_FEEDS=fed-press,fed-speeches,bls-latest,eia-today,eia-press
 IR_FEED_URLS=https://news.samsung.com/global/feed
-GDELT_ENABLED=false
-GDELT_NEWS_DOMAINS=
 NEWS_TRANSLATION_ENABLED=true
+GDELT_ENABLED=false
 ```
 
-본문 수집은 뉴스 발견 뒤 별도 작업으로 순차 처리합니다. 원문 해시, 정책, 추출기, 모델이나 번역 프롬프트 버전이 바뀌면 이전 결과를 공개하지 않고 다시 처리합니다. 실제 원문은 테스트 fixture로 커밋하지 않으며 합성된 최소 RSS·HTML만 사용합니다.
+NAVER 공급자는 `NAVER_API_PROVIDER=developers|ncloud`로 명시합니다. 인증 실패 시 다른 공급자 주소로 키를 보내지 않습니다. 무료 조건은 `NAVER_NEWS_FREE_MONTH`, `NAVER_NEWS_FREE_REQUESTS`, `NAVER_NEWS_FREE_UNTIL`과 일간 한도로 확인합니다. 세부 운영 설정은 [소스](SOURCES.md), [운영](OPERATIONS.md#naver-news-authentication)을 참고합니다.
 
-배포 확인에는 마이그레이션 전 백업, 이용 불가 뉴스 삭제 건수, 활성 피드별 HTTP 상태, 본문 추출 상태, 번역 대기·실패 건수, `/news`의 소스 목록, Samsung KST 표시와 재수집 시 중복 증가 여부가 모두 포함됩니다.
-
-## 2026-09-06 구간 복구와 선택적 미국 뉴스
-
-GDELT 수집은 `GDELT_ENABLED`와 `GDELT_NEWS_DOMAINS`, `APPROVED_GDELT_SOURCE_POLICIES`의 정확한 publisher 승인 세 조건을 모두 요구한다. 현재 승인 레지스트리는 비어 있어 활성화 설정만으로 HTTP를 보내지 않는다. 기존 일반 GDELT 메타데이터 정책을 publisher 승인으로 사용하지 않는다.
-
-[DOC 2.0 공식 명세](https://blog.gdeltproject.org/gdelt-doc-2-0-api-debuts/)의 startdatetime/enddatetime(UTC YYYYMMDDHHMMSS), artlist/json/maxrecords=250을 사용한다. 초기 24시간, 완료 커서에서 기본 10분 overlap, 한 창 최대 24시간을 조회한다. 250건이면 왼쪽/오른쪽으로 분할한다. 최소 창 15분·최대 깊이 4·전체 실행 요청 12회 한도를 두며 250건 포화가 남으면 incomplete/truncated로 남긴다. 약 3개월 검색 범위 밖의 미처리 구간은 건너뛰지 않고 별도 대조 필요 상태로 둔다.
-
-`DOC_WINDOW:{queryHash}`의 pendingWindows에 진행 중 구간을 보존한다. 최초 HTTP 요청 전에는 구간 계획만 저장하고 성공 커서는 진행하지 않는다. 첫 요청 실패 후에도 최초 조회 범위가 뒤로 밀리지 않게 하기 위해서다. 쿼리·도메인 변경은 다른 stream이 된다. 성공한 leaf의 항목·관련 회사 저장 후 그 leaf를 확정한다. 뒤쪽 429 또는 저장 실패가 앞쪽 완료 구간을 지우지 않는다. 경계·겹침 중복은 기존 canonical URL과 공급자별 externalId로 제거한다. seendate는 observedBySourceAt, publishedAt은 null, firstObservedAt은 Orsem 관측이다.
-
-승인된 메타데이터 기사만 `APPROVED_PUBLISHER_METADATA`로 저장하고 본문·이미지·AI·알림을 사용하지 않는다. 이전 `GDELT_DATASET_METADATA` 기록은 새 목록·검색 권리 조건을 충족하지 않으며 데이터를 삭제하지 않는다. 공식 RSS/IR 콘텐츠와 그 번역 검증은 유지한다.
-
-Alpaca News는 별도 ALPACA_NEWS source로 저장하고 `EXTERNAL_LINK`로 표시한다. 같은 URL의 GDELT 발견 이력과 SourceItem을 합치지 않는다. [공급자 비교·승인 방법](NEWS_PROVIDER_COMPARISON.md)을 따른다.
+기존 뉴스 본문·본문 번역·수정 이력의 본문 사본 정리는 [번역 문서의 배포 순서](NEWS_TRANSLATION.md#기존-본문-정리와-배포-순서)를 따릅니다. 운영 DB와 앱 캐시만 정리하며 과거 백업·공시 원본은 유지합니다. 운영 적용 완료 여부는 실제 배포 기록에서 확인합니다.

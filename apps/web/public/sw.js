@@ -3,7 +3,7 @@ const pushWorker = globalThis;
 const defaultDestination = '/settings/notifications';
 const uuidPattern = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 const notificationRoute = new RegExp(
-  `^/(?:events(?:/${uuidPattern})?|companies/${uuidPattern}|operations|settings/notifications)$`,
+  `^/(?:events(?:/${uuidPattern})?|companies(?:/(?:[A-Z]+:)?[A-Z0-9][A-Z0-9.-]{0,63})?|operations|settings/notifications)$`,
   'i',
 );
 
@@ -52,7 +52,7 @@ pushWorker.addEventListener('push', (event) => {
   event.waitUntil(
     pushWorker.registration.showNotification(title, {
       body,
-      icon: '/icons/icon-192.png',
+      icon: '/icons/icon-192.png?v=fullmark-20260906',
       ...(typeof payload.tag === 'string' ? { tag: payload.tag.slice(0, 120) } : {}),
       data: { url: safeNotificationDestination(payload.url) },
     }),

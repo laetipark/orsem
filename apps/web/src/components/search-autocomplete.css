@@ -128,3 +128,48 @@
   font-size: 10px;
   background: var(--surface-2);
 }
+.search-input {
+  position: relative;
+  min-width: 0;
+  width: 100%;
+}
+.search-input > input {
+  width: 100%;
+  min-width: 0;
+}
+.search-input .search-autocomplete__panel {
+  z-index: 50;
+  left: 0;
+  right: auto;
+  min-width: 0;
+  width: 100%;
+}
+.header-search .search-input {
+  flex: 1;
+}
+.header-search .search-input {
+  position: static;
+}
+.header-search .search-autocomplete__panel {
+  left: 0;
+  right: 0;
+  width: 100%;
+}
+.search-input .search-autocomplete__copy > strong {
+  font-size: 14px;
+}
+.search-input .search-autocomplete__copy > span,
+.search-input .search-autocomplete__hint {
+  font-size: 12px;
+}
+.search-input .search-autocomplete__all {
+  min-height: 40px;
+  padding: 8px 12px;
+  text-align: left;
+  background: var(--surface-2);
+  color: var(--teal);
+  border: 0;
+}
+.card:has(.search-input [aria-expanded='true']) {
+  overflow: visible;
+}

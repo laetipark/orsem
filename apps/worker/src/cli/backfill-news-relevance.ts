@@ -21,6 +21,10 @@ export async function backfillNewsRelevance(
     await source.getRepository(CompanyAliasEntity).find(),
   );
   const matchCompanies = createNewsCompanyMatcher(aliases);
+  const evidence = (row: SourceItemEntity) =>
+    [row.title, row.rawMetadataJson?.description]
+      .filter((value) => typeof value === 'string')
+      .join('\n');
   let after = '';
   const summary = { scanned: 0, relatedSources: 0, relations: 0, applied: apply };
   for (;;) {
@@ -36,9 +40,9 @@ export async function backfillNewsRelevance(
     if (!rows.length) break;
     for (const snapshot of rows) {
       const classify = (row: SourceItemEntity) => {
-        const matches = matchCompanies(row.title).map((companyId) => ({
+        const matches = matchCompanies(evidence(row)).map((companyId) => ({
           companyId,
-          matchMethod: 'TITLE_ALIAS',
+          matchMethod: 'METADATA_ALIAS',
         }));
         if (row.source === 'IR' && row.companyId)
           matches.push({ companyId: row.companyId, matchMethod: 'REGISTERED_IR' });
@@ -68,7 +72,7 @@ export async function backfillNewsRelevance(
           if (!row) return;
           const matches = classify(row);
           count = matches.length;
-          await replaceNewsCompanyRelevance(manager, row.id, row.title, matches);
+          await replaceNewsCompanyRelevance(manager, row.id, evidence(row), matches);
         });
       summary.scanned++;
       summary.relations += count;

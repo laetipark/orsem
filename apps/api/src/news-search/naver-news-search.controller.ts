@@ -1,4 +1,8 @@
-import { BadRequestException, Controller, Get, Header, Headers } from '@nestjs/common';
+import { groupActor } from '../watchlist-groups/watchlist-access.service';
+import type { Request } from 'express';
+import { z } from 'zod';
+import { NaverFocusNewsService } from './naver-focus-news.service';
+import { BadRequestException, Controller, Get, Header, Headers, Param, Req } from '@nestjs/common';
 import { parseWith } from '../common/zod';
 import { RateLimit, ReadOnlyMemberAccess } from '../security/security';
 import { NaverNewsSearchService, naverNewsSearchQuerySchema } from './naver-news-search.service';
@@ -6,7 +10,16 @@ import { NaverNewsSearchService, naverNewsSearchQuerySchema } from './naver-news
 @Controller('news-search/naver')
 @ReadOnlyMemberAccess()
 export class NaverNewsSearchController {
-  constructor(private readonly searchService: NaverNewsSearchService) {}
+  constructor(
+    private readonly searchService: NaverNewsSearchService,
+    private readonly focus: NaverFocusNewsService,
+  ) {}
+
+  @Get('focus/:companyId')
+  @Header('Cache-Control', 'private, no-store')
+  focusNews(@Param('companyId') companyId: string, @Req() request: Request) {
+    return this.focus.company(parseWith(z.uuid(), companyId), groupActor(request).key);
+  }
 
   @Get('status')
   @Header('Cache-Control', 'no-store')

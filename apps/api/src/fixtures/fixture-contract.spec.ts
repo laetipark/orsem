@@ -17,6 +17,8 @@ import { loadAppConfig } from '../config/app-config';
 import { DatabaseRuntimeService } from '../persistence/database-runtime.service';
 import { OrsemDataService } from '../resources/orsem-data.service';
 import { FixtureStoreService } from './fixture-store.service';
+import { GoneException } from '@nestjs/common';
+import { WatchlistController } from '../resources/resource.controllers';
 
 function fixtureData(): OrsemDataService {
   const config = loadAppConfig({ NODE_ENV: 'test', FIXTURE_MODE: 'true' });
@@ -144,13 +146,18 @@ test('fixture dashboard and primary read models honor the public contracts', asy
   eventDetailViewSchema.parse(await data.getEventView(events.items[0]!.id));
 });
 
-test('a flattened watchlist company id can update its policy', async () => {
+test('retired operating watchlist mutations reject edits without changing saved policies', async () => {
   const data = fixtureData();
   const before = await data.listWatchlistViews({ limit: 30 });
-  const companyId = watchlistViewSchema.parse(before.items[0]).id;
-
-  const updated = await data.updateWatchlist(companyId, { digestAlerts: true });
-
-  assert.equal(updated.company.id, companyId);
-  assert.equal(updated.digestAlerts, true);
+  const controller = new WatchlistController(data, {} as never);
+  for (const operation of [
+    () => controller.create(),
+    () => controller.update(),
+    () => controller.remove(),
+  ])
+    assert.throws(
+      operation,
+      (error: unknown) => error instanceof GoneException && error.getStatus() === 410,
+    );
+  assert.deepEqual(await data.listWatchlistViews({ limit: 30 }), before);
 });

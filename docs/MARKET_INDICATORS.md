@@ -10,13 +10,11 @@ The worker stores provider observations independently from company stock candles
 
 시장 카드와 상세 차트는 원화 `₩`, 달러 `$`를 수치 바로 앞에 붙입니다. 원자재는 가격 뒤에 `/oz` 또는 `/배럴` 계열 물리 단위를 유지하고, 가상자산 참고 환산가도 `≈ $금액`으로 표시합니다. 원천 데이터의 `KRW`·`USD` 코드와 환산 계산은 그대로 사용합니다.
 
-Native 카드·홈 요약·상세 화면의 표시 시각은 실제 수집 시각인 `observedAt`을 KST로 변환한 값입니다. 화면에는 시각만 표시하며 `자료 기준` 문구와 `최근 관측` 배지는 표시하지 않습니다. 공급자 시각·원본 기준일은 tooltip과 접근성 설명에서 수집 시각과 구분해 보존합니다. `observedAt`이 없으면 `수집 시각 확인 전`으로 표시하고, 지연·미설정·이용 불가 상태는 유지합니다.
+Native 카드와 상세 화면에는 값의 원천 기준인 `providerAt` → `valueDate` 순으로 표시합니다. 공급자 기준이 없으면 `observedAt`에 `관측`을 붙이고 기준 시각 미확인을 설명합니다. 실제 수집 시각은 tooltip과 상세 화면에서 별도로 보존하며, 날짜만 제공되는 국채·WTI에 임의 발표 시각을 만들지 않습니다. 지연·미설정·이용 불가 상태는 유지합니다.
 
-Native 카드의 시각 메타데이터는 좌측 하단에 9px로 배치합니다. 홈 원자재·가상자산 금액은 줄바꿈하지 않으며, 좁은 화면에서는 원자재 물리 단위를 별도 줄에 맞춰 제목·가격·등락률의 상단 정렬을 유지합니다. 상세 가격은 320px 화면에서도 들어가도록 반응형 글꼴 크기를 사용합니다. Compact 카드 padding 10px와 위젯 host 높이 90px 적용 후, 데스크톱 미국 지수 카드 높이는 브라우저 실측에서 154px에서 134px로 줄었습니다.
+모바일 시장 지표는 지표 하나와 차트를 담은 2열 카드입니다. PC의 시장별 배치는 유지하며 같은 행의 높이를 맞춥니다. 자체 지표는 최근 1개월의 저장된 실제 이력으로 작은 차트를 표시하고 이력이 부족하면 상태를 표시합니다. 메타데이터 글씨는 12px 이상을 사용합니다.
 
-미국 지수 요약은 기존 TradingView Single Ticker Web Component를 유지합니다. 내부 `bottom-link`는 closed shadow root 안에 있고, 확인한 배포본에는 이 링크의 글꼴 크기·정렬을 바꾸는 공개 part나 CSS token이 없습니다. 따라서 Orsem이 직접 렌더링하는 fallback 출처 링크만 9px·좌측 정렬을 적용했으며, 위젯 내부 출처 링크의 좌측 하단 배치까지 완료한 것은 아닙니다. [공식 스타일 지원 범위](https://www.tradingview.com/widget-docs/tutorials/web-components/styling-and-themes/), [확인한 위젯 배포 코드](https://widgets.tradingview-widget.com/w/en/chunks/QOcR3kBDb5.js)
-
-2026-09-04 브라우저 비교에서는 `FRED:SP500`을 설정한 classic [Single Quote](https://s3.tradingview.com/external-embedding/embed-widget-single-quote.js)와 [Tickers](https://s3.tradingview.com/external-embedding/embed-widget-tickers.js)가 값을 `7.75K`로 축약한 반면, 현재 Web Component는 `7,747.71`로 표시했습니다. 이는 해당 시점의 실제 표시 관측이며 공급자의 고정된 형식 보장은 아닙니다. 정확한 수치를 읽을 수 있는 현재 컴포넌트를 유지합니다.
+미국 지수는 TradingView Mini Chart를 사용합니다. FRED 일별 심볼에 맞춰 3개월 범위로 표시하며 위젯 높이는 190px입니다. 위젯이 제공한 데이터·출처는 자체 수집 시세와 합치지 않습니다. [Mini Chart 안내](https://www.tradingview.com/widget-docs/widgets/charts/mini-chart/).
 
 ## Sources and meaning
 
@@ -32,7 +30,9 @@ Native 카드의 시각 메타데이터는 좌측 하단에 9px로 배치합니�
 
 USD/KRW is the provider's reference rate, not an executable FX quote. `basisPoint` is not used as a day-over-day change. Its `validFrom`/`validUntil` and original fields remain in provenance. The app converts Bithumb KRW quotes to USD separately using this rate and labels the result as a conversion.
 
-Gold historical points are daily averages, not closing prices. Treasury and EIA expose date-only publications here, so `providerAt` remains null rather than inventing a release time. EIA missing values and Treasury null yields are skipped; negative WTI observations remain valid.
+Gold historical points are daily averages, not closing prices. The daily history chart includes a date selector and value readout usable with keyboard, pointer, and touch. Switching the requested range refits the view; normal refresh preserves zoom. Treasury and EIA expose date-only publications here, so `providerAt` remains null rather than inventing a release time. EIA missing values and Treasury null yields are skipped; negative WTI observations remain valid.
+
+WTI의 관측 주기는 일별이며 발표 주기와 구분합니다. [EIA 일별 현물 가격표](https://www.eia.gov/dnav/pet/hist/RWTCd.htm)는 여러 날짜를 묶어 발표하며 미국 공휴일에 일정이 달라집니다. 2026-09-06 확인 당시 최신 관측일은 09-01, 발표일은 09-02, 다음 발표 예정일은 09-10입니다. EIA 원본 날짜 지연 허용치는 14일이며, 수집 실패 및 7시간 이상 미확인 상태는 별도로 계속 감지합니다. 차트는 실제 날짜별 현물 종가만 표시합니다.
 
 ## Rollout findings: timestamps and index links
 

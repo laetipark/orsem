@@ -1,3 +1,5 @@
+import { CompanyInformationService } from './market-data/company-information.service';
+import { MarketSelectionService } from './market-data/market-selection.service';
 import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule, type TypeOrmModuleOptions } from '@nestjs/typeorm';
@@ -18,6 +20,7 @@ import { TossMarketClient } from './market-data/toss-market.client';
 import { TossMarketDataService } from './market-data/toss-market-data.service';
 import { TossLiveQuoteService } from './market-data/toss-live-quote.service';
 import { TossStockInfoService } from './market-data/toss-stock-info.service';
+import { TossKoreanEtfMasterService } from './market-data/toss-korean-etf-master.service';
 import { SecCikSyncService } from './market-data/sec-cik-sync.service';
 import { MarketIndicatorClient } from './market-indicators/market-indicator.client';
 import { MarketIndicatorIngestionService } from './market-indicators/market-indicator-ingestion.service';
@@ -97,9 +100,12 @@ function redisConnection(redisUrl: string): Record<string, unknown> {
     ConnectorHealthService,
     NewsDiscoveryService,
     MarketDataIngestionService,
+    MarketSelectionService,
+    CompanyInformationService,
     TossMarketClient,
     TossMarketDataService,
     TossStockInfoService,
+    TossKoreanEtfMasterService,
     SecCikSyncService,
     TossLiveQuoteService,
     MarketIndicatorClient,

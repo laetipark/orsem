@@ -85,18 +85,12 @@ test('공개 뉴스 본문은 같은 해시의 완료 번역만 원문과 묶어
   );
 });
 
-test('목록 SQL은 본문과 영문 제목 번역을 모두 요구하고 그룹 대표에도 같은 게이트를 쓴다', () => {
+test('news list and representative selection depend only on allowed metadata', () => {
   const available = availableNewsContentSql('content', 'source');
-  assert.match(available, /content\.status = 'AVAILABLE'/u);
-  assert.match(available, /content\.content_hash/u);
-  assert.match(available, /content\.rights_policy_json/u);
-  assert.match(available, /source\.source_policy_json/u);
-  assert.match(available, /fullTextStorageAllowed/u);
-  assert.match(available, /aiAllowed/u);
-  assert.match(available, /source\.raw_hash/u);
-  assert.match(available, /source\.translation_json/u);
-  assert.match(available, /JSON_LENGTH\(content\.blocks_json\)/u);
-  assert.match(representativeNewsSql({}), /duplicate_content/u);
+  assert.match(available, /metadataStorageAllowed/u);
+  assert.match(available, /displayAllowed/u);
+  assert.doesNotMatch(available, /content\.|fullText|translation/u);
+  assert.doesNotMatch(representativeNewsSql({}), /news_article_contents|duplicate_content/u);
 });
 
 test('summary validation and detail materialization agree across malformed blocks and translation metadata', () => {

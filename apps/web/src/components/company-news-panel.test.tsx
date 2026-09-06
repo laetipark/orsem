@@ -1,24 +1,13 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { useEffect } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { api } from '../lib/api';
 import { CompanyNewsPanel } from './company-news-panel';
 
 const visibility = vi.hoisted(() => ({ visible: true }));
-const naver = vi.hoisted(() => ({ mount: vi.fn(), unmount: vi.fn() }));
 vi.mock('../lib/use-visible-panel', () => ({
   useVisiblePanel: () => ({ ref: { current: null }, visible: visibility.visible }),
-}));
-vi.mock('./company-naver-news', () => ({
-  CompanyNaverNews: function NaverStub({ companyId }: { companyId: string }) {
-    useEffect(() => {
-      naver.mount(companyId);
-      return () => naver.unmount(companyId);
-    }, [companyId]);
-    return <div>NAVER 별도 검색 결과</div>;
-  },
 }));
 
 const activity = {
@@ -33,8 +22,6 @@ let client: QueryClient;
 
 beforeEach(() => {
   visibility.visible = true;
-  naver.mount.mockClear();
-  naver.unmount.mockClear();
   client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
   vi.spyOn(api, 'companyRecentActivity').mockResolvedValue(activity);
   vi.spyOn(api, 'news').mockResolvedValue(news);
@@ -62,7 +49,6 @@ it('loads only the default activity tab with twenty items and an explicit empty 
   expect(api.companyRecentActivity).toHaveBeenCalledOnce();
   expect(api.companyRecentActivity).toHaveBeenCalledWith('company-1', expect.any(AbortSignal), 20);
   expect(api.news).not.toHaveBeenCalled();
-  expect(naver.mount).not.toHaveBeenCalled();
   expect(screen.getByRole('tab', { name: '공시·이벤트' })).toHaveAttribute('aria-selected', 'true');
   expect(screen.getByRole('tabpanel')).toHaveAccessibleName('공시·이벤트');
   expect(screen.getByRole('link', { name: '전체 보기' })).toHaveAttribute(
@@ -71,7 +57,7 @@ it('loads only the default activity tab with twenty items and an explicit empty 
   );
 });
 
-it('queries twenty company news entries only after selecting related news without mounting NAVER', async () => {
+it('queries twenty company news entries only after selecting related news with a unified provider feed', async () => {
   render(panel());
   await screen.findByText('최근 7일 공시·이벤트가 없습니다.');
   fireEvent.click(screen.getByRole('tab', { name: '관련 뉴스' }));
@@ -81,25 +67,9 @@ it('queries twenty company news entries only after selecting related news withou
     { companyId: 'company-1', limit: 20, scope: 'company' },
     expect.any(AbortSignal),
   );
-  expect(naver.mount).not.toHaveBeenCalled();
+  expect(screen.queryByRole('tab', { name: 'NAVER' })).toBeNull();
   expect(screen.getByRole('tabpanel')).toHaveAccessibleName('관련 뉴스');
   expect(screen.queryByText('최근 7일 공시·이벤트가 없습니다.')).toBeNull();
-});
-
-it('mounts the separate NAVER area only while its tab is selected', async () => {
-  const { unmount } = render(panel());
-  await screen.findByText('최근 7일 공시·이벤트가 없습니다.');
-  expect(naver.mount).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole('tab', { name: 'NAVER' }));
-  expect(screen.getByText('NAVER 별도 검색 결과')).toBeVisible();
-  expect(naver.mount).toHaveBeenCalledExactlyOnceWith('company-1');
-  fireEvent.click(screen.getByRole('tab', { name: '관련 뉴스' }));
-  expect(naver.unmount).toHaveBeenCalledExactlyOnceWith('company-1');
-  expect(screen.queryByText('NAVER 별도 검색 결과')).toBeNull();
-  fireEvent.click(screen.getByRole('tab', { name: 'NAVER' }));
-  expect(naver.mount).toHaveBeenCalledTimes(2);
-  unmount();
-  expect(naver.unmount).toHaveBeenCalledTimes(2);
 });
 
 it('aborts in-flight activity and news requests when their tabs are left', async () => {
@@ -120,7 +90,7 @@ it('aborts in-flight activity and news requests when their tabs are left', async
   await waitFor(() => expect(newsSignal).toBeDefined());
   expect(activitySignal?.aborted).toBe(true);
   expect(newsSignal?.aborted).toBe(false);
-  fireEvent.click(screen.getByRole('tab', { name: 'NAVER' }));
+  fireEvent.click(screen.getByRole('tab', { name: '공시·이벤트' }));
   expect(newsSignal?.aborted).toBe(true);
 });
 
@@ -129,14 +99,13 @@ it('moves keyboard focus and selection together with arrows, Home and End', asyn
   await screen.findByText('최근 7일 공시·이벤트가 없습니다.');
   const activityTab = screen.getByRole('tab', { name: '공시·이벤트' });
   const newsTab = screen.getByRole('tab', { name: '관련 뉴스' });
-  const naverTab = screen.getByRole('tab', { name: 'NAVER' });
   activityTab.focus();
   for (const [from, key, to] of [
     [activityTab, 'ArrowRight', newsTab],
-    [newsTab, 'End', naverTab],
-    [naverTab, 'Home', activityTab],
-    [activityTab, 'ArrowLeft', naverTab],
-    [naverTab, 'ArrowRight', activityTab],
+    [newsTab, 'Home', activityTab],
+    [activityTab, 'End', newsTab],
+    [newsTab, 'ArrowRight', activityTab],
+    [activityTab, 'ArrowLeft', newsTab],
   ] as const) {
     fireEvent.keyDown(from, { key });
     expect(to).toHaveFocus();
@@ -211,5 +180,4 @@ it('requests and polls only the selected visible tab, pausing both activity and 
   setVisible(false);
   await advance(120_000);
   expect(api.news).toHaveBeenCalledTimes(2);
-  expect(naver.mount).not.toHaveBeenCalled();
 });

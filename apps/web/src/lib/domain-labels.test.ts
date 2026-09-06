@@ -5,7 +5,7 @@ describe('display-only domain terminology', () => {
   it('replaces standalone codes in application explanations without changing the source string', () => {
     const original = 'P1 · D001 / D002 / D005 연결 확인';
     expect(displayDomainText(original)).toBe(
-      '중점 관찰 · 대량보유 공시 / 임원·주요주주 보유 / 주식 거래계획 연결 확인',
+      '시총 상위 20종목 · 대량보유 공시 / 임원·주요주주 보유 / 주식 거래계획 연결 확인',
     );
     expect(original).toBe('P1 · D001 / D002 / D005 연결 확인');
   });

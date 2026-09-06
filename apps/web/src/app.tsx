@@ -21,6 +21,9 @@ const EventsPage = lazy(() =>
 const EventDetailPage = lazy(() =>
   import('./pages/event-detail-page').then((module) => ({ default: module.EventDetailPage })),
 );
+const CompaniesPage = lazy(() =>
+  import('./pages/companies-page').then((module) => ({ default: module.CompaniesPage })),
+);
 const CompanyPage = lazy(() =>
   import('./pages/company-page').then((module) => ({ default: module.CompanyPage })),
 );
@@ -42,12 +45,6 @@ const NewsPage = lazy(() =>
 const NewsDetailPage = lazy(() =>
   import('./pages/news-detail-page').then((module) => ({ default: module.NewsDetailPage })),
 );
-const NaverNewsSearchPage = lazy(() =>
-  import('./pages/naver-news-search-page').then((module) => ({
-    default: module.NaverNewsSearchPage,
-  })),
-);
-
 const MarketsPage = lazy(() =>
   import('./pages/markets-page').then((module) => ({ default: module.MarketsPage })),
 );
@@ -121,9 +118,10 @@ export function App() {
           <Route path="events" element={<EventsPage />} />
           <Route path="search" element={<SearchPage />} />
           <Route path="news" element={<NewsPage />} />
-          <Route path="news/naver" element={<NaverNewsSearchPage />} />
+          <Route path="news/naver" element={<Navigate to="/news" replace />} />
           <Route path="news/:id" element={<NewsDetailPage />} />
           <Route path="events/:id" element={<EventDetailPage />} />
+          <Route path="companies" element={<CompaniesPage />} />
           <Route path="companies/:id" element={<CompanyPage />} />
           <Route path="settings/notifications" element={<NotificationsPage />} />
           <Route path="sources" element={<SourcesPage />} />

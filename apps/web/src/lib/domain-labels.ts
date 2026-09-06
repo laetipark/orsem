@@ -1,8 +1,8 @@
 import type { DisclosureType, Priority } from '../types';
 
 export const priorityLabels: Record<Priority, string> = {
-  P1: '중점 관찰',
-  P2: '관심 종목',
+  P1: '시총 상위 20종목',
+  P2: '이전 관심 분류',
   P3: '시장 동향',
   P4: '일반 뉴스',
 };

@@ -142,24 +142,6 @@ function harness(mode: 'metadata' | 'content', blocks: NewsContentBlock[] = []) 
   return { service, config, source, content, client, updates };
 }
 
-const longBlocks: NewsContentBlock[] = [
-  { type: 'PARAGRAPH', text: `First 5% ${'a'.repeat(1600)}` },
-  { type: 'PARAGRAPH', text: `Second 6% ${'b'.repeat(1600)}` },
-];
-const korean: NewsContentBlock[] = [
-  { type: 'PARAGRAPH', text: '첫 번째 5%입니다.' },
-  { type: 'PARAGRAPH', text: '두 번째 6%입니다.' },
-];
-// These responses cover the long synthetic source instead of summarizing it.
-const longKoreanTexts = [
-  `첫 번째 5%입니다. ${'첫 문단의 상세 내용입니다. '.repeat(100)}`,
-  `두 번째 6%입니다. ${'다음 문단의 상세 내용입니다. '.repeat(100)}`,
-].map((text) => text.trim());
-const longKorean: NewsContentBlock[] = longKoreanTexts.map((text) => ({
-  type: 'PARAGRAPH',
-  text,
-}));
-
 describe('automatic translations are idempotent for each current source version', () => {
   it('does not repeat completed metadata inference on a queue retry', async () => {
     const test = harness('metadata');
@@ -215,104 +197,6 @@ describe('automatic translations are idempotent for each current source version'
     expect(test.client.translate).toHaveBeenCalledTimes(1);
   });
 
-  it('resumes after a failed later chunk without translating completed earlier chunks again', async () => {
-    const test = harness('content', longBlocks);
-    test.client.translateContentChunk
-      .mockResolvedValueOnce([longKorean[0]])
-      .mockRejectedValueOnce(new Error('temporary failure'))
-      .mockResolvedValueOnce([longKorean[1]]);
-    await expect(test.service.translateBatch()).resolves.toMatchObject({ contentFailed: 1 });
-    expect(test.content.translationJson).toMatchObject({
-      status: 'FAILED',
-      blocks: null,
-      completedChunks: [{ blocks: [longKorean[0]] }],
-    });
-    test.content.translationJson!.nextAttemptAt = '2020-01-01T00:00:00Z';
-    await expect(test.service.translateBatch()).resolves.toMatchObject({ contentCompleted: 1 });
-    expect(test.client.translateContentChunk).toHaveBeenCalledTimes(3);
-    expect(test.client.translateContentChunk).toHaveBeenLastCalledWith([longBlocks[1]], []);
-    expect(test.content.translationJson).toMatchObject({
-      status: 'COMPLETED',
-      blocks: longKorean,
-      completedChunks: [],
-      nextAttemptAt: null,
-    });
-    await test.service.translateBatch();
-    expect(test.client.translateContentChunk).toHaveBeenCalledTimes(3);
-  });
-
-  it('resumes a successful split half without repeating the failed parent request', async () => {
-    const blocks: NewsContentBlock[] = [
-      { type: 'PARAGRAPH', text: 'First 5%.' },
-      { type: 'PARAGRAPH', text: 'Second 6%.' },
-    ];
-    const test = harness('content', blocks);
-    test.client.translateContentChunk
-      .mockRejectedValueOnce(new Error('split required'))
-      .mockResolvedValueOnce([korean[0]])
-      .mockRejectedValueOnce(new Error('second half failed'))
-      .mockResolvedValueOnce([korean[1]]);
-    await expect(test.service.translateBatch()).resolves.toMatchObject({ contentFailed: 1 });
-    test.content.translationJson!.nextAttemptAt = '2020-01-01T00:00:00Z';
-    await expect(test.service.translateBatch()).resolves.toMatchObject({ contentCompleted: 1 });
-    expect(test.client.translateContentChunk).toHaveBeenCalledTimes(4);
-    expect(test.client.translateContentChunk).toHaveBeenLastCalledWith([blocks[1]], []);
-  });
-
-  it('reuses completed chunks after switching local models and preserves their provenance', async () => {
-    const test = harness('content', longBlocks);
-    test.client.translateContentChunk
-      .mockResolvedValueOnce([longKorean[0]])
-      .mockRejectedValueOnce(new Error('temporary failure'))
-      .mockResolvedValueOnce([longKorean[1]]);
-    await test.service.translateBatch();
-    test.client.model = 'local-test-v2';
-    test.content.translationJson!.nextAttemptAt = '2020-01-01T00:00:00Z';
-    await expect(test.service.translateBatch()).resolves.toMatchObject({ contentCompleted: 1 });
-    expect(test.client.translateContentChunk).toHaveBeenCalledTimes(3);
-    expect(test.content.translationJson).toMatchObject({
-      chunkOrigins: [
-        { provider: 'LOCAL', model: 'local-test' },
-        { provider: 'LOCAL', model: 'local-test-v2' },
-      ],
-      blocks: longKorean,
-    });
-  });
-
-  it('does not reuse prior checkpoints when the article content hash changes', async () => {
-    const test = harness('content', longBlocks);
-    test.client.translateContentChunk
-      .mockResolvedValueOnce([longKorean[0]])
-      .mockRejectedValueOnce(new Error('temporary failure'))
-      .mockResolvedValueOnce([longKorean[0]])
-      .mockResolvedValueOnce([longKorean[1]]);
-    await test.service.translateBatch();
-    test.content.contentHash = 'c'.repeat(64);
-    await expect(test.service.translateBatch()).resolves.toMatchObject({ contentCompleted: 1 });
-    expect(test.client.translateContentChunk).toHaveBeenCalledTimes(4);
-    expect(test.content.translationJson).toMatchObject({ attempts: 1, inputHash: 'c'.repeat(64) });
-  });
-
-  it('checkpoints an oversized list by item groups and restores the original list after retry', async () => {
-    const items = [`First 5% ${'a'.repeat(1600)}`, `Second 6% ${'b'.repeat(1600)}`];
-    const test = harness('content', [{ type: 'LIST', ordered: true, items }]);
-    test.client.translateContentChunk
-      .mockResolvedValueOnce([{ type: 'LIST', ordered: true, items: [longKoreanTexts[0]] }])
-      .mockRejectedValueOnce(new Error('temporary failure'))
-      .mockResolvedValueOnce([{ type: 'LIST', ordered: true, items: [longKoreanTexts[1]] }]);
-    await expect(test.service.translateBatch()).resolves.toMatchObject({ contentFailed: 1 });
-    test.content.translationJson!.nextAttemptAt = '2020-01-01T00:00:00Z';
-    await expect(test.service.translateBatch()).resolves.toMatchObject({ contentCompleted: 1 });
-    expect(test.client.translateContentChunk).toHaveBeenCalledTimes(3);
-    expect(test.client.translateContentChunk).toHaveBeenLastCalledWith(
-      [{ type: 'LIST', ordered: true, items: [items[1]] }],
-      [],
-    );
-    expect(test.content.translationJson!.blocks).toEqual([
-      { type: 'LIST', ordered: true, items: longKoreanTexts },
-    ]);
-  });
-
   it('renews metadata lease before a title-only fallback and releases it on completion', async () => {
     jest.useFakeTimers({ now: at });
     try {
@@ -335,53 +219,29 @@ describe('automatic translations are idempotent for each current source version'
     }
   });
 
-  it('renews the claim before each split call even when the total duration exceeds its initial lease', async () => {
-    jest.useFakeTimers({ now: at });
-    try {
-      const blocks: NewsContentBlock[] = [
-        { type: 'PARAGRAPH', text: 'First 5%.' },
-        { type: 'PARAGRAPH', text: 'Second 6%.' },
-      ];
-      const test = harness('content', blocks);
-      const leases: number[] = [];
-      test.client.translateContentChunk.mockImplementation(async (input: NewsContentBlock[]) => {
-        leases.push(Date.parse(test.content.translationJson!.nextAttemptAt!));
-        expect(leases.at(-1)! - Date.now()).toBeGreaterThanOrEqual(180000);
-        jest.setSystemTime(Date.now() + 119000);
-        if (input.length === 2) throw new Error('split');
-        return [
-          input[0]?.type === 'PARAGRAPH' && input[0].text.startsWith('First')
-            ? korean[0]
-            : korean[1],
-        ];
+  it('does not overwrite a manual metadata edit made during inference', async () => {
+    const test = harness('metadata');
+    test.client.translate.mockImplementationOnce(async () => {
+      Object.assign(test.source, {
+        manualTranslationJson: { version: 2, revisionId: 'manual-save' },
       });
-      await expect(test.service.translateBatch()).resolves.toMatchObject({ contentCompleted: 1 });
-      expect(leases).toHaveLength(3);
-      expect(leases[2]! - leases[0]!).toBe(238000);
-    } finally {
-      jest.useRealTimers();
-    }
+      return { title: '자동 결과', description: null };
+    });
+    await expect(test.service.translateBatch()).resolves.toMatchObject({ completed: 0, stale: 1 });
+    expect(test.source.manualTranslationJson).toMatchObject({ revisionId: 'manual-save' });
+    await test.service.translateBatch();
+    expect(test.client.translate).toHaveBeenCalledTimes(1);
   });
 
-  it.each(['metadata', 'content'] as const)(
-    'does not overwrite a manual edit made during %s inference',
-    async (mode) => {
-      const test = harness(mode, [longBlocks[0]!]);
-      const target = mode === 'metadata' ? test.source : test.content;
-      const mock = mode === 'metadata' ? test.client.translate : test.client.translateContentChunk;
-      mock.mockImplementationOnce(async () => {
-        Object.assign(target, { manualTranslationJson: { revisionId: 'manual-save' } });
-        return mode === 'metadata' ? { title: '자동 결과', description: null } : [korean[0]];
-      });
-      await expect(test.service.translateBatch()).resolves.toMatchObject(
-        mode === 'metadata' ? { completed: 0, stale: 1 } : { contentCompleted: 0, contentStale: 1 },
-      );
-      expect(target.manualTranslationJson).toMatchObject({ revisionId: 'manual-save' });
-      expect(target.translationJson?.status).toBe('PROCESSING');
-      await test.service.translateBatch();
-      expect(mock).toHaveBeenCalledTimes(1);
-    },
-  );
+  it('never resumes historical body checkpoints from an old batch job', async () => {
+    const test = harness('content', [{ type: 'PARAGRAPH', text: 'Legacy body secret' }]);
+    const saved = structuredClone(test.content);
+    await test.service.translateBatch();
+    await test.service.translateBatch();
+    expect(test.client.translateContentChunk).not.toHaveBeenCalled();
+    expect(test.content).toEqual(saved);
+    expect(test.updates.some(({ entity }) => entity === NewsArticleContentEntity)).toBe(false);
+  });
 
   it('rejects an old claim even if another claim has the same attemptedAt timestamp', async () => {
     const test = harness('metadata');

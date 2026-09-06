@@ -1,3 +1,4 @@
+import { SearchInput } from './search-input';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -243,12 +244,20 @@ function StockEditorForm({
           setTerm(q.trim());
         }}
       >
-        <Input
-          autoFocus
+        <SearchInput
           value={q}
+          onChange={setQ}
+          label="추가할 종목 검색"
           placeholder="기업명·종목코드 검색"
-          aria-label="추가할 종목 검색"
-          onChange={(e) => setQ(e.target.value)}
+          filters={{ kind: 'companies' }}
+          contextKey={`${actor}:${group.id}`}
+          onSelect={(item) => {
+            const company = item.company;
+            if (company && draft.length < 200 && !draft.some((c) => c.id === company.id))
+              setDraft([...draft, company]);
+            setQ('');
+          }}
+          onSubmit={() => setTerm(q.trim())}
         />
         <Button type="submit" size="sm" disabled={!q.trim()}>
           검색

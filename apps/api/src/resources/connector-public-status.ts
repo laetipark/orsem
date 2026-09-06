@@ -65,8 +65,22 @@ export function publicDiscoveryStatus(
           ? ' 실제 공급자 응답입니다.'
           : ''
       : '';
+  const secGuidance =
+    prefix === 'SEC' && httpStatus === 403
+      ? metadata.providerCode === 'SEC_UNDECLARED_AUTOMATION'
+        ? ' SEC가 미신고 자동화 도구로 분류했습니다. 운영자는 앱·연락처 User-Agent가 실제 전달되는지 확인하고, 정상이라면 SEC Webmaster에 접근 검토를 요청해야 합니다.'
+        : metadata.providerCode === 'SEC_RATE_LIMIT'
+          ? ' SEC 요청 빈도 제한 응답입니다. 같은 송신망의 다른 수집 요청도 확인해야 합니다.'
+          : metadata.providerCode === 'SEC_ACCESS_DENIED'
+            ? ' SEC 접근 정책에 따른 거부입니다. 반복되면 운영자는 SEC Webmaster에 접근 검토를 요청해야 합니다.'
+            : ' 403만으로 원인을 확정할 수 없습니다. 운영자는 앱·연락처 User-Agent와 송신망을 확인해야 합니다.'
+      : '';
+  const retryGuidance =
+    prefix === 'SEC' && (httpStatus === 403 || httpStatus === 429)
+      ? ' 다음 요청 가능 시각은 앱의 재시도 대기 종료이며, 접근 복구를 보장하지 않습니다.'
+      : '';
   return {
-    message: `${prefix} ${reason}${attempt}`,
+    message: `${prefix} ${reason}${attempt}${secGuidance}${retryGuidance}`,
     httpStatus,
     requestAttempted,
     lastAttemptAt: instant(metadata.lastAttemptAt),

@@ -5,6 +5,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { MarketOverview } from '../components/market-overview';
 import { MarketValue } from '../components/market-value';
 import { MarketChart } from '../components/market-chart';
+import { AssetNews, isNewsAsset } from '../components/asset-news';
 import { RegionTabs, useRegion } from '../components/region-tabs';
 import { TradingViewWidget } from '../components/tradingview-widget';
 import {
@@ -101,24 +102,15 @@ export function MarketDetailPage() {
         <CardContent>
           {item.displayKind === 'NATIVE' ? <MarketValue item={item} /> : null}
           <div className="market-detail__times">
-            {item.displayKind === 'NATIVE' ? (
-              item.observedAt ? (
-                <time
-                  dateTime={item.observedAt}
-                  title={collectionTime.description}
-                  aria-label={collectionTime.description}
-                >
-                  {collectionTime.timestamp}
-                </time>
-              ) : (
-                <span title={collectionTime.description}>{collectionTime.label}</span>
-              )
-            ) : (
-              <span>
-                {marketSourceTime(item) ??
-                  (item.observedAt ? `관측 ${formatKst(item.observedAt)}` : '자료 기준 확인 전')}
-              </span>
-            )}
+            <span>
+              {marketSourceTime(item) ??
+                (item.observedAt ? `관측 ${formatKst(item.observedAt)}` : '자료 기준 확인 전')}
+            </span>
+            {item.observedAt ? (
+              <time dateTime={item.observedAt} title={collectionTime.description}>
+                수집 {collectionTime.timestamp}
+              </time>
+            ) : null}
             {item.category === 'CRYPTO' ? (
               <span>환율 기준 {formatKst(item.conversionAt)} · 과거 차트는 원화 기준</span>
             ) : null}
@@ -134,7 +126,7 @@ export function MarketDetailPage() {
             <div className="market-chart-toolbar">
               <span>
                 {kind}
-                {item.id === 'wti' ? ' · 현물' : ''}
+                {item.id === 'wti' ? ' · WTI 현물 · EIA 묶음 발표' : ''}
               </span>
               <div role="group" aria-label="차트 기간">
                 {availableRanges.map((value) => (
@@ -185,6 +177,7 @@ export function MarketDetailPage() {
                   name={item.name}
                   unit={marketUnit(item.unit)}
                   currency={item.currency}
+                  rangeKey={activeRange}
                 />
               ) : history.data ? (
                 <EmptyState
@@ -196,7 +189,10 @@ export function MarketDetailPage() {
               ) : null}
               {history.data && points.length ? (
                 <p className="market-page-note">
-                  실제 수집된 날짜만 표시합니다. 휴장일과 누락된 관측값은 채우지 않습니다.
+                  {item.id === 'wti'
+                    ? 'WTI는 날짜별 현물 종가이며 EIA가 여러 날짜를 묶어 발표합니다. 기준일과 수집 시각이 다를 수 있습니다. '
+                    : ''}
+                  실제 제공된 날짜만 표시합니다. 휴장일과 누락된 관측값은 채우지 않습니다.
                 </p>
               ) : null}
             </>
@@ -209,6 +205,7 @@ export function MarketDetailPage() {
           </div>
         </CardContent>
       </Card>
+      {isNewsAsset(id) ? <AssetNews asset={id} /> : null}
     </div>
   );
 }

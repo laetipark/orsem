@@ -12,7 +12,7 @@ import {
   InsiderTransactionEntity,
   ParseRunEntity,
   SourceItemEntity,
-  WatchlistItemEntity,
+  MarketLeaderScopeEntity,
 } from '@orsem/database';
 import { DataSource, FindOperator, type EntityTarget, type ObjectLiteral } from 'typeorm';
 import { loadAppConfig } from '../config/app-config';
@@ -101,7 +101,7 @@ async function batchContext(size: number) {
     },
   ]);
   records.set(
-    WatchlistItemEntity,
+    MarketLeaderScopeEntity,
     companies.map((company) => ({ companyId: company.id, priority: 'P2' })),
   );
   records.set(

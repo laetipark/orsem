@@ -374,14 +374,6 @@ a:focus-visible,
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
-.main-content {
-  width: min(100%, 1480px);
-  margin: 0 auto;
-  min-width: 0;
-  padding: 28px 28px 56px;
-  outline: none;
-}
-
 .page-stack {
   display: flex;
   flex-direction: column;
@@ -2192,9 +2184,6 @@ a:focus-visible,
 }
 
 @media (max-width: 900px) {
-  .main-content {
-    padding-inline: 18px;
-  }
   .priority-grid,
   .dashboard-lower-grid,
   .detail-grid,
@@ -2224,9 +2213,6 @@ a:focus-visible,
 @media (max-width: 900px) {
   :root {
     --radius: 10px;
-  }
-  .main-content {
-    padding: 18px 12px calc(88px + env(safe-area-inset-bottom));
   }
   .page-stack {
     gap: 16px;

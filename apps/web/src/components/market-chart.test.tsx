@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { MarketChart } from './market-chart';
 
@@ -10,6 +10,10 @@ const mocks = vi.hoisted(() => ({
   apply: vi.fn(),
   restore: vi.fn(),
   theme: 'dark',
+  crosshair: vi.fn(),
+  click: vi.fn(),
+  unsubscribeCrosshair: vi.fn(),
+  unsubscribeClick: vi.fn(),
 }));
 vi.mock('lightweight-charts', () => ({
   ColorType: { Solid: 'solid' },
@@ -30,6 +34,10 @@ beforeEach(() => {
     addSeries: () => ({ setData: mocks.setData }),
     applyOptions: mocks.apply,
     remove: mocks.remove,
+    subscribeCrosshairMove: mocks.crosshair,
+    subscribeClick: mocks.click,
+    unsubscribeCrosshairMove: mocks.unsubscribeCrosshair,
+    unsubscribeClick: mocks.unsubscribeClick,
     timeScale: () => ({
       fitContent: mocks.fit,
       getVisibleLogicalRange: () => ({ from: 1, to: 3 }),
@@ -91,4 +99,26 @@ it('only mounts the data table while expanded and uses the same normalized point
   details.open = false;
   fireEvent(details, new Event('toggle'));
   expect(screen.queryByRole('table')).not.toBeInTheDocument();
+});
+
+it('refits when the user switches range while preserving zoom on ordinary refresh', () => {
+  const view = render(<MarketChart {...props} rangeKey="1m" />);
+  view.rerender(<MarketChart {...props} rangeKey="1y" />);
+  expect(mocks.fit).toHaveBeenCalledTimes(2);
+  view.rerender(<MarketChart {...props} rangeKey="1y" points={[...points]} />);
+  expect(mocks.fit).toHaveBeenCalledTimes(2);
+});
+
+it('exposes actual daily values through keyboard selection and chart touch selection', () => {
+  const view = render(<MarketChart {...props} />);
+  const date = screen.getByRole('combobox', { name: '시장 지표 기준일' });
+  expect(date).toHaveValue('2026-09-02');
+  fireEvent.change(date, { target: { value: '2026-09-01' } });
+  expect(date).toHaveValue('2026-09-01');
+  expect(screen.getByText('$100')).toBeInTheDocument();
+  act(() => mocks.click.mock.calls[0]![0]({ time: { year: 2026, month: 9, day: 2 } }));
+  expect(date).toHaveValue('2026-09-02');
+  expect(screen.getByText('$102')).toBeInTheDocument();
+  view.unmount();
+  expect(mocks.unsubscribeClick).toHaveBeenCalledWith(mocks.click.mock.calls[0]![0]);
 });

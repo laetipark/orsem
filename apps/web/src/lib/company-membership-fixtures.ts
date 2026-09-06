@@ -5,7 +5,7 @@ import type {
 } from '@orsem/contracts';
 import { ApiError } from './api';
 
-const fixtureGroups: Array<CompanyWatchlistMembership & { companyIds: Set<string> }> = [
+export const fixtureGroups: Array<CompanyWatchlistMembership & { companyIds: Set<string> }> = [
   {
     id: 'fixture-personal-semiconductors',
     name: '반도체',
