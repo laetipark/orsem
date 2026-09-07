@@ -4,6 +4,8 @@ Orsem은 한국의 지분 공시, 공식 공시 문서, 시장 가격, 출처가
 
 이 시스템은 관측을 목적으로 합니다. 보유 수량 증가를 자동으로 장내매수로 판단하지 않으며, 어떤 이벤트도 자동 매수·매도 추천이나 주문으로 연결하지 않습니다.
 
+Marketaux·Alpha Vantage NEWS_SENTIMENT·Finnhub Company News의 조건부 metadata 어댑터와 NVDA·AVGO·PANW 공식 IR/한국경제 증권 RSS 프로필을 기존 뉴스 경로에 추가했습니다. **모두 기본 비활성·권리 UNKNOWN**이며 무료 계정 응답과 저장 권리를 확인해야 합니다. 신규 개인용 뉴스는 관리자 화면에 한정하고 본문·이미지를 수집하지 않습니다. 기존 DART·SEC·NAVER·공식 RSS·GDELT·Alpaca News와 토스 가격 구현을 재사용합니다. [기존 구현 audit](docs/SOURCES.md), [조사·채택 결정](docs/NEWS_PROVIDER_COMPARISON.md), [활성화 조건](docs/OPERATIONS.md)을 참고하세요.
+
 ## 작업 공간 구성
 
 ```text

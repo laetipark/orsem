@@ -1,3 +1,4 @@
+import { newsAudienceForActor } from './news-access';
 import { NaverFocusNewsService } from '../news-search/naver-focus-news.service';
 import { CompanyInformationApiService } from './company-information.service';
 import { groupActor } from '../watchlist-groups/watchlist-access.service';
@@ -29,6 +30,8 @@ import {
   updateReviewSchema,
   watchlistQuotesQuerySchema,
   NewsSourceKind,
+  newsCompanyIdsQuerySchema,
+  companyQuotesQuerySchema,
 } from '@orsem/contracts';
 import { parseWith } from '../common/zod';
 import { RateLimit, ReadOnlyMemberAccess } from '../security/security';
@@ -59,7 +62,7 @@ export class DashboardController {
   async personalNews(@Req() request: Request) {
     const actor = groupActor(request).key;
     const [page, provider] = await Promise.all([
-      this.data.personalNews(actor),
+      this.data.personalNews(actor, newsAudienceForActor(groupActor(request))),
       this.naver.feed({ scope: 'personal' }, actor).catch(() => null),
     ]);
     return {
@@ -108,6 +111,15 @@ export class CompaniesController {
     private readonly observations: CompanyObservationService,
     private readonly information: CompanyInformationApiService,
   ) {}
+
+  @Get('quotes')
+  @RateLimit(90)
+  @Header('Cache-Control', 'private, no-store')
+  async quotes(@Query() query: unknown) {
+    const { ids } = parseWith(companyQuotesQuerySchema, query);
+    const companies = await this.data.companiesByIds(ids);
+    return this.observations.prices(companies);
+  }
 
   @Get()
   async list(@Query() query: unknown) {
@@ -204,13 +216,16 @@ export class EventsController {
   constructor(private readonly data: OrsemDataService) {}
 
   @Get()
-  list(@Query() query: unknown) {
-    return this.data.listEventViews(parseWith(eventQuerySchema, query));
+  list(@Query() query: unknown, @Req() request: Request) {
+    return this.data.listEventViews({
+      ...parseWith(eventQuerySchema, query),
+      audience: newsAudienceForActor(groupActor(request)),
+    });
   }
 
   @Get(':id')
-  get(@Param('id') id: string) {
-    return this.data.getEventView(id);
+  get(@Param('id') id: string, @Req() request: Request) {
+    return this.data.getEventView(id, newsAudienceForActor(groupActor(request)));
   }
 }
 
@@ -226,19 +241,51 @@ export class NewsController {
   @Header('Cache-Control', 'private, no-store')
   async list(@Query() query: unknown, @Req() request: Request) {
     const parsed = parseWith(
-      cursorQuerySchema.extend({
-        q: z.string().trim().max(120).optional(),
-        source: z.enum(['NEWS_RSS', 'IR', 'SEC', 'GDELT', 'ALPACA_NEWS', 'OPENDART']).optional(),
-        sourceKind: z.enum(NewsSourceKind).optional(),
-        scope: z.enum(['all', 'market', 'company']).default('all'),
-        asset: z.enum(['gold', 'silver', 'wti', 'btc', 'eth']).optional(),
-        publisher: z.string().trim().max(255).optional(),
-        companyId: z.string().uuid().optional(),
-      }),
+      cursorQuerySchema
+        .extend({
+          q: z.string().trim().max(120).optional(),
+          source: z
+            .enum([
+              'NEWS_RSS',
+              'IR',
+              'SEC',
+              'GDELT',
+              'ALPACA_NEWS',
+              'MARKETAUX',
+              'ALPHAVANTAGE',
+              'FINNHUB',
+              'OPENDART',
+            ])
+            .optional(),
+          sourceKind: z.enum(NewsSourceKind).optional(),
+          scope: z.enum(['all', 'market', 'company']).default('all'),
+          asset: z.enum(['gold', 'silver', 'wti', 'btc', 'eth']).optional(),
+          publisher: z.string().trim().max(255).optional(),
+          companyId: z.string().uuid().optional(),
+          companyIds: newsCompanyIdsQuerySchema.optional(),
+        })
+        .refine(
+          (value) =>
+            value.companyIds === undefined ||
+            (value.companyId === undefined &&
+              value.asset === undefined &&
+              value.scope === 'company'),
+          {
+            message: 'companyIds는 scope=company로만 사용하며 companyId와 함께 지정할 수 없습니다.',
+          },
+        ),
       query,
     );
-    const page = await this.data.listNews(parsed);
-    const include = !parsed.cursor && !parsed.source && !parsed.publisher && !parsed.sourceKind;
+    const page = await this.data.listNews({
+      ...parsed,
+      audience: newsAudienceForActor(groupActor(request)),
+    });
+    const include =
+      !parsed.cursor &&
+      !parsed.source &&
+      !parsed.publisher &&
+      !parsed.sourceKind &&
+      (parsed.companyIds === undefined || parsed.companyIds.length > 0);
     const provider = include
       ? await this.naver.feed(parsed, groupActor(request).key).catch(() => null)
       : null;
@@ -264,8 +311,8 @@ export class NewsController {
   }
 
   @Get(':id')
-  get(@Param('id') id: string) {
-    return this.data.getNews(id);
+  get(@Param('id') id: string, @Req() request: Request) {
+    return this.data.getNews(id, newsAudienceForActor(groupActor(request)));
   }
 }
 

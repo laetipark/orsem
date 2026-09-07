@@ -87,7 +87,7 @@ it('refreshes basic prices when the first collected daily candle arrives without
   await screen.findByRole('heading', { name: '삼성전자' });
   expect(screen.getByRole('link', { name: '국내 시총 1위' })).toHaveAttribute(
     'href',
-    '/watchlist#market-leaders-kr',
+    '/markets?region=kr#market-leaders-kr',
   );
   expect(screen.queryByText(/운영 관심|관심 해제|관심 추가/)).not.toBeInTheDocument();
   await waitFor(() =>

@@ -106,6 +106,30 @@ it('news scopes isolate common-market and related-company metadata while absent 
   ).toBe(true);
 });
 
+it('recent-company fixtures match related companies and never replace an empty selection with market news', async () => {
+  const [recent, empty, unrelated] = await Promise.all([
+    fixtureRequest<CursorPage<SourceItem>>(
+      '/api/v1/news?scope=company&companyIds=company-samsung,company-msft',
+    ),
+    fixtureRequest<CursorPage<SourceItem>>('/api/v1/news?scope=company&companyIds='),
+    fixtureRequest<CursorPage<SourceItem>>('/api/v1/news?scope=company&companyIds=company-msft'),
+  ]);
+  expect(recent.items.map((item) => item.id)).toEqual(['fixture-news-samsung-global-01']);
+  expect(
+    recent.items.every((item) =>
+      item.relatedCompanies?.some((company) => company.id === 'company-samsung'),
+    ),
+  ).toBe(true);
+  expect(empty).toEqual({ items: [], nextCursor: null });
+  expect(unrelated).toEqual({ items: [], nextCursor: null });
+  const ids = Array.from({ length: 21 }, (_, index) => `company-${index}`).join(',');
+  await expect(
+    fixtureRequest(`/api/v1/news?scope=company&companyIds=${ids}`),
+  ).rejects.toMatchObject({
+    statusCode: 400,
+  });
+});
+
 it('personal-news fixtures derive their companies from personal groups and hide them when signed out', async () => {
   const original = await fixtureRequest<{ companyCount: number; news: SourceItem[] }>(
     '/api/v1/dashboard/personal-news',

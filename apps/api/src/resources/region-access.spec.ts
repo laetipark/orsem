@@ -267,8 +267,12 @@ test('RSS news SQL combines source, global feed region and cursor predicates bef
     assert.ok(query.values.includes('NEWS_RSS'));
     assert.match(query.sql, /JSON_EXTRACT\(`source`\.`raw_metadata_json`, '\$\.marketRegion'\)/u);
     assert.match(query.sql, /IN \('global', \?\)/u);
-    assert.match(query.sql, /COALESCE\(`source`\.`news_article_id`, `source`\.`id`\) < \?/u);
-    assert.match(query.sql, /ORDER BY COALESCE.*DESC, COALESCE.*DESC LIMIT 7$/u);
+    assert.match(query.sql, /`source`\.`id` < \?/u);
+    assert.doesNotMatch(query.sql, /COALESCE\(`article`\.`sort_at`/u);
+    assert.match(
+      query.sql.slice(query.sql.lastIndexOf('ORDER BY ')),
+      /ORDER BY COALESCE\(`source`\.`published_at`, `source`\.`first_observed_at`\) DESC, `source_id` DESC LIMIT 7$/u,
+    );
     assert.equal(query.values[0], 'NEWS_RSS');
     assert.ok(query.values.includes(region));
     assert.ok(query.values.includes(region === 'kr' ? 'KOSPI' : 'NASDAQ'));

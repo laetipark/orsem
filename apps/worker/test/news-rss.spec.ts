@@ -74,6 +74,7 @@ function memoryDatabase() {
       update: jest.Mock;
       createQueryBuilder: jest.Mock;
       findOneByOrFail: jest.Mock;
+      findOneBy: jest.Mock;
     }
   >();
   let nextId = 1;
@@ -84,6 +85,12 @@ function memoryDatabase() {
   const repository = (target: unknown) => {
     if (!repositories.has(target))
       repositories.set(target, {
+        findOneBy: jest.fn(
+          async (where: Record<string, unknown>) =>
+            rows(target).find((row) =>
+              Object.entries(where).every(([key, value]) => row[key] === value),
+            ) ?? null,
+        ),
         findOneByOrFail: jest.fn(async (where: Record<string, unknown>) =>
           rows(target).find((row) =>
             Object.entries(where).every(([key, value]) => row[key] === value),
@@ -698,7 +705,7 @@ describe('publisher RSS ingestion', () => {
       status: ConnectorStatus.DEGRADED,
       rightsMode: RightsMode.PRIVATE_DISPLAY_ONLY,
       message:
-        '2 active IR source(s) violate the exact Samsung RSS and PRIVATE_DISPLAY_ONLY contract.',
+        '2 active IR source(s) violate the approved RSS profile, company or rights contract.',
       metadata: { invalidRegisteredSources: 2 },
     });
   });

@@ -1,5 +1,27 @@
 import { z } from 'zod';
-import { companySchema } from './schemas';
+import { companySchema, cursorQuerySchema } from './schemas';
+
+/** Internal group feeds accept all group members; public recent feeds are capped at 20. */
+export const newsCompanyIdsSchema = z
+  .array(z.uuid())
+  .max(200)
+  .refine((ids) => new Set(ids).size === ids.length);
+export const newsCompanyIdsQuerySchema = z
+  .string()
+  .max(739)
+  .transform((value) => (value === '' ? [] : value.split(',')))
+  .pipe(newsCompanyIdsSchema.max(20));
+export const watchlistGroupNewsQuerySchema = cursorQuerySchema
+  .omit({ region: true })
+  .extend({
+    limit: z.coerce.number().int().min(1).max(100).default(20),
+    companyId: z.uuid().optional(),
+  })
+  .strict();
+export const watchlistGroupFilingsQuerySchema = z
+  .object({ companyId: z.uuid().optional() })
+  .strict();
+export const companyQuotesQuerySchema = z.object({ ids: newsCompanyIdsQuerySchema }).strict();
 
 export const OPERATIONAL_WATCHLIST_GROUP_ID = 'operational';
 export const watchlistGroupIdSchema = z.union([
@@ -110,6 +132,11 @@ export const groupDisplayPriceSchema = z.object({
   changePercent: z.number().nullable(),
 });
 export type GroupDisplayPrice = z.infer<typeof groupDisplayPriceSchema>;
+export const companyQuotesSchema = z.object({
+  asOf: z.iso.datetime(),
+  items: z.array(z.object({ companyId: z.uuid(), displayPrice: groupDisplayPriceSchema })).max(20),
+});
+export type CompanyQuotes = z.infer<typeof companyQuotesSchema>;
 export const groupActivitySchema = z.object({
   id: z.uuid(),
   kind: z.enum(['FILING', 'EVENT']),

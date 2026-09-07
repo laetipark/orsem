@@ -1,3 +1,4 @@
+import { newsAudienceSql, newsAudienceAllows, type NewsAudience } from '../resources/news-access';
 import { publicSourceUrl } from '../common/news-url';
 import { manualNewsTranslationSql } from '../resources/manual-news-translation';
 import { Inject, Injectable } from '@nestjs/common';
@@ -24,6 +25,7 @@ import {
 } from '../common/news-translation';
 import {
   visibleNewsSql,
+  metadataNewsSql,
   newsFiltersSql,
   newsFilterParameters,
   PUBLIC_NEWS_PUBLISHERS,
@@ -122,11 +124,12 @@ function instant(value: Date | string | null): string | null {
 }
 
 function companyCondition(): string {
-  return `(company.nameKo LIKE :pattern ESCAPE '!' OR company.nameEn LIKE :pattern ESCAPE '!'
-    OR company.stockCode LIKE :pattern ESCAPE '!' OR company.ticker LIKE :pattern ESCAPE '!'
-    OR company.corpCode LIKE :pattern ESCAPE '!' OR company.cik LIKE :pattern ESCAPE '!'
+  // DB 컬럼의 collation과 관계없이 검색과 추천 순위에서 대소문자를 무시합니다.
+  return `(LOWER(company.nameKo) LIKE LOWER(:pattern) ESCAPE '!' OR LOWER(company.nameEn) LIKE LOWER(:pattern) ESCAPE '!'
+    OR LOWER(company.stockCode) LIKE LOWER(:pattern) ESCAPE '!' OR LOWER(company.ticker) LIKE LOWER(:pattern) ESCAPE '!'
+    OR LOWER(company.corpCode) LIKE LOWER(:pattern) ESCAPE '!' OR LOWER(company.cik) LIKE LOWER(:pattern) ESCAPE '!'
     OR EXISTS (SELECT 1 FROM company_aliases alias WHERE alias.company_id = company.id
-      AND alias.alias LIKE :pattern ESCAPE '!'))`;
+      AND LOWER(alias.alias) LIKE LOWER(:pattern) ESCAPE '!'))`;
 }
 
 function companyItem(row: CompanyRow): SearchItem {
@@ -147,7 +150,7 @@ function companyItem(row: CompanyRow): SearchItem {
   };
 }
 
-function sourceItem(row: SourceRow): SearchItem | null {
+function sourceItem(row: SourceRow, audience: NewsAudience = 'MEMBER_UI'): SearchItem | null {
   const url = publicSourceUrl(row.url);
   if (row.source.startsWith('NAVER') || !url || !metadataRights.includes(row.rightsMode))
     return null;
@@ -160,6 +163,10 @@ function sourceItem(row: SourceRow): SearchItem | null {
       policy = null;
     }
   }
+  const privateCard =
+    policy?.policyVersion === 2 &&
+    newsAudienceAllows({ source: row.source, sourcePolicyJson: policy }, audience);
+  if (!newsAudienceAllows({ source: row.source, sourcePolicyJson: policy }, audience)) return null;
   const metadataCard =
     ['GDELT', 'ALPACA_NEWS'].includes(row.source) &&
     row.metadataRightsContext === 'APPROVED_PUBLISHER_METADATA' &&
@@ -171,6 +178,7 @@ function sourceItem(row: SourceRow): SearchItem | null {
   if (
     !filing &&
     !metadataCard &&
+    !privateCard &&
     (policy?.metadataStorageAllowed !== true ||
       policy?.displayAllowed !== true ||
       policy?.rightsMode !== row.rightsMode ||
@@ -184,7 +192,9 @@ function sourceItem(row: SourceRow): SearchItem | null {
     id: row.id,
     type: filing ? 'FILING' : 'NEWS',
     title: row.title,
-    description: metadataCard ? null : publicNewsDescription(row.rightsMode, row.description),
+    description: metadataCard
+      ? null
+      : publicNewsDescription(row.rightsMode, row.description, policy),
     relatedCompanies: row.relatedCompanies ?? [],
     translation,
     translationStatus: filing ? 'UNAVAILABLE' : publicNewsTranslationStatus(row),
@@ -232,10 +242,15 @@ export class SearchService {
     private readonly fixtures: FixtureStoreService,
   ) {}
 
-  async search(input: { q: string; limit: number; region?: Region }): Promise<SearchResults> {
+  async search(
+    input: { q: string; limit: number; region?: Region },
+    audience: NewsAudience = 'MEMBER_UI',
+  ): Promise<SearchResults> {
     const groups = this.config.fixtureMode
       ? this.fixtureGroups(input.q, input.region ?? 'all')
-      : await this.databaseGroups(input.q, input.limit, input.region ?? 'all');
+      : await this.databaseGroups(input.q, input.limit, input.region ?? 'all', 'search', {
+          audience,
+        });
     return {
       query: input.q,
       companies: groups.companies.slice(0, input.limit),
@@ -249,19 +264,25 @@ export class SearchService {
     };
   }
 
-  async suggestions(input: {
-    q: string;
-    limit: number;
-    region?: Region;
-    kind: 'all' | 'companies' | 'news' | 'events';
-    scope?: 'all' | 'market' | 'company';
-    sourceKind?: string;
-    publisher?: string;
-    companyId?: string;
-  }) {
+  async suggestions(
+    input: {
+      q: string;
+      limit: number;
+      region?: Region;
+      kind: 'all' | 'companies' | 'news' | 'events';
+      scope?: 'all' | 'market' | 'company';
+      sourceKind?: string;
+      publisher?: string;
+      companyId?: string;
+    },
+    audience: NewsAudience = 'MEMBER_UI',
+  ) {
     const groups = this.config.fixtureMode
       ? this.fixtureGroups(input.q, input.region ?? 'all')
-      : await this.databaseGroups(input.q, input.limit, input.region ?? 'all', input.kind, input);
+      : await this.databaseGroups(input.q, input.limit, input.region ?? 'all', input.kind, {
+          ...input,
+          audience,
+        });
     return {
       query: input.q,
       companies: input.kind === 'news' ? [] : groups.companies.slice(0, input.limit),
@@ -298,7 +319,7 @@ export class SearchService {
       ])
       .where(companyCondition(), parameters)
       .orderBy(
-        "CASE WHEN company.stockCode = :term OR company.ticker = :term OR company.nameKo = :term OR company.nameEn = :term THEN 0 WHEN company.nameKo LIKE :prefix ESCAPE '!' OR company.ticker LIKE :prefix ESCAPE '!' OR company.stockCode LIKE :prefix ESCAPE '!' THEN 1 ELSE 2 END",
+        "CASE WHEN LOWER(company.stockCode) = LOWER(:term) OR LOWER(company.ticker) = LOWER(:term) OR LOWER(company.nameKo) = LOWER(:term) OR LOWER(company.nameEn) = LOWER(:term) THEN 0 WHEN LOWER(company.nameKo) LIKE LOWER(:prefix) ESCAPE '!' OR LOWER(company.ticker) LIKE LOWER(:prefix) ESCAPE '!' OR LOWER(company.stockCode) LIKE LOWER(:prefix) ESCAPE '!' THEN 1 ELSE 2 END",
         'ASC',
       )
       .addOrderBy('company.isListed', 'DESC')
@@ -329,7 +350,7 @@ export class SearchService {
         "(filing.canonical_type IS NULL OR filing.canonical_type IN ('D001','D002','D003','D004','D005'))",
       )
       .andWhere(
-        `(filing.reportName LIKE :pattern ESCAPE '!' OR filing.filerName LIKE :pattern ESCAPE '!' OR filing.rceptNo LIKE :pattern ESCAPE '!' OR ${companyCondition()})`,
+        `(LOWER(filing.reportName) LIKE LOWER(:pattern) ESCAPE '!' OR LOWER(filing.filerName) LIKE LOWER(:pattern) ESCAPE '!' OR LOWER(filing.rceptNo) LIKE LOWER(:pattern) ESCAPE '!' OR ${companyCondition()})`,
         parameters,
       )
       .orderBy('filing.rceptDate', 'DESC')
@@ -360,7 +381,7 @@ export class SearchService {
         `SELECT DISTINCT displayed.id sourceItemId,c.id,c.name_ko nameKo,c.name_en nameEn,c.market,c.stock_code stockCode,c.ticker
         FROM source_items displayed JOIN source_items linked ON linked.id=displayed.id OR (displayed.news_article_id IS NOT NULL AND linked.news_article_id=displayed.news_article_id)
         JOIN news_source_companies relevance ON relevance.source_item_id=linked.id JOIN companies c ON c.id=relevance.company_id
-        WHERE displayed.id IN (${news.map(() => '?').join(',')}) ORDER BY c.name_ko,c.id`,
+        WHERE ${newsAudienceSql('linked', filters.audience)} AND ${metadataNewsSql('linked')} AND displayed.id IN (${news.map(() => '?').join(',')}) ORDER BY c.name_ko,c.id`,
         news.map((row) => row.id),
       )) as (NonNullable<SourceItem['relatedCompanies']>[number] & { sourceItemId: string })[];
       for (const row of news)
@@ -377,8 +398,10 @@ export class SearchService {
     }
     return {
       companies: companies.map(companyItem),
-      news: news.map(sourceItem).filter((row): row is SearchItem => row !== null),
-      filings: [...dart.map(filingItem), ...sec.map(sourceItem)]
+      news: news
+        .map((row) => sourceItem(row, filters.audience))
+        .filter((row): row is SearchItem => row !== null),
+      filings: [...dart.map(filingItem), ...sec.map((row) => sourceItem(row, filters.audience))]
         .filter((row): row is SearchItem => row !== null)
         .sort(newest),
     };
@@ -429,7 +452,7 @@ export class SearchService {
       .where(secOnly ? "item.source = 'SEC'" : "item.source NOT IN ('SEC', 'NAVER')")
       .andWhere('item.rightsMode IN (:...rights)', parameters)
       .andWhere(
-        `(item.title LIKE :pattern ESCAPE '!' OR item.externalId LIKE :pattern ESCAPE '!' OR ${companyCondition()} OR ${newsTranslationSearchCondition('item', 'pattern')})`,
+        `(LOWER(item.title) LIKE LOWER(:pattern) ESCAPE '!' OR LOWER(item.externalId) LIKE LOWER(:pattern) ESCAPE '!' OR ${companyCondition()} OR ${newsTranslationSearchCondition('item', 'pattern')})`,
         parameters,
       )
       .orderBy(

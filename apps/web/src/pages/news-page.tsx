@@ -20,6 +20,8 @@ const sourceKinds: Array<[NewsSourceKind | '', string]> = [
   ['', '모든 출처 유형'],
   ['OFFICIAL_RELEASE', '공식 기관 발표'],
   ['COMPANY_IR', '기업 IR'],
+  ['PRESS_RELEASE', '보도자료'],
+  ['AGGREGATOR', '집계 API'],
   ['INDEPENDENT_MEDIA', '독립 언론 · 원문 링크'],
 ];
 const newsSourceKindValues = new Set<NewsSourceKind>(

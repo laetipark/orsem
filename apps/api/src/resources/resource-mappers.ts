@@ -11,6 +11,7 @@ import {
   irSourceSchema,
   NEWS_RSS_FEEDS,
   sourceKindForSource,
+  isNewsSummaryStorageAllowed,
   type NewsRssFeedId,
 } from '@orsem/contracts';
 import {
@@ -89,6 +90,10 @@ export function mapSourceItem(
       ? NEWS_RSS_FEEDS[metadata.feedId as NewsRssFeedId]
       : undefined;
   const region = feed?.marketRegion ?? metadata.marketRegion;
+  const providedDescription =
+    row.sourcePolicyJson?.policyVersion === 2 && !isNewsSummaryStorageAllowed(row.sourcePolicyJson)
+      ? null
+      : (news?.description ?? metadata.description);
   return {
     id: row.id,
     displayMode: 'EXTERNAL_LINK',
@@ -96,6 +101,16 @@ export function mapSourceItem(
     articleId: row.newsArticleId ?? null,
     sourceKind: row.sourceKind ?? feed?.sourceKind ?? sourceKindForSource(row.source),
     sourceCount: 1,
+    providerCount: 1,
+    independentSourceCount:
+      (row.sourceKind === 'INDEPENDENT_MEDIA' ||
+        (row.sourceKind === 'AGGREGATOR' &&
+          metadata.publisherSourceKind === 'INDEPENDENT_MEDIA')) &&
+      metadata.independentVerification === true &&
+      typeof metadata.originalPublisherId === 'string' &&
+      metadata.originalPublisherId.trim().length > 0
+        ? 1
+        : 0,
     contentState: 'UNAVAILABLE',
     contentSourceId: null,
     contentLanguage:
@@ -125,7 +140,8 @@ export function mapSourceItem(
         title: news?.title ?? row.title,
         description: publicNewsDescription(
           row.rightsMode,
-          news?.description ?? row.rawMetadataJson?.description,
+          providedDescription,
+          row.sourcePolicyJson,
         ),
         translation: publicNewsTranslation(row),
         source: row.source,
@@ -135,10 +151,7 @@ export function mapSourceItem(
     ),
     description: ['GDELT', 'ALPACA_NEWS'].includes(row.source)
       ? null
-      : publicNewsDescription(
-          row.rightsMode,
-          news?.description ?? row.rawMetadataJson?.description,
-        ),
+      : publicNewsDescription(row.rightsMode, providedDescription, row.sourcePolicyJson),
     translation: ['GDELT', 'ALPACA_NEWS'].includes(row.source) ? null : publicNewsTranslation(row),
     sourceName: row.sourceName,
     author: row.author,

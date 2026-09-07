@@ -38,13 +38,21 @@
 }
 .market-leaders__regions {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
 }
+.market-leaders,
 .market-leaders__region {
   min-width: 0;
   scroll-margin-top: 90px;
 }
 .market-leaders__region + .market-leaders__region {
+  border-top: 1px solid var(--border-strong);
+}
+.market-leaders[data-region='all'] .market-leaders__regions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.market-leaders[data-region='all'] .market-leaders__region + .market-leaders__region {
+  border-top: 0;
   border-left: 1px solid var(--border);
 }
 .market-leaders__region-header {
@@ -106,21 +114,49 @@
   min-height: 24px;
 }
 .market-leaders__columns {
-  display: flex;
-  justify-content: space-between;
-  padding: 8px 18px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   background: var(--surface-2);
   border-block: 1px solid var(--border);
   color: var(--subtle);
   font-size: 11px;
 }
+.market-leaders__columns > div {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 18px;
+}
+.market-leaders__columns > div + div {
+  border-left: 1px solid var(--border);
+}
 .market-leaders__list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   list-style: none;
   margin: 0;
   padding: 0;
 }
-.market-leaders__list > li + li {
-  border-top: 1px solid var(--border);
+.market-leaders__list > li {
+  min-width: 0;
+  grid-column: 1;
+  grid-row: var(--rank-row);
+  border-bottom: 1px solid var(--border);
+}
+.market-leaders__list > .market-leaders__second-half {
+  grid-column: 2;
+  border-left: 1px solid var(--border);
+}
+.market-leaders[data-region='all'] .market-leaders__list,
+.market-leaders[data-region='all'] .market-leaders__columns {
+  grid-template-columns: minmax(0, 1fr);
+}
+.market-leaders[data-region='all'] .market-leaders__list > li {
+  grid-column: auto;
+  grid-row: auto;
+  border-left: 0;
+}
+.market-leaders[data-region='all'] .market-leaders__columns > div + div {
+  display: none;
 }
 .market-leaders__row {
   display: grid;
@@ -169,19 +205,31 @@
   color: var(--muted);
   font-size: 12px;
 }
-@media (max-width: 900px) {
-  .market-leaders__regions {
+@media (max-width: 620px) {
+  .market-leaders[data-region='all'] .market-leaders__regions {
     grid-template-columns: minmax(0, 1fr);
   }
-  .market-leaders__region + .market-leaders__region {
+  .market-leaders[data-region='all'] .market-leaders__region + .market-leaders__region {
     border-left: 0;
     border-top: 1px solid var(--border-strong);
+  }
+  .market-leaders__list,
+  .market-leaders__columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .market-leaders__list > li {
+    grid-column: auto;
+    grid-row: auto;
+    border-left: 0;
+  }
+  .market-leaders__columns > div + div {
+    display: none;
   }
 }
 @media (max-width: 480px) {
   .market-leaders__region-header,
   .market-leaders__basis,
-  .market-leaders__columns,
+  .market-leaders__columns > div,
   .market-leaders__row,
   .market-leaders__partial {
     padding-inline: 12px;

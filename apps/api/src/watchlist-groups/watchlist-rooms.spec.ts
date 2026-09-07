@@ -109,6 +109,41 @@ test('legacy follow and isShared mutation paths cannot revive broad sharing', ()
   assert.equal(groupCreateV2Schema.safeParse({ name: '그룹', isShared: true }).success, false);
   assert.equal(groupCreateV2Schema.safeParse({ name: '그룹', ownerKey: other.key }).success, false);
 });
+
+test('missing watch scopes and groups have explicit codes distinct from unregistered HTTP routes', async () => {
+  const { access, manager } = accessWith(async () => []);
+  const rejected = (code: string) => (error: unknown) => {
+    assert.ok(error instanceof NotFoundException);
+    assert.equal(error.getStatus(), 404);
+    assert.equal((error.getResponse() as { code?: string }).code, code);
+    return true;
+  };
+  await assert.rejects(
+    () => access.room(manager, owner, roomId),
+    rejected('WATCH_SCOPE_NOT_FOUND'),
+  );
+  await assert.rejects(
+    () => access.group(manager, owner, roomId),
+    rejected('WATCH_GROUP_NOT_FOUND'),
+  );
+  const { access: removed, manager: removedManager } = accessWith(async (sql) => {
+    if (sql.startsWith('SELECT room_id')) return [{ room_id: null, owner_key: owner.key }];
+    if (sql.startsWith('SELECT revision')) return [{ revision: 1 }];
+    return [];
+  });
+  await assert.rejects(
+    () => removed.group(removedManager, owner, roomId),
+    rejected('WATCH_GROUP_NOT_FOUND'),
+  );
+  assert.equal(
+    (
+      new NotFoundException('Cannot GET /api/v1/watchlist-groups/example/news').getResponse() as {
+        code?: string;
+      }
+    ).code,
+    undefined,
+  );
+});
 test('all-page edits allow 200 unique companies, reject duplicates and require a revision', () => {
   const ids = Array.from(
     { length: 200 },

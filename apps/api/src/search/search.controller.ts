@@ -1,4 +1,7 @@
-import { Controller, Get, Query, Header, Headers } from '@nestjs/common';
+import type { Request } from 'express';
+import { groupActor } from '../watchlist-groups/watchlist-access.service';
+import { newsAudienceForActor } from '../resources/news-access';
+import { Controller, Get, Query, Header, Headers, Req } from '@nestjs/common';
 import { z } from 'zod';
 import { regionSchema, NewsSourceKind } from '@orsem/contracts';
 import { parseWith } from '../common/zod';
@@ -21,7 +24,11 @@ export class SearchController {
   @Get('suggestions')
   @RateLimit(90)
   @Header('Cache-Control', 'private, no-store')
-  suggestions(@Query() query: unknown, @Headers('x-orsem-search-query') encoded?: string) {
+  suggestions(
+    @Query() query: unknown,
+    @Headers('x-orsem-search-query') encoded?: string,
+    @Req() request?: Request,
+  ) {
     let term = encoded;
     try {
       if (encoded) term = decodeURIComponent(encoded);
@@ -38,12 +45,18 @@ export class SearchController {
       }),
       { ...(typeof query === 'object' ? query : {}), ...(term !== undefined ? { q: term } : {}) },
     );
-    return this.searchService.suggestions(input);
+    return this.searchService.suggestions(
+      input,
+      request ? newsAudienceForActor(groupActor(request)) : 'MEMBER_UI',
+    );
   }
 
   @Get()
   @RateLimit(90)
-  search(@Query() query: unknown) {
-    return this.searchService.search(parseWith(searchQuerySchema, query));
+  search(@Query() query: unknown, @Req() request?: Request) {
+    return this.searchService.search(
+      parseWith(searchQuerySchema, query),
+      request ? newsAudienceForActor(groupActor(request)) : 'MEMBER_UI',
+    );
   }
 }

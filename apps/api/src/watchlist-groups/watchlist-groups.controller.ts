@@ -22,11 +22,16 @@ import {
   watchScopeSchema,
   watchRevisionSchema,
   watchlistGroupPageQuerySchema,
+  watchlistGroupNewsQuerySchema,
+  watchlistGroupFilingsQuerySchema,
   saveCompanyWatchlistMembershipsSchema,
 } from '@orsem/contracts';
 import { parseWith } from '../common/zod';
 import { OwnWatchlistGroupAccess, RateLimit } from '../security/security';
 import { WorkerQueueService } from '../operations/worker-queue.service';
+import { OrsemDataService } from '../resources/orsem-data.service';
+import { newsAudienceForActor } from '../resources/news-access';
+import { NaverFocusNewsService } from '../news-search/naver-focus-news.service';
 import { WatchlistGroupsService, groupActor } from './watchlist-groups.service';
 @Controller('watchlist-groups')
 @OwnWatchlistGroupAccess()
@@ -35,6 +40,8 @@ export class WatchlistGroupsController {
   constructor(
     private readonly groups: WatchlistGroupsService,
     private readonly workerQueue: WorkerQueueService,
+    private readonly data: OrsemDataService,
+    private readonly naver: NaverFocusNewsService,
   ) {}
   @Get() list(@Req() r: Request, @Query() q: unknown) {
     return this.groups.list(groupActor(r), parseWith(watchScopeSchema, q).roomId);
@@ -106,6 +113,57 @@ export class WatchlistGroupsController {
       .requestGroupTossCandles(result.items.map((i) => i.company.id))
       .catch(() => undefined);
     return result;
+  }
+  @Get(':id/news')
+  @Header('Cache-Control', 'private, no-store')
+  async news(@Req() r: Request, @Param('id') id: string, @Query() q: unknown) {
+    const actor = groupActor(r);
+    const parsed = parseWith(watchlistGroupNewsQuerySchema, q);
+    const { group, companies, selectedCompanies } = await this.groups.newsScope(
+      actor,
+      parseWith(z.uuid(), id),
+      parsed.companyId,
+    );
+    const selection = parsed.companyId
+      ? { companyId: parsed.companyId }
+      : { companyIds: selectedCompanies.map((company) => company.id) };
+    const [page, provider] = await Promise.all([
+      this.data.listNews({
+        ...parsed,
+        ...selection,
+        scope: 'company',
+        audience: newsAudienceForActor(actor),
+      }),
+      !parsed.cursor && selectedCompanies.length
+        ? this.naver.feed({ ...selection, scope: 'company' }, actor.key).catch(() => null)
+        : Promise.resolve(null),
+    ]);
+    return {
+      ...page,
+      group,
+      companies,
+      companyCount: selectedCompanies.length,
+      asOf: new Date().toISOString(),
+      providerGroups: provider?.groups ?? [],
+      naver: provider
+        ? {
+            fetchedAt: provider.fetchedAt,
+            status: provider.status,
+            nextRequestAt: provider.nextRequestAt,
+          }
+        : null,
+    };
+  }
+  @Get(':id/filings')
+  @Header('Cache-Control', 'private, no-store')
+  async filings(@Req() r: Request, @Param('id') id: string, @Query() q: unknown) {
+    const parsed = parseWith(watchlistGroupFilingsQuerySchema, q);
+    const { group, companies, selectedCompanies } = await this.groups.newsScope(
+      groupActor(r),
+      parseWith(z.uuid(), id),
+      parsed.companyId,
+    );
+    return { ...(await this.data.filingsForCompanies(selectedCompanies)), group, companies };
   }
   @Post(':id/items') @HttpCode(204) add(
     @Req() r: Request,

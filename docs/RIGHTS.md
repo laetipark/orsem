@@ -1,5 +1,27 @@
 # 데이터 이용 권리 정책
 
+## 조건부 뉴스 소스의 승인과 독자 범위 (2026-09-07)
+
+Marketaux·Alpha Vantage·Finnhub와 신규 기업 IR·한국경제 RSS는 **구현되어 있어도 기본 비활성, 권리는 UNKNOWN**이다. 공식 endpoint/무료 플랜 확인은 장기 저장·AI 처리·번역·재배포 허가를 뜻하지 않는다. 원문 HTML·본문·이미지는 요청하거나 저장하지 않는다. 실제 계정 응답과 권리를 확인하기 전 자동 활성화하지 않는다.
+
+기존 `NewsSourcePolicy`를 `policyVersion: 2`로 최소 확장한다. `rightsStatus`는 `APPROVED | METADATA_ONLY | LINK_ONLY | REQUIRES_CONTRACT_REVIEW | UNKNOWN | BLOCKED`이며 저장 모드인 `rightsMode`와 별개다. `metadataStorageAllowed`, `summaryStorageAllowed`, `fullTextStorageAllowed`, `aiAllowed`, `translationAllowed`, `publicRedistributionAllowed`를 독립적으로 기록한다. **null은 미확인, false는 명시적으로 허용하지 않음**이다. 기존 레코드의 `'UNKNOWN'` 값도 호환한다. 근거는 `policyUrl`, 검토일은 `checkedAt`, 정책 식별자는 `policyId`로 보존한다.
+
+| 신규 정책         | metadata / summary | full text | AI / translation | redistribution | 현재 상태 |
+| ----------------- | ------------------ | --------- | ---------------- | -------------- | --------- |
+| Marketaux         | null / null        | false     | null / null      | null           | UNKNOWN   |
+| Alpha Vantage     | null / null        | false     | null / null      | null           | UNKNOWN   |
+| Finnhub           | null / null        | false     | null / null      | false          | UNKNOWN   |
+| NVDA·AVGO·PANW IR | null / null        | false     | null / null      | null           | UNKNOWN   |
+| 한국경제 증권 RSS | null / null        | false     | null / null      | null           | UNKNOWN   |
+
+정책 근거와 무료 운영 판단은 [공급자 비교](NEWS_PROVIDER_COMPARISON.md)에 기록한다. API는 공급자 정책과 정확한 원출판사 domain/name의 승인 정책을 모두 요구한다. publisher를 추정하거나 API 자체를 원출판사로 대체하지 않는다. 제공 요약도 두 정책에서 명시적으로 허용될 때만 저장한다. 승인 레지스트리는 코드 검토 대상이며 환경변수나 API 키로 우회할 수 없다.
+
+신규 승인의 초기 독자는 `ADMIN_UI`다. 개인용 관리자 화면은 회원 화면(`MEMBER_UI`), 관심방(`SHARED_ROOM`), 봇(`BOT`)과 구별한다. 인증된 세션에서 독자 범위를 정하고 클라이언트 query로 바꾸지 않는다. 뉴스 목록·검색·상세·대시보드의 대표 기사, 관련 종목, 정렬, provenance와 개수도 허용된 행만 사용한다. 공유 화면이나 봇을 허용하려면 별도의 권리를 확인해야 한다.
+
+저장 당시 `sourcePolicyJson`은 재수집으로 넓히지 않는다. 현재 코드 정책도 승인 상태여야 수집·표시·번역할 수 있으므로 저장된 승인 사본만으로 철회된 소스를 다시 열 수 없다. publisher의 권리를 철회할 때에는 공급자 기본 정책도 먼저 BLOCKED로 바꿔 기존 사본의 노출을 차단하고, 영향 레코드·정책을 검토한 뒤 승인 범위를 다시 배포한다. 요약·AI·번역은 원래 승인과 현재 승인의 교집합만 사용한다. 신규 API는 기존 자동 번역 소스 목록에도 추가하지 않는다.
+
+기업 IR·보도자료는 독립 검증 출처로 세지 않는다. `providerCount`는 발견 경로 수이고 `independentSourceCount`는 확인된 독립 원출처 수다. 동일 원문을 세 API에서 발견했다고 독립 근거 세 건으로 승격하지 않는다. 공식 자료 연결의 `CONFIRMED`는 관리자가 관련성을 확인했다는 뜻이며 수치·실적·계약 금액이나 투자 판단을 자동 검증했다는 의미가 아니다.
+
 모든 소스 항목은 `rightsMode`를 갖습니다. API와 화면은 이용 권리를 실제로 적용해야 하며, 문서에만 적어 두어서는 안 됩니다.
 
 | 모드                   | 의미                                                        | 기본 용도                                    |

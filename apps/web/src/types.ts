@@ -11,6 +11,7 @@ export type NewsSourceKind =
   | 'OFFICIAL_RELEASE'
   | 'COMPANY_IR'
   | 'PRESS_RELEASE'
+  | 'AGGREGATOR'
   | 'INDEPENDENT_MEDIA'
   | 'UNKNOWN';
 export type DisclosureType = 'D001' | 'D002' | 'D003' | 'D004' | 'D005' | 'NEWS' | 'SEC';
@@ -34,6 +35,31 @@ export type ClassificationStatus =
 export interface CursorPage<T> {
   items: T[];
   nextCursor: string | null;
+}
+
+export interface NewsFeedPage extends CursorPage<SourceItem> {
+  providerGroups?: SourceItem[][];
+  naver?: {
+    fetchedAt: string | null;
+    status: string;
+    nextRequestAt: string | null;
+    reason?: string | null;
+  } | null;
+}
+
+export interface WatchlistNewsPage extends NewsFeedPage {
+  group: WatchlistGroup;
+  companies: import('@orsem/contracts').Company[];
+  companyCount: number;
+  asOf: string;
+}
+
+export interface WatchlistFilings {
+  group: WatchlistGroup;
+  companies: import('@orsem/contracts').Company[];
+  companyCount: number;
+  asOf: string;
+  items: PersonalFiling[];
 }
 
 export interface NaverNewsSearchItem {
@@ -147,6 +173,10 @@ export interface SourceItem {
   id: string;
   articleId?: string | null;
   sourceCount?: number;
+  providerCount?: number;
+  independentSourceCount?: number;
+  officialVerification?: 'UNVERIFIED' | 'LINKED' | 'CONFIRMED';
+  officialReferences?: NewsOfficialReference[];
   sourceKind?: NewsSourceKind;
   publisherId?: string | null;
   marketRegion?: 'kr' | 'us' | 'global' | 'unknown' | null;
@@ -326,6 +356,17 @@ export interface EventDetail extends EventSummary {
 }
 
 export interface SourceFreshness {
+  enabled?: boolean;
+  lastError?: string | null;
+  lastErrorAt?: string | null;
+  nextRunAt?: string | null;
+  dailyRequestCount?: number;
+  dailyRequestBudget?: number | null;
+  rollingRequestCount?: number | null;
+  rollingRequestBudget?: number | null;
+  lastCursor?: string | null;
+  rightsStatus?: string;
+  entitlementStatus?: string;
   id: string;
   name: string;
   category: 'OFFICIAL' | 'NEWS' | 'MARKET';
@@ -497,7 +538,25 @@ export interface WatchlistItem extends CompanySummary {
   digestAlerts: boolean;
 }
 
+export interface NewsOfficialReference {
+  title?: string;
+  url?: string;
+  kind: 'FILING' | 'SOURCE_ITEM';
+  id: string;
+  matchMethod: 'EXPLICIT_ID' | 'EXPLICIT_URL' | 'COMPANY_TIME';
+  status: 'RELATED' | 'CONFIRMED' | 'REJECTED';
+}
+export interface NewsReviewSelection {
+  sourceHash?: string;
+  companyIds?: string[];
+  officialTarget?: { kind: 'FILING' | 'SOURCE_ITEM'; id: string };
+}
+
 export interface ReviewItem {
+  sourceItemId?: string;
+  sourceHash?: string | null;
+  officialReferences?: NewsOfficialReference[];
+  manualCompanyIds?: string[];
   id: string;
   eventId: string;
   companyName: string;
@@ -611,6 +670,11 @@ export interface WatchlistQuote {
   change: number | null;
   changePercent: number | null;
   referenceDate: string | null;
+}
+
+export interface CompanyQuote {
+  companyId: string;
+  displayPrice: WatchlistGroupItem['displayPrice'];
 }
 
 export interface MarketInstrument {

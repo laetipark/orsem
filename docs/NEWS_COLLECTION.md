@@ -4,18 +4,22 @@
 
 ## 공식 뉴스 메타데이터
 
-| 소스 ID                     | 공급자                  | 주기 | 권리와 표시 범위                         |
-| --------------------------- | ----------------------- | ---- | ---------------------------------------- |
-| `samsung-global`            | Samsung Global Newsroom | 15분 | `PRIVATE_DISPLAY_ONLY`, 승인된 개인 화면 |
-| `fed-press`, `fed-speeches` | Federal Reserve         | 15분 | 공식 공개 메타데이터                     |
-| `bls-latest`                | BLS                     | 15분 | 공식 공개 메타데이터                     |
-| `eia-today`, `eia-press`    | EIA                     | 15분 | 공식 공개 메타데이터                     |
+| 소스 ID                                                             | 공급자                  | 주기              | 권리와 표시 범위                           |
+| ------------------------------------------------------------------- | ----------------------- | ----------------- | ------------------------------------------ |
+| `samsung-global`                                                    | Samsung Global Newsroom | 15분              | `PRIVATE_DISPLAY_ONLY`, 승인된 개인 화면   |
+| `fed-press`, `fed-speeches`                                         | Federal Reserve         | 15분              | 공식 공개 메타데이터                       |
+| `bls-latest`                                                        | BLS                     | 15분              | 공식 공개 메타데이터                       |
+| `eia-today`, `eia-press`                                            | EIA                     | 15분              | 공식 공개 메타데이터                       |
+| `nvidia-ir-press`, `broadcom-ir-news`, `palo-alto-networks-ir-news` | NVDA·AVGO·PANW 공식 IR  | 승인 후 기존 15분 | 현재 비활성·UNKNOWN; 관리자 개인 화면 대상 |
+| `hankyung-finance-rss`                                              | 한국경제 증권           | 승인 후 기존 15분 | 현재 비활성·UNKNOWN; 국내 언론 metadata    |
 
 RSS 요청만 수행하고 기사 URL을 서버에서 요청하지 않습니다. RSS `description`·Atom `summary`의 제공 요약을 정화해 저장합니다. `content:encoded` 등 임베디드 본문은 추출·저장하지 않습니다. 제공 요약이 없으면 빈 상태를 유지하며 제목이나 본문으로 요약을 만들지 않습니다.
 
 `source_items`와 `news_items`는 원제목·제공 요약·원문 URL·GUID·작성자·원래 발행 문자열·발행 시각·최초 관측 시각·권리를 보존합니다. 원래 등록 소스의 권리 스냅샷은 바꾸지 않으며 메타데이터 저장과 표시가 허용되는 후보만 저장합니다. 네이버는 저장 경로에서 명시적으로 차단합니다. 신규 수집은 `news_article_contents`를 읽거나 쓰지 않습니다.
 
 Samsung Global의 KST 시각 규칙과 원본 문자열을 유지합니다. 다른 소스는 명시된 UTC 오프셋을 존중합니다. EIA XML의 ISO-8859-1 선언과 상대 기사 링크를 처리하며 EST를 임의로 EDT로 바꾸지 않습니다. 피드 요청의 크기·XML 구조·DNS·HTTPS·리디렉션 제한은 유지합니다.
+
+RSS·Atom의 실제 발행 시각과 수정 시각을 구분합니다. Atom에 `updated`만 있으면 그것을 `publishedAt`으로 바꾸지 않습니다. publishedAt·provider updatedAt·firstObservedAt·collectedAt의 역할을 구분하고 원래 timestamp 문자열을 보존합니다. `collectedAt`은 수집 시도별 시각이며 최초 관측을 덮어쓰지 않습니다.
 
 소스 권리 기준은 등록 정책에 기록합니다. 기존 참고 문서는 [Samsung 이용약관](https://news.samsung.com/global/terms), [Fed 저작권](https://www.federalreserve.gov/disclaimer.htm), [BLS 저작권](https://www.bls.gov/opub/copyright-information.htm), [EIA 재사용 정책](https://www.eia.gov/about/copyrights_reuse.php)입니다.
 
@@ -53,3 +57,51 @@ GDELT_ENABLED=false
 NAVER 공급자는 `NAVER_API_PROVIDER=developers|ncloud`로 명시합니다. 인증 실패 시 다른 공급자 주소로 키를 보내지 않습니다. 무료 조건은 `NAVER_NEWS_FREE_MONTH`, `NAVER_NEWS_FREE_REQUESTS`, `NAVER_NEWS_FREE_UNTIL`과 일간 한도로 확인합니다. 세부 운영 설정은 [소스](SOURCES.md), [운영](OPERATIONS.md#naver-news-authentication)을 참고합니다.
 
 기존 뉴스 본문·본문 번역·수정 이력의 본문 사본 정리는 [번역 문서의 배포 순서](NEWS_TRANSLATION.md#기존-본문-정리와-배포-순서)를 따릅니다. 운영 DB와 앱 캐시만 정리하며 과거 백업·공시 원본은 유지합니다. 운영 적용 완료 여부는 실제 배포 기록에서 확인합니다.
+
+## 2026-09-07 조건부 API 확장
+
+Marketaux·Alpha Vantage·Finnhub는 기존 `MARKET_NEWS` 큐의 `DISCOVER_LINKS` 작업에 추가했습니다. provider별로 별도 queue·scheduler service·뉴스 table을 만들지 않습니다. 기존 NAVER·SEC·GDELT·Alpaca 작업의 대상이나 가격 공급자를 변경하지 않습니다. 신규 API의 대상은 관리자 개인 관심종목을 우선하고 미국 월간 대표 종목으로 보완합니다. 한 provider의 전체 범위를 한 번 전달하고 어댑터가 순환 위치와 실행 예산을 관리합니다.
+
+| Provider     | 기존 scheduler에 추가한 KST 일정 | 실행당 상한 | Orsem 최근 24시간 예산 | 요청 단위                                                            |
+| ------------ | -------------------------------- | ----------- | ---------------------- | -------------------------------------------------------------------- |
+| MARKETAUX    | 매시간 정각                      | 2요청       | 50요청                 | 최대 25종목씩 묶고 무료 limit=3; 승인된 정확한 출판사 domains만 조회 |
+| ALPHAVANTAGE | 00:00·12:00                      | 10요청      | 20요청                 | 미국 ticker 하나씩; LOW_FREQUENCY_SUPPLEMENTAL                       |
+| FINNHUB      | 매시간 정각                      | 5요청       | 120요청                | 미국 ticker 하나씩; Company News만 사용                              |
+
+예산은 provider의 무료 한도와 별개인 Orsem의 보수적인 상한입니다. `.env.example`에서 낮출 수 있지만 위 기본값을 넘길 수 없습니다. Finnhub는 승인 registry에 실제 계정의 분당 제한을 기록하지 않으면 동작하지 않습니다. 무료 한도·권리는 [공급자 비교](NEWS_PROVIDER_COMPARISON.md)를 따릅니다.
+
+모든 신규 env 플래그는 false입니다. 키와 enabled만으로 호출할 수 없습니다. contracts의 현재 provider 정책, 계정 News entitlement, 무료 확인 만료일, 정확한 publisher의 metadata 보관·개인 표시 정책이 모두 있어야 합니다. `APPROVED_FREE_NEWS_ACCESS`는 현재 provider별 null이고 정책은 UNKNOWN입니다. 권리나 실제 응답을 확인하기 전 운영 활성화를 하지 않습니다.
+
+### 예산·복구·장애
+
+- HTTP 전에 기존 source_checkpoints의 provider별 `NEWS_API_BUDGET` 행을 잠그고 UTC 요청 시각을 예약합니다. 같은 transaction에서 api_usage_counters를 올립니다. 실패·페이지 요청도 차감하며 재시작·KST/UTC 자정·월 변경으로 최근 24시간 예산이 초기화되지 않습니다.
+- dailyRequestBudget·rollingRequestBudget·rollingRequestCount·retryAt·lastError를 예산 상태에 기록합니다. UTC 일별 통계와 최근 24시간 허용량은 서로 다른 지표입니다. provider의 reset 시각을 추측하지 않습니다.
+- 성공한 항목을 기존 pipeline으로 저장한 뒤 `NEWS:<종목 묶음 해시>` 페이지 checkpoint를 확정합니다. `NEWS_ROTATION`은 다음 ticker를 보존합니다. 저장 실패는 다음 실행에서 안전하게 재처리하고 provider provenance를 유지합니다.
+- 초기 조회는 최근 24시간, 이후 마지막 완료 window에서 10분 overlap을 적용합니다. Marketaux는 고정 window와 page를 이어가며 page 반복·형식 오류를 거절합니다. 한 실행 2요청, 복구 100페이지의 앱 안전 상한을 넘으면 검토가 필요하며 완료 cursor를 앞당기지 않습니다.
+- Alpha Vantage는 limit=1000, Finnhub는 응답 항목 1000개의 앱 안전 상한에서 incomplete로 남깁니다. 문서에 없는 pagination을 추가하지 않으며 해당 상황을 완전 수집으로 보고하지 않습니다.
+- 401 인증, 403 entitlement, 429 rate limit, 5xx 장애, timeout, malformed, pagination 실패를 분리합니다. Marketaux 402는 일일 한도로 별도 처리합니다. Alpha Vantage 200 Information/Note는 보수적인 한도 대기, Error Message는 권한·요청 확인 대상으로 처리합니다. 메시지 본문과 API 키를 오류에 포함하지 않습니다.
+- 인증·entitlement·일일 한도 오류는 24시간, 429는 Retry-After 또는 최소 1분, 기타 요청 오류는 5분의 보수적인 대기를 저장합니다. 대기 중 실패 요청을 다른 공급자로 대체하지 않습니다. 다음 정기 일정에서 자신의 source만 재시도합니다.
+
+### 저장·회사 연결·중복 제거
+
+API candidate는 provider ID, 제목, 출처, original URL, 발행·관측 시각, entity, 허용된 provider metadata와 권리 스냅샷만 포함합니다. summary는 provider와 publisher의 summaryStorageAllowed가 둘 다 true인 경우에만 저장합니다. 본문·이미지·highlights는 candidate·raw hash·raw metadata·로그에 포함하지 않습니다. Alpha Vantage sentiment는 제공자가 계산한 미검증 metadata이고 공식 사실·매수매도 판단으로 사용하지 않습니다.
+
+회사 식별자는 기존 UUID를 유지합니다. Marketaux의 KOSPI `.KS`·KOSDAQ `.KQ`는 기존 master의 시장을 확인한 경우에만 구성합니다. 미국 ticker 역시 기존 master에 연결합니다. 매핑 실패·모호한 entity는 `UNRESOLVED_ENTITY` 검토 대상이며 새 회사를 자동 생성하지 않습니다. Finnhub Company News의 단일 요청 기업은 `requestedSymbol`로 출처를 남기고, 일반 검색 대상이라는 이유로 다른 API 결과에 회사를 덧붙이지 않습니다.
+
+canonical URL을 우선해 기존 news_articles에 연결합니다. 다른 URL의 제목 해시 병합은 같은 원출판사·관련 기업·24시간 이내 발행 조건을 함께 확인합니다. 숫자·부호를 보존하고 제목의 유사성만으로 서로 다른 사건을 자동 병합하지 않습니다. provider별 source_items와 원래 권리 스냅샷은 별개로 유지하며, 발견 경로 수인 providerCount와 독립 원출판사 수인 independentSourceCount를 구분합니다. 보도자료·기업 발표·출처를 확인하지 못한 전재를 독립 검증 건수에 넣지 않습니다.
+
+### 공식 자료와 표시
+
+뉴스는 후보 발견용입니다. 기존 DART 접수번호·SEC accession·공식 URL이 명시된 경우 저장된 공식 자료를 연결하고, 같은 회사·발행 전후 3일의 자료는 관련 후보로 제시합니다. 회사와 날짜만으로 주장·실적 수치·계약 금액을 공식 사실로 승격하지 않습니다. 기존 검토함에서 근거와 대상 자료를 확인하며 자동 공식 자료 연결과 관리자 확인을 구분합니다. 수동 연결은 재수집으로 삭제하지 않습니다.
+
+기존 카드에 제목·관련 종목·출처 종류·KST 발행 시각·원문 링크·공식 근거 상태를 표시합니다. source kind는 공식·기업발표·보도자료·언론·집계API를 구분합니다. 승인된 API publisher가 PRESS_RELEASE라면 집계 경로를 보존하면서 카드도 보도자료로 표시합니다.
+
+신규 개인 이용 정책은 서버 세션의 관리자 권한을 기준으로 조회합니다. 같은 canonical 그룹에 공개 기사와 개인 전용 기사가 섞여 있어도 회원·공유방·봇의 결과·출처 건수·관련 종목·정렬·cursor에 개인 전용 metadata가 섞이지 않아야 합니다. 신규 소스 알림은 꺼 두며 AI·번역 권리가 없으면 해당 queue에 넣지 않습니다. 기존 관리자 source 화면에서 enabled·성공·오류·다음 실행·예산·cursor·권리·entitlement를 확인하고 비밀 값은 반환하지 않습니다.
+
+## 신규 RSS의 안전성과 승인
+
+등록된 미국 IR은 `nvidia-ir-press`, `broadcom-ir-news`, `palo-alto-networks-ir-news`이며 국내 추가 목록은 `hankyung-finance-rss` 하나입니다. [정확한 URL·공식 근거·보류 사유](NEWS_PROVIDER_COMPARISON.md#p2p3-공식-rss-조사)를 확인합니다. 프로필의 정확한 HTTPS URL·allowedHosts·source kind·rights policy·enabled 값을 함께 검증합니다. env에 주소를 넣는 것만으로 비활성 프로필의 요청을 허용하지 않습니다.
+
+기존 bounded parser와 DNS 검사·IP 고정·redirect 거절을 사용합니다. XML entity/DTD, XML 구조 복잡도, feed 크기·항목 수·제목·설명 길이, malformed XML을 제한합니다. RSS 응답의 content-type을 확인하고 압축은 identity만 요청·허용하므로 예상하지 않은 압축 응답을 거절합니다. 내부 IP·localhost·DNS 변경·host 변경을 우회하지 않습니다. RSS 2.0 description과 Atom summary만 권리에 따라 처리하고 content:encoded 또는 기사 HTML을 대체 수집하지 않습니다.
+
+MSFT·AMZN·Alphabet·ETN은 조사 범위에서 `NO_OFFICIAL_RSS_FOUND`로 기록했고 임의 URL을 만들지 않았습니다. GlobeNewswire·Business Wire·한국경제TV는 공식 feed 및 권리 미확인 사항을 문서로 남겼습니다. HTML scraping·인증 우회·robots 우회·범용 RSS proxy를 추가하지 않습니다.

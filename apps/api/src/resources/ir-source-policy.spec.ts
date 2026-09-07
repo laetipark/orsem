@@ -64,3 +64,34 @@ test('IR 관리 API는 검토된 Samsung URL만 받고 서버 정책으로 고�
     (error: unknown) => error instanceof HttpException && error.getStatus() === 400,
   );
 });
+
+test('new IR registrations require the matching existing company and remain inactive while rights are unknown', async () => {
+  const { fixtures, service } = context();
+  const company = fixtures.companies[0]!;
+  const profile = NEWS_IR_SOURCE_PROFILES['nvidia-ir-press'];
+  await assert.rejects(
+    () =>
+      service.createIrSource({
+        companyId: company.id,
+        url: profile.url,
+        sourceType: 'RSS',
+        rightsMode: profile.policy.rightsMode,
+        isActive: false,
+      }),
+    /상장기업/,
+  );
+  company.ticker = 'NVDA';
+  company.market = 'NASDAQ';
+  const registered = await service.createIrSource({
+    companyId: company.id,
+    url: profile.url,
+    sourceType: 'RSS',
+    rightsMode: profile.policy.rightsMode,
+    isActive: false,
+  });
+  assert.equal(registered.isActive, false);
+  await assert.rejects(
+    () => service.updateIrSource(registered.id, { isActive: true }),
+    /활성화할 수 없습니다/,
+  );
+});

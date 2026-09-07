@@ -15,7 +15,16 @@ export class MarketNewsProcessor extends WorkerHost {
     const parsed = discoverLinksJobSchema.parse(job.data);
     if (
       parsed.connectors.some(
-        (connector) => !['NEWS_RSS', 'IR', 'GDELT', 'ALPACA_NEWS'].includes(connector),
+        (connector) =>
+          ![
+            'NEWS_RSS',
+            'IR',
+            'GDELT',
+            'ALPACA_NEWS',
+            'MARKETAUX',
+            'ALPHAVANTAGE',
+            'FINNHUB',
+          ].includes(connector),
       )
     )
       throw new UnrecoverableError('Unsupported market-news connector.');

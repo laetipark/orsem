@@ -6,6 +6,7 @@ export const NewsSourceKind = {
   COMPANY_IR: 'COMPANY_IR',
   PRESS_RELEASE: 'PRESS_RELEASE',
   INDEPENDENT_MEDIA: 'INDEPENDENT_MEDIA',
+  AGGREGATOR: 'AGGREGATOR',
   UNKNOWN: 'UNKNOWN',
 } as const;
 export type NewsSourceKind = (typeof NewsSourceKind)[keyof typeof NewsSourceKind];
@@ -16,8 +17,18 @@ export const NewsContentState = {
   FAILED: 'FAILED',
 } as const;
 export type NewsContentState = (typeof NewsContentState)[keyof typeof NewsContentState];
-export type NewsPermission = boolean | 'UNKNOWN';
+export type NewsPermission = boolean | 'UNKNOWN' | null;
+export type NewsAudience = 'ADMIN_UI' | 'MEMBER_UI' | 'SHARED_ROOM' | 'BOT';
+export type NewsRightsStatus =
+  'APPROVED' | 'METADATA_ONLY' | 'LINK_ONLY' | 'REQUIRES_CONTRACT_REVIEW' | 'UNKNOWN' | 'BLOCKED';
 export interface NewsSourcePolicy {
+  policyVersion?: 2;
+  policyId?: string;
+  provider?: string;
+  rightsStatus?: NewsRightsStatus;
+  summaryStorageAllowed?: NewsPermission;
+  translationAllowed?: NewsPermission;
+  allowedAudiences?: readonly NewsAudience[];
   rightsMode: RightsMode;
   aiAllowed: NewsPermission;
   fullTextStorageAllowed: NewsPermission;
@@ -28,6 +39,52 @@ export interface NewsSourcePolicy {
   policyUrl: string;
   checkedAt: string;
 }
+
+/** A research finding is not a grant of storage, translation or publisher rights. */
+export function unreviewedNewsPolicy(
+  policyId: string,
+  policyUrl: string,
+  provider?: string,
+): NewsSourcePolicy {
+  return Object.freeze({
+    policyVersion: 2,
+    policyId,
+    provider,
+    rightsStatus: 'UNKNOWN',
+    rightsMode: RightsMode.STORE_METADATA_ONLY,
+    metadataStorageAllowed: null,
+    summaryStorageAllowed: null,
+    displayAllowed: null,
+    aiAllowed: null,
+    translationAllowed: null,
+    fullTextStorageAllowed: false,
+    publicRedistributionAllowed: provider === 'FINNHUB' ? false : null,
+    notifyAllowed: false,
+    allowedAudiences: Object.freeze(['ADMIN_UI'] as const),
+    policyUrl,
+    checkedAt: '2026-09-07',
+  });
+}
+
+export const NEWS_EXTERNAL_API_POLICIES: Readonly<
+  Record<'MARKETAUX' | 'ALPHAVANTAGE' | 'FINNHUB', NewsSourcePolicy>
+> = Object.freeze({
+  MARKETAUX: unreviewedNewsPolicy(
+    'marketaux-news-v1',
+    'https://www.marketaux.com/tos',
+    'MARKETAUX',
+  ),
+  ALPHAVANTAGE: unreviewedNewsPolicy(
+    'alphavantage-news-v1',
+    'https://www.alphavantage.co/terms_of_service/',
+    'ALPHAVANTAGE',
+  ),
+  FINNHUB: unreviewedNewsPolicy(
+    'finnhub-news-v1',
+    'https://finnhub.io/terms-of-service',
+    'FINNHUB',
+  ),
+});
 
 /** Covers the GDELT dataset's title/link metadata, never the linked publisher's full text. */
 export const GDELT_METADATA_POLICY: NewsSourcePolicy = Object.freeze({
@@ -80,9 +137,10 @@ export const NEWS_RSS_FEED_IDS = Object.freeze([
   'bls-latest',
   'eia-today',
   'eia-press',
+  'hankyung-finance-rss',
 ] as const);
 export type NewsRssFeedId = (typeof NEWS_RSS_FEED_IDS)[number];
-interface NewsRssFeedDefinition {
+export interface NewsRssFeedDefinition {
   publisher: string;
   publisherId: string;
   marketRegion: 'kr' | 'us' | 'global';
@@ -92,6 +150,8 @@ interface NewsRssFeedDefinition {
   policy: NewsSourcePolicy;
   url: string;
   categories: readonly string[];
+  enabled?: boolean;
+  allowedHosts?: readonly string[];
 }
 
 // Covers EIA-authored text; photographs, logos and third-party visual materials are excluded.
@@ -141,6 +201,19 @@ export const NEWS_RSS_FEEDS = Object.freeze({
     url: 'https://www.eia.gov/rss/press_rss.xml',
     categories: Object.freeze(['ECONOMY', 'ENERGY', 'COMMODITIES']),
   }),
+  'hankyung-finance-rss': Object.freeze({
+    publisher: '한국경제',
+    publisherId: 'hankyung',
+    marketRegion: 'kr' as const,
+    sourceKind: NewsSourceKind.INDEPENDENT_MEDIA,
+    rightsContext: 'REVIEWED_NEWS_METADATA_V2',
+    rightsPolicyUrl: 'https://www.hankyung.com/feed',
+    policy: unreviewedNewsPolicy('hankyung-finance-v1', 'https://www.hankyung.com/feed'),
+    url: 'https://www.hankyung.com/feed/finance',
+    enabled: false,
+    allowedHosts: Object.freeze(['www.hankyung.com']),
+    categories: Object.freeze(['COMPANY', 'MARKET']),
+  }),
 } satisfies Record<NewsRssFeedId, NewsRssFeedDefinition>);
 
 export const DEFAULT_REGISTERED_IR_POLICY: NewsSourcePolicy = Object.freeze({
@@ -155,9 +228,14 @@ export const DEFAULT_REGISTERED_IR_POLICY: NewsSourcePolicy = Object.freeze({
   checkedAt: '2026-09-05',
 });
 
-export const NEWS_IR_SOURCE_PROFILE_IDS = Object.freeze(['samsung-global'] as const);
+export const NEWS_IR_SOURCE_PROFILE_IDS = Object.freeze([
+  'samsung-global',
+  'nvidia-ir-press',
+  'broadcom-ir-news',
+  'palo-alto-networks-ir-news',
+] as const);
 export type NewsIrSourceProfileId = (typeof NEWS_IR_SOURCE_PROFILE_IDS)[number];
-interface NewsIrSourceProfileDefinition {
+export interface NewsIrSourceProfileDefinition {
   url: string;
   publisher: string;
   publisherId: string;
@@ -165,14 +243,20 @@ interface NewsIrSourceProfileDefinition {
   sourceKind: NewsSourceKind;
   rightsContext: string;
   rightsPolicyUrl: string;
-  publishedAtMode: 'SOURCE_LOCAL_TIME';
-  publishedTimeZone: 'Asia/Seoul';
+  publishedAtMode?: 'SOURCE_LOCAL_TIME';
+  publishedTimeZone?: 'Asia/Seoul';
+  enabled: boolean;
+  allowedHosts: readonly string[];
+  companySymbols?: readonly string[];
+  companyMarketRegion?: 'us';
   policy: NewsSourcePolicy;
 }
 
 /** The complete runtime IR allowlist. An arbitrary registered URL never inherits these rights. */
 export const NEWS_IR_SOURCE_PROFILES = Object.freeze({
   'samsung-global': Object.freeze({
+    enabled: true,
+    allowedHosts: Object.freeze(['news.samsung.com']),
     url: 'https://news.samsung.com/global/feed',
     publisher: 'Samsung Global Newsroom',
     publisherId: 'samsung-global-newsroom',
@@ -194,14 +278,146 @@ export const NEWS_IR_SOURCE_PROFILES = Object.freeze({
       checkedAt: '2026-09-05',
     }) satisfies NewsSourcePolicy,
   }),
+  'nvidia-ir-press': conditionalIrProfile(
+    'nvidia-ir-press',
+    'NVIDIA',
+    'NVDA',
+    'https://nvidianews.nvidia.com/cats/press_release.xml',
+    'https://www.nvidia.com/en-us/about-nvidia/rss/',
+  ),
+  'broadcom-ir-news': conditionalIrProfile(
+    'broadcom-ir-news',
+    'Broadcom',
+    'AVGO',
+    'https://investors.broadcom.com/rss/news-releases.xml',
+    'https://www.broadcom.com/company/legal/terms-of-use',
+  ),
+  'palo-alto-networks-ir-news': conditionalIrProfile(
+    'palo-alto-networks-ir-news',
+    'Palo Alto Networks',
+    'PANW',
+    'https://investors.paloaltonetworks.com/rss/news-releases.xml',
+    'https://www.paloaltonetworks.com/legal-notices/terms-of-use',
+  ),
 } satisfies Record<NewsIrSourceProfileId, NewsIrSourceProfileDefinition>);
 
+function conditionalIrProfile(
+  id: string,
+  publisher: string,
+  symbol: string,
+  url: string,
+  policyUrl: string,
+): NewsIrSourceProfileDefinition {
+  return Object.freeze({
+    url,
+    publisher,
+    publisherId: id,
+    enabled: false,
+    marketRegion: 'us',
+    companyMarketRegion: 'us',
+    companySymbols: Object.freeze([symbol]),
+    allowedHosts: Object.freeze([new URL(url).hostname]),
+    sourceKind: NewsSourceKind.COMPANY_IR,
+    rightsContext: 'REVIEWED_NEWS_METADATA_V2',
+    rightsPolicyUrl: policyUrl,
+    policy: unreviewedNewsPolicy(`${id}-v1`, policyUrl),
+  });
+}
+
+export function getNewsIrSourceProfile(value: string): NewsIrSourceProfileDefinition | null {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:' || url.username || url.password || url.port || url.hash)
+      return null;
+    return (
+      Object.values(NEWS_IR_SOURCE_PROFILES).find(
+        (profile) => profile.url === url.toString() && profile.allowedHosts.includes(url.hostname),
+      ) ?? null
+    );
+  } catch {
+    return null;
+  }
+}
+
+export function registeredNewsSourcePolicies(): readonly NewsSourcePolicy[] {
+  return [
+    ...Object.values(NEWS_EXTERNAL_API_POLICIES),
+    ...Object.values(NEWS_IR_SOURCE_PROFILES)
+      .filter((profile) => profile.enabled)
+      .map((profile) => profile.policy),
+    ...Object.values(NEWS_RSS_FEEDS)
+      .filter((feed) => !('enabled' in feed) || feed.enabled)
+      .map((feed) => feed.policy),
+  ];
+}
+
+export function currentNewsSourcePolicy(
+  policy: NewsSourcePolicy | null | undefined,
+): NewsSourcePolicy | null {
+  if (!policy || policy.policyVersion !== 2) return policy ?? null;
+  return (
+    registeredNewsSourcePolicies().find((current) => current.policyId === policy.policyId) ?? null
+  );
+}
+
+export function isNewsPolicyV2Approved(policy: NewsSourcePolicy | null | undefined): boolean {
+  return Boolean(
+    policy?.policyVersion === 2 &&
+    policy.policyId &&
+    ['APPROVED', 'METADATA_ONLY'].includes(policy.rightsStatus ?? '') &&
+    policy.metadataStorageAllowed === true &&
+    policy.displayAllowed === true &&
+    policy.policyUrl.startsWith('https://') &&
+    policy.checkedAt &&
+    policy.fullTextStorageAllowed === false,
+  );
+}
+
+export function newsPolicyApprovalReady(policy: NewsSourcePolicy | null | undefined): boolean {
+  return policy?.policyVersion === 2
+    ? isNewsPolicyV2Approved(policy)
+    : policy?.metadataStorageAllowed === true && policy.displayAllowed === true;
+}
+
+export function newsPolicyAllowsAudience(
+  policy: NewsSourcePolicy | null | undefined,
+  audience: NewsAudience = 'MEMBER_UI',
+  currentPolicy: NewsSourcePolicy | null | undefined = currentNewsSourcePolicy(policy),
+): boolean {
+  if (!newsPolicyApprovalReady(policy)) return false;
+  if (policy?.policyVersion !== 2) return true;
+  return (
+    isNewsPolicyV2Approved(currentPolicy) &&
+    policy.allowedAudiences?.includes(audience) === true &&
+    currentPolicy?.allowedAudiences?.includes(audience) === true
+  );
+}
+
+export function isNewsSummaryStorageAllowed(policy: NewsSourcePolicy | null | undefined): boolean {
+  return policy?.policyVersion === 2
+    ? policy.summaryStorageAllowed === true
+    : policy?.metadataStorageAllowed === true &&
+        [RightsMode.OFFICIAL_PUBLIC_DATA, RightsMode.PRIVATE_DISPLAY_ONLY].includes(
+          policy.rightsMode as
+            typeof RightsMode.OFFICIAL_PUBLIC_DATA | typeof RightsMode.PRIVATE_DISPLAY_ONLY,
+        );
+}
+
+export function isNewsTranslationAllowed(policy: NewsSourcePolicy | null | undefined): boolean {
+  return (
+    policy?.aiAllowed === true && (policy.policyVersion !== 2 || policy.translationAllowed === true)
+  );
+}
+
 export function isNewsMetadataCollectionAllowed(policy: NewsSourcePolicy | null | undefined) {
-  return policy?.metadataStorageAllowed === true;
+  return (
+    policy?.metadataStorageAllowed === true &&
+    (policy.policyVersion !== 2 || isNewsPolicyV2Approved(policy))
+  );
 }
 
 export function isNewsDisplayAllowed(policy: NewsSourcePolicy | null | undefined) {
-  return policy?.metadataStorageAllowed === true && policy.displayAllowed === true;
+  return newsPolicyApprovalReady(policy);
 }
 
 export function isNewsFullTextCollectionAllowed(policy: NewsSourcePolicy | null | undefined) {
@@ -240,6 +456,7 @@ export function sourceKindForSource(source: string): NewsSourceKind {
   if (source === 'OPENDART' || source === 'SEC') return NewsSourceKind.OFFICIAL_DISCLOSURE;
   if (source === 'IR') return NewsSourceKind.COMPANY_IR;
   if (source === 'NEWS_RSS') return NewsSourceKind.INDEPENDENT_MEDIA;
+  if (['MARKETAUX', 'ALPHAVANTAGE', 'FINNHUB'].includes(source)) return NewsSourceKind.AGGREGATOR;
   return NewsSourceKind.UNKNOWN;
 }
 
@@ -252,7 +469,15 @@ export function isNewsAiAllowed(source: {
   if ((source.source ?? source.connector) === 'NAVER') return false;
   const policy = source.sourcePolicyJson ?? source.sourcePolicy;
   return Boolean(
-    policy && typeof policy === 'object' && 'aiAllowed' in policy && policy.aiAllowed === true,
+    policy &&
+    typeof policy === 'object' &&
+    'aiAllowed' in policy &&
+    policy.aiAllowed === true &&
+    (!('policyVersion' in policy) ||
+      policy.policyVersion !== 2 ||
+      ('translationAllowed' in policy &&
+        policy.translationAllowed === true &&
+        newsPolicyAllowsAudience(policy as NewsSourcePolicy, 'ADMIN_UI'))),
   );
 }
 

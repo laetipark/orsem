@@ -30,7 +30,7 @@ test('metadata visibility needs explicit rights but never a body or translation 
   assert.match(newsFiltersSql('source', { asset: 'wti' }), /1 = 0/);
   assert.match(
     representativeNewsSql({}),
-    /duplicate.source IN \('GDELT','ALPACA_NEWS'\)\) < \(source.source IN/,
+    /duplicate.source IN \('GDELT','ALPACA_NEWS','MARKETAUX','ALPHAVANTAGE','FINNHUB'\)\) < \(source.source IN/,
   );
 });
 test('external metadata cards cannot expose a description, translation, or a fake body', () => {

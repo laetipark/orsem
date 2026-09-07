@@ -1,0 +1,13 @@
+@media (hover: hover) and (pointer: fine) {
+  .mouse-drag-scroll[data-mouse-scrollable='true'] {
+    cursor: grab;
+    user-select: none;
+  }
+  .mouse-drag-scroll[data-mouse-scrollable='true'] button {
+    cursor: inherit;
+  }
+  .mouse-drag-scroll.is-dragging[data-mouse-scrollable='true'] {
+    cursor: grabbing;
+    scroll-behavior: auto;
+  }
+}

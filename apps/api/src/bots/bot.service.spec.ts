@@ -294,8 +294,8 @@ test('bot news uses only current regional top20 and common metadata without stor
   assert.doesNotMatch(JSON.stringify(response), /providerOriginal|본문 금지|원본 비공개/);
   assert.deepEqual(feedCalls, [[{ region: 'kr', scope: 'company' }, 'BOT:PUBLIC']]);
   assert.deepEqual(queries, [
-    { region: 'kr', scope: 'company', limit: 100 },
-    { region: 'kr', scope: 'market', limit: 20 },
+    { audience: 'BOT', region: 'kr', scope: 'company', limit: 100 },
+    { audience: 'BOT', region: 'kr', scope: 'market', limit: 20 },
   ]);
   assert.deepEqual(saved[0]?.responseJson, { command: 'news', itemCount: 3 });
   assert.doesNotMatch(JSON.stringify(saved), /https:\/\/|제공 요약|제목|private/);

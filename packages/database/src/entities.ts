@@ -251,6 +251,7 @@ export interface ManualNewsContentTranslation extends ManualNewsTranslationIdent
 @Unique('ux_source_raw_hash', ['source', 'rawHash'])
 @Index('ix_source_items_published', ['publishedAt', 'id'])
 @Index('ix_source_items_article', ['newsArticleId'])
+@Index('ix_source_items_title_published', ['normalizedTitleHash', 'publishedAt'])
 export class SourceItemEntity extends EntityBase {
   newsArticle?: NewsArticleEntity;
   @Column({ name: 'news_article_id', type: 'char', length: 36, nullable: true }) newsArticleId!:
@@ -266,6 +267,8 @@ export class SourceItemEntity extends EntityBase {
     string | null;
   @Column({ type: 'text' }) url!: string;
   @Column({ type: 'text' }) title!: string;
+  @Column({ name: 'normalized_title_hash', type: 'char', length: 64, nullable: true })
+  normalizedTitleHash!: string | null;
   @Column({ name: 'source_name', type: 'varchar', length: 255, nullable: true }) sourceName!:
     string | null;
   @Column({ type: 'varchar', length: 255, nullable: true }) author!: string | null;

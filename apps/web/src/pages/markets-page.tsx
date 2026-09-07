@@ -3,6 +3,7 @@ import { ArrowLeft, ExternalLink } from 'lucide-react';
 import { useMemo } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { MarketOverview } from '../components/market-overview';
+import { MarketSelection } from '../components/market-selection';
 import { MarketValue } from '../components/market-value';
 import { MarketChart } from '../components/market-chart';
 import { AssetNews, isNewsAsset } from '../components/asset-news';
@@ -36,6 +37,7 @@ export function MarketsPage() {
       <p className="market-page-note">
         지표마다 갱신 주기와 기준이 다릅니다. 항목을 선택하면 상세 차트와 출처를 볼 수 있습니다.
       </p>
+      <MarketSelection region={region} />
     </div>
   );
 }

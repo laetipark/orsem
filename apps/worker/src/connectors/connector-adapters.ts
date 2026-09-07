@@ -1,4 +1,6 @@
 import { AlpacaNewsConnector } from './alpaca-news.connector';
+import { createFreeNewsApiAdapters } from './free-news-api.connector';
+import type { NewsApiBudgetStore } from './news-api-budget';
 import { safeSecAccessCode, secAccessGuidance } from './sec-access-diagnostics';
 import {
   recoverGdeltWindows,
@@ -22,7 +24,11 @@ import {
   NEWS_RSS_FEEDS,
   NEWS_RSS_FEED_IDS,
   type NewsRssFeedId,
+  type NewsRssFeedDefinition,
   type NewsSourcePolicy,
+  getNewsIrSourceProfile,
+  newsPolicyApprovalReady,
+  isNewsSummaryStorageAllowed,
 } from '@orsem/contracts';
 export { NEWS_RSS_FEED_IDS, type NewsRssFeedId } from '@orsem/contracts';
 import { assertLexicalXmlComplexity, assertSafeXml } from '@orsem/opendart-parser';
@@ -44,12 +50,24 @@ import {
 } from './connector-diagnostics';
 
 export type ConnectorName =
-  'OPENDART' | 'NAVER' | 'SEC' | 'GDELT' | 'IR' | 'NEWS_RSS' | 'ALPACA_NEWS';
+  | 'OPENDART'
+  | 'NAVER'
+  | 'SEC'
+  | 'GDELT'
+  | 'IR'
+  | 'NEWS_RSS'
+  | 'ALPACA_NEWS'
+  | 'MARKETAUX'
+  | 'ALPHAVANTAGE'
+  | 'FINNHUB';
 
 export interface DiscoveryCandidate {
   readonly connector: ConnectorName;
   readonly externalId: string | null;
   readonly title: string;
+  readonly summary?: string | null;
+  readonly observedAt?: string;
+  readonly updatedAt?: string;
   readonly url: string;
   readonly publishedAt: string | null;
   readonly sourceName: string | null;
@@ -73,6 +91,8 @@ export interface DiscoveryArticleContent {
 }
 
 export interface DiscoveryScopeCompany {
+  readonly companyId?: string;
+  readonly market?: string;
   readonly ticker: string | null;
   readonly stockCode: string | null;
   readonly cik: string | null;
@@ -432,6 +452,16 @@ export async function fetchPinnedHttpsBytes(
         if (status < 200 || status >= 300) {
           response.resume();
           fail(new ConnectorRequestError(connector, operation, status));
+          return;
+        }
+        try {
+          assertFeedResponseHeaders(
+            response.headers['content-type'],
+            response.headers['content-encoding'],
+          );
+        } catch (error) {
+          response.destroy();
+          fail(error);
           return;
         }
         const declared = Number(response.headers['content-length'] ?? 0);
@@ -1549,7 +1579,7 @@ export class GdeltMetadataConnector extends ConnectorBase {
 
 export function assertRegisteredFeedUrl(value: string): URL {
   const url = assertPublicHttpLink(value);
-  if (url.protocol !== 'https:') {
+  if (url.protocol !== 'https:' || url.port || url.hash) {
     throw new Error('Registered feed URLs must be credential-free HTTPS URLs.');
   }
   return url;
@@ -1561,10 +1591,24 @@ export const SAMSUNG_GLOBAL_FEED_URL = new URL(
 ).toString();
 
 export function isApprovedContentIrFeed(value: string): boolean {
-  try {
-    return assertRegisteredFeedUrl(value).toString() === SAMSUNG_GLOBAL_FEED_URL;
-  } catch {
-    return false;
+  const profile = getNewsIrSourceProfile(value);
+  return Boolean(profile?.enabled && newsPolicyApprovalReady(profile.policy));
+}
+
+/** The transport never decompresses untrusted feeds or accepts HTML masquerading as RSS. */
+export function assertFeedResponseHeaders(
+  contentType: string | string[] | undefined,
+  contentEncoding: string | string[] | undefined,
+): void {
+  const type =
+    typeof contentType === 'string' ? contentType.split(';')[0]!.trim().toLowerCase() : '';
+  if (
+    !['application/rss+xml', 'application/atom+xml', 'application/xml', 'text/xml'].includes(type)
+  ) {
+    throw new Error('RSS content type is not an approved XML media type.');
+  }
+  if (contentEncoding !== undefined && contentEncoding !== 'identity') {
+    throw new Error('Compressed RSS responses are not supported.');
   }
 }
 
@@ -1604,6 +1648,7 @@ class ConditionalFeedReader {
     const previous = await this.store?.load(this.connector, url.toString());
     const headers: Record<string, string> = {
       Accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml',
+      'Accept-Encoding': 'identity',
       'User-Agent': 'Orsem/0.1 (+https://orsem.laetipark.me; noncommercial RSS reader)',
     };
     if (previous?.etag) headers['If-None-Match'] = previous.etag;
@@ -1708,7 +1753,7 @@ export class RegisteredIrFeedConnector extends ConnectorBase {
   }
 
   public async fetchFeed(feedUrl: string): Promise<readonly DiscoveryCandidate[]> {
-    if (!this.feedUrls.includes(feedUrl)) {
+    if (!this.feedUrls.includes(feedUrl) || !isApprovedContentIrFeed(feedUrl)) {
       throw new Error('IR feed is not registered.');
     }
     const url = assertRegisteredFeedUrl(feedUrl);
@@ -1816,15 +1861,17 @@ function decodedFeedText(value: string): string {
 export function parseNewsRssFeed(feedId: NewsRssFeedId, xml: string): ParsedNewsRssFeed {
   const feed = NEWS_RSS_FEEDS[feedId];
   if (!feed) throw new Error('NEWS_RSS feed is not allowlisted.');
+  if (('enabled' in feed && !feed.enabled) || !newsPolicyApprovalReady(feed.policy))
+    throw new Error('NEWS_RSS rights approval is required.');
   return parseRegisteredFeed(feedId, feed, xml, 'NEWS_RSS');
 }
 
 export function parseIrRssFeed(feedUrl: string, xml: string): ParsedNewsRssFeed {
   const url = assertRegisteredFeedUrl(feedUrl);
-  if (url.toString() !== SAMSUNG_GLOBAL_FEED_URL) {
+  const profile = getNewsIrSourceProfile(url.toString());
+  if (!profile || !isApprovedContentIrFeed(url.toString())) {
     throw new Error('IR feed is not approved for market-news content collection.');
   }
-  const profile = NEWS_IR_SOURCE_PROFILES['samsung-global'];
   return parseRegisteredFeed(
     url.toString(),
     {
@@ -1897,15 +1944,16 @@ function parseRegisteredFeed(
       const originalLink =
         links.map(textValue).find((link) => link.trim()) || textValue(alternate?.href);
       const originalGuid = textValue(entry.guid) || textValue(entry.id) || null;
-      const originalPublishedAt =
-        textValue(entry.pubDate) || textValue(entry.published) || textValue(entry.updated) || null;
+      const originalPublishedAt = textValue(entry.pubDate) || textValue(entry.published) || null;
+      const originalUpdatedAt = textValue(entry.updated) || null;
       if (
         !originalTitle.trim() ||
         !originalLink.trim() ||
         originalTitle.length > 16_000 ||
         originalLink.length > 8_000 ||
         (originalGuid?.length ?? 0) > 8_000 ||
-        (originalPublishedAt?.length ?? 0) > 256
+        (originalPublishedAt?.length ?? 0) > 256 ||
+        (originalUpdatedAt?.length ?? 0) > 256
       ) {
         throw new Error('Invalid RSS item metadata.');
       }
@@ -1925,7 +1973,13 @@ function parseRegisteredFeed(
       const publication = originalPublishedAt ? decodedFeedText(originalPublishedAt).trim() : '';
       const publishedAt = parseFeedPublicationInstant(publication, feed);
       const descriptionHtml = textValue(entry.description) || textValue(entry.summary);
-      const description = safeFeedExcerpt(descriptionHtml);
+      if (descriptionHtml.length > 64_000)
+        throw new Error('RSS description exceeds the item limit.');
+      const description = isNewsSummaryStorageAllowed(feed.policy)
+        ? safeFeedExcerpt(descriptionHtml)
+        : null;
+      const updatedAt = parseFeedPublicationInstant(originalUpdatedAt ?? '', {});
+      const observedAt = new Date().toISOString();
       candidates.push(
         Object.freeze({
           connector,
@@ -1933,6 +1987,8 @@ function parseRegisteredFeed(
           title,
           url,
           publishedAt,
+          observedAt,
+          ...(updatedAt ? { updatedAt } : {}),
           sourceName: feed.publisher,
           tickers: Object.freeze([]),
           tags: Object.freeze(
@@ -1962,6 +2018,10 @@ function parseRegisteredFeed(
             originalLink,
             originalGuid,
             originalPublishedAt,
+            originalUpdatedAt,
+            providerUpdatedAt: updatedAt,
+            collectedAt: observedAt,
+            ...(feed.policy.policyVersion === 2 ? { independentVerification: false } : {}),
             description,
           }),
         }),
@@ -2079,7 +2139,12 @@ export class PublisherNewsRssConnector extends ConnectorBase {
     if (feedIds.some((id) => !NEWS_RSS_FEED_IDS.includes(id))) {
       throw new Error('NEWS_RSS feed is not allowlisted.');
     }
-    this.feedIds = Object.freeze([...new Set(feedIds)]);
+    this.feedIds = Object.freeze(
+      [...new Set(feedIds)].filter((id) => {
+        const feed = NEWS_RSS_FEEDS[id];
+        return (!('enabled' in feed) || feed.enabled) && newsPolicyApprovalReady(feed.policy);
+      }),
+    );
     this.configured = this.feedIds.length > 0;
   }
 
@@ -2133,6 +2198,9 @@ export class PublisherNewsRssConnector extends ConnectorBase {
   public async fetchFeed(feedId: NewsRssFeedId): Promise<ParsedNewsRssFeed> {
     if (!this.feedIds.includes(feedId)) throw new Error('NEWS_RSS feed is not enabled.');
     const url = assertRegisteredFeedUrl(NEWS_RSS_FEEDS[feedId].url);
+    const definition: NewsRssFeedDefinition = NEWS_RSS_FEEDS[feedId];
+    const hosts = definition.allowedHosts ?? [url.hostname];
+    if (!hosts.includes(url.hostname)) throw new Error('RSS host is outside its approved profile.');
     const bytes = await this.reader.fetch(url, feedId);
     if (bytes === null) return { candidates: [], skippedItems: 0, truncated: false };
     const parsed = parseNewsRssFeed(feedId, decodeNewsRssBytes(feedId, bytes));
@@ -2182,8 +2250,10 @@ export function createLinkDiscoveryAdapters(
   config: WorkerConfig,
   fetchImpl: FetchImplementation = globalThis.fetch,
   checkpointStore?: FeedCheckpointStore,
+  budgetStore?: NewsApiBudgetStore,
 ): readonly LinkDiscoveryAdapter[] {
   return Object.freeze([
+    ...createFreeNewsApiAdapters(config, fetchImpl, budgetStore),
     new SecSubmissionsConnector(config.secUserAgent, fetchImpl, config.httpTimeoutMs),
     new AlpacaNewsConnector(
       config.alpacaNewsEnabled,
@@ -2198,7 +2268,11 @@ export function createLinkDiscoveryAdapters(
       GDELT_REQUEST_TIMEOUT_MS,
       config.gdeltApprovedDomains,
     ),
-    new RegisteredIrFeedConnector(config.irFeedUrls, config.httpTimeoutMs, checkpointStore),
+    new RegisteredIrFeedConnector(
+      config.irFeedUrls.filter(isApprovedContentIrFeed),
+      config.httpTimeoutMs,
+      checkpointStore,
+    ),
     new PublisherNewsRssConnector(config.newsRssFeeds, config.httpTimeoutMs, checkpointStore),
   ]);
 }

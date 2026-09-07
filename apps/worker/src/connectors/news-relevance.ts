@@ -15,9 +15,12 @@ export async function replaceNewsCompanyRelevance(
   // Call inside the source row's transaction/lock; stale metadata matches are removed atomically.
   const previous = await repository.find({ where: { sourceItemId } });
   const keep = new Set(unique.map((match) => match.companyId));
-  for (const row of previous) if (!keep.has(row.companyId)) await repository.delete(row.id);
+  for (const row of previous)
+    if (!keep.has(row.companyId) && row.matchMethod !== 'MANUAL_REVIEW')
+      await repository.delete(row.id);
   for (const match of unique) {
     const existing = previous.find((row) => row.companyId === match.companyId);
+    if (existing?.matchMethod === 'MANUAL_REVIEW') continue;
     if (
       existing?.inputHash === inputHash &&
       existing.matcherVersion === NEWS_MATCHER_VERSION &&
@@ -47,3 +50,9 @@ export const APPROVED_GROUP_COMPANIES_SQL = `SELECT DISTINCT gi.company_id AS co
 /** Quote subscriptions retain the 40 representative symbols; news uses every verified class. */
 export const MARKET_SELECTION_COMPANIES_SQL = `SELECT DISTINCT m.company_id AS companyId FROM market_cap_memberships m JOIN market_selection_state st ON st.active_snapshot_id=m.snapshot_id JOIN companies c ON c.id=m.company_id WHERE c.is_listed=1`;
 export const NEWS_COLLECTION_COMPANIES_SQL = `${APPROVED_GROUP_COMPANIES_SQL} UNION ${MARKET_LEADER_COMPANIES_SQL}`;
+
+/** Personal-use news API scope: administrators' own groups, then spare-budget US leaders. */
+export const ADMIN_NEWS_COMPANIES_SQL = `SELECT DISTINCT gi.company_id AS companyId
+  FROM watchlist_group_items gi JOIN watchlist_groups g ON g.id=gi.group_id
+  JOIN admins a ON g.owner_key=CONCAT('ADMIN:',a.id) AND a.is_active=1
+  WHERE g.room_id IS NULL ORDER BY gi.company_id`;

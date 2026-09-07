@@ -1,5 +1,17 @@
 # REST API
 
+## 조건부 개인 뉴스 metadata v2 (2026-09-07)
+
+기존 뉴스·검색·대시보드 경로를 재사용한다. 신규 provider별 조회 endpoint나 범용 RSS proxy는 없다. 서버가 인증된 사용자에서 독자를 정하고 신규 개인용 뉴스는 관리자 세션의 `ADMIN_UI`로만 반환한다. 회원·공유방·봇에는 별도 승인이 없는 한 해당 레코드, 제목·요약·번역, 연결 회사, 개수·정렬 영향과 공식 참조를 노출하지 않는다. 클라이언트가 audience query로 권리를 올릴 수 없다.
+
+뉴스 응답에는 선택적인 `providerCount`, `independentSourceCount`, `officialVerification: UNVERIFIED | LINKED | CONFIRMED`, `officialReferences`를 추가한다. 기존 `sourceKind`, `relatedCompanies`, 발행 시각·원문 URL과 함께 사용한다. `officialReferences`는 허용된 기존 DART 공시·SEC·기업 공식 자료의 kind/id/title/url, 관련성·검토 상태를 담으며 대상 해시가 바뀌면 확인 상태를 낮춘다. LINKED는 자동 관련 후보이고 CONFIRMED는 관리자의 관련성 확인이다. 뉴스 수치의 공식 검증이나 투자 신호를 뜻하지 않는다.
+
+`GET /operations/sources`의 관리자 응답에 신규 provider/IR/RSS 상태를 합친다. `enabled`, `lastSuccessAt`, `lastErrorAt`, 정제된 `lastError`, `nextRunAt`, `dailyRequestCount/Budget`, `rollingRequestCount/Budget`, 안전하게 표시한 `lastCursor`, `rightsStatus`, `entitlementStatus`를 제공한다. 키, 원래 요청 URL, raw 오류/응답은 반환하지 않는다.
+
+기존 `POST /ir-sources`, `PATCH /ir-sources/:id`는 코드의 정확한 URL 프로필과 정책·상장 company master를 검증한다. NVDA·AVGO·PANW는 해당 미국 상장기업만 연결할 수 있고 기본 inactive다. 미승인 프로필은 active 요청을 거부한다. Samsung의 기존 등록 계약은 유지한다.
+
+기존 `POST /reviews/:id/resolve`는 `SOURCE_ITEM` 검토에 `sourceHash`, 선택적인 기존 `companyIds`, 등록된 `officialTarget: {kind: 'FILING' | 'SOURCE_ITEM', id}`를 받는다. 관리자만 현재 원본 해시와 권리를 검증하여 처리한다. 회사 자동 생성·공시 정정 계보 변경은 하지 않는다. 결정 전후 관계·관리자·시각은 기존 review와 source metadata에 감사 기록으로 남긴다.
+
 모든 경로는 `/api/v1` 아래에 있습니다. 비공개 브라우저 경로에는 활성 로컬 관리자 계정이 필요하며, 승인된 카카오 조회 회원은 명시적으로 허용된 조회 경로와 본인 알림 설정만 이용할 수 있습니다. 신규 카카오 회원은 승인 전 비공개 데이터에 접근할 수 없습니다. 봇 경로는 범위가 제한된 bearer 토큰을 사용합니다. 일반 목록 경로는 `{ "items": [], "nextCursor": null }`을 반환하며, 소수와 큰 정수 수량은 JSON 문자열로 전달합니다.
 
 ## 시장 지표·공통 신선도
@@ -120,12 +132,16 @@
 ## 종목 주소·기본정보·개인 뉴스
 
 - `GET /companies?q=...&region=all|kr|us&cursor=...`: 이름순 목록. 항목에 선택적인 `canonicalPath`, `quote`를 포함합니다. quote는 가격·등락률·거래량·시세 및 비교 기준일·별도 시총 기준일을 제공합니다. DB 조회를 기업별로 반복하지 않습니다.
+- `GET /companies/quotes?ids=UUID,UUID`: 승인된 사용자가 최근조회 등 일반 기업의 저장된 시세를 최대 20개 고유 UUID로 조회합니다. `{asOf, items: [{companyId, displayPrice}]}`를 반환하며 그룹 시세와 같은 가격·종가 기준·비교 기준일·등락 계산을 사용합니다. 존재하지 않는 기업은 생략하고 나머지는 요청 순서를 유지합니다. 명시적 빈 `ids=`는 빈 결과입니다. 응답은 private/no-store이며 기존 `/watchlist/quotes`의 관심목록 제한은 변경하지 않습니다.
 - `GET /companies/:codeOrTicker`: UUID 또는 코드·티커·거래소:티커를 해석하고 상세 응답에 내부 UUID와 `canonicalPath`를 반환합니다. 모호한 심볼은 409, 없는 종목은 404입니다.
 - `GET /companies/:uuid/information`: 필드별 값·단위·보고기간·출처·관측 시각. 시세·기업개요·재무에 확인된 값만 제공합니다.
 - `GET /search/suggestions?kind=all|companies|news|events&region=all|kr|us`: 검색어는 URI 인코딩한 `X-Orsem-Search-Query` 헤더로 전달합니다. 응답은 no-store이며 내부 정보만 조회합니다. 입력·후보 선택 중 NAVER 요청을 만들지 않습니다.
 - `GET /dashboard/market-selection`: 국내·미국 각각 월간 시총 상위 20개 대표 종목. 상태·기준일·관측 시각·출처·선정 월·다음 KST 갱신 시각·통화·공급자 범위를 제공합니다. ETF·우선주·ADR은 제외합니다. 실패 시 마지막 정상 목록을 반환합니다.
 - `GET /watchlist`: 위 월간 목록의 호환 읽기 경로입니다. 기존 수동 `POST /watchlist`, `PATCH /watchlist/:id`, `DELETE /watchlist/:id`는 410을 반환합니다. 개인·공유방 그룹 API는 그대로 유지합니다.
 - `GET /dashboard/personal-news`, `GET /dashboard/personal-filings`: 세션 소유자의 개인 그룹 합집합. 쿼리로 다른 사용자를 지정할 수 없고 응답은 private/no-store입니다. 공시는 분석 전 원본도 포함합니다.
+- `GET /watchlist-groups/:id/news?companyId=...&limit=20&cursor=...`: 세션 소유 개인 그룹 또는 참여 중인 공유방 그룹의 뉴스입니다. 종목 관리 권한 없이 읽을 수 있으며, `companyId`를 생략하면 그룹 전체 최대 200종목을 집계합니다. 뉴스 페이지에 `group`, 전체 그룹의 순서 있는 `companies`, 현재 필터의 `companyCount`, `asOf`를 추가합니다. 그룹 밖 종목 필터는 400, 접근 불가능한 그룹은 404입니다.
+- `GET /watchlist-groups/:id/filings?companyId=...`: 같은 접근권한과 기업 필터로 최신 원본 공시 최대 8건을 반환합니다. `{group, companies, companyCount, asOf, items}` 형식이며 DART와 SEC의 접수·발표 날짜, 최초 수집 시각, 원문 주소를 유지합니다. 두 그룹 소식 응답은 private/no-store입니다.
+- `GET /news?scope=company&companyIds=UUID,UUID`: 현재 브라우저의 최근조회 목록처럼 여러 기업의 관련 뉴스 합집합을 가져옵니다. 서로 다른 UUID 최대 20개를 받으며 `companyId`나 `asset`과 함께 사용할 수 없습니다. 명시적인 빈 `companyIds=`는 빈 결과를 반환합니다. 그룹·최근조회 배열은 이미 유효한 네이버 스냅샷만 읽고 기업별 신규 검색을 시작하지 않습니다. 단일 `companyId` 필터만 기존 온디맨드 검색을 사용할 수 있습니다.
 
 `GET /news`의 DB `items`와 `nextCursor`는 저장된 기사 페이지입니다. 첫 페이지의 선택적 `providerGroups`는 네이버의 회사·시장·자산별 제공 순서이며 `naver`에 수집·갱신·다음 요청 상태가 있습니다. 화면은 이를 최신순으로 병합하되 각 공급자 목록 안의 순서를 보존합니다. 임시 기사는 DB cursor를 소비하지 않습니다. 각 네이버 항목에는 `expiresAt`, `collectedAt`, 변경하지 않은 원본 필드 `providerOriginal`이 있습니다. 관련 종목은 원제목과 제공 요약의 명확한 기업명·별칭으로 확인하며 검색 대상 종목이라는 이유만으로 부여하지 않습니다. 회사·주제 검색은 하나의 정기 순환 작업에서 15분마다 최대 10개를 처리하고 기존 무료 호출 한도를 공유합니다. 네이버 결과는 만료되는 메모리에서만 취급하며 DB·로그·AI에 저장하지 않습니다. 필터가 특정 공식 소스·출판사를 지정하면 해당하지 않는 네이버 결과는 포함하지 않습니다.
 

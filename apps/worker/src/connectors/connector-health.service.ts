@@ -1,11 +1,18 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { AlertStatus, ConnectorStatus, DeliveryChannel, RightsMode } from '@orsem/contracts';
+import {
+  AlertStatus,
+  ConnectorStatus,
+  DeliveryChannel,
+  RightsMode,
+  getNewsIrSourceProfile,
+} from '@orsem/contracts';
 import {
   AlertEntity,
   AlertOutboxEntity,
   ConnectorHealthEntity,
   IrSourceEntity,
   SyncCheckpointEntity,
+  CompanyEntity,
 } from '@orsem/database';
 import { DataSource } from 'typeorm';
 import { CompatibleClassifierClient } from '../ai/compatible-classifier.client';
@@ -15,6 +22,7 @@ import {
   createLinkDiscoveryAdapters,
   MAX_REGISTERED_IR_FEEDS,
   RegisteredIrFeedConnector,
+  isApprovedContentIrFeed,
   type ConnectorHealthCheck,
 } from './connector-adapters';
 
@@ -35,13 +43,23 @@ export class ConnectorHealthService {
     const registeredIrSources = await this.dataSource
       .getRepository(IrSourceEntity)
       .find({ where: { isActive: true } });
-    const compatibleIrUrls = new Set(this.config.irFeedUrls);
+    const compatibleIrUrls = new Set(this.config.irFeedUrls.filter(isApprovedContentIrFeed));
     let invalidIrSources = 0;
     for (const source of registeredIrSources) {
       try {
+        const profile = getNewsIrSourceProfile(source.url);
+        const company = profile?.companySymbols
+          ? await this.dataSource
+              .getRepository(CompanyEntity)
+              .findOneBy({ id: source.companyId, isListed: true })
+          : null;
         if (
           source.sourceType.toUpperCase() !== 'RSS' ||
-          source.rightsMode !== RightsMode.PRIVATE_DISPLAY_ONLY
+          source.rightsMode !== profile?.policy.rightsMode ||
+          (profile?.companySymbols &&
+            (!company ||
+              !profile.companySymbols.includes(company.ticker ?? '') ||
+              !['NASDAQ', 'NYSE', 'AMEX'].includes(company.market)))
         ) {
           throw new Error('unsupported registered IR source contract');
         }
@@ -65,7 +83,16 @@ export class ConnectorHealthService {
     const adapters = createLinkDiscoveryAdapters(effectiveConfig, this.fetchImpl);
     const adapterChecks = await Promise.all(
       adapters.map((adapter) =>
-        ['NEWS_RSS', 'SEC', 'IR', 'GDELT', 'ALPACA_NEWS'].includes(adapter.name)
+        [
+          'NEWS_RSS',
+          'SEC',
+          'IR',
+          'GDELT',
+          'ALPACA_NEWS',
+          'MARKETAUX',
+          'ALPHAVANTAGE',
+          'FINNHUB',
+        ].includes(adapter.name)
           ? this.discoveryHealth(adapter.health())
           : adapter.check(),
       ),
@@ -73,7 +100,7 @@ export class ConnectorHealthService {
     if (invalidIrSources > 0) {
       const index = adapterChecks.findIndex((check) => check.connector === 'IR');
       const existing = index >= 0 ? adapterChecks[index] : undefined;
-      const invalidMessage = `${invalidIrSources} active IR source(s) violate the exact Samsung RSS and PRIVATE_DISPLAY_ONLY contract.`;
+      const invalidMessage = `${invalidIrSources} active IR source(s) violate the approved RSS profile, company or rights contract.`;
       const degraded = Object.freeze({
         connector: 'IR' as const,
         status: ConnectorStatus.DEGRADED,
@@ -117,6 +144,9 @@ export class ConnectorHealthService {
         'IR_INGESTION',
         'GDELT_INGESTION',
         'ALPACA_NEWS_INGESTION',
+        'MARKETAUX_INGESTION',
+        'ALPHAVANTAGE_INGESTION',
+        'FINNHUB_INGESTION',
       ].includes(String(check.metadata?.healthSource));
       const secDiscoveryHealth = check.metadata?.healthSource === 'SEC_INGESTION';
       // 시세 커넥터가 설정되어 있으면 마지막으로 저장된 토스 상태를 읽기만 합니다.
@@ -188,7 +218,7 @@ export class ConnectorHealthService {
       status: usable ? existing.status : ConnectorStatus.DEGRADED,
       message: usable
         ? existing.message
-        : `Configured; awaiting the first ${isSec ? 'SEC' : 'RSS'} discovery result.`,
+        : `Configured; awaiting the first ${configured.connector} discovery result.`,
       metadata: {
         ...existing?.metadataJson,
         ...configured.metadata,

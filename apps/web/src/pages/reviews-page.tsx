@@ -12,7 +12,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { formatKst } from '../lib/format';
 import { disclosureLabels, displayDomainText } from '../lib/domain-labels';
-import type { ReviewItem, ReviewResolution } from '../types';
+import type { ReviewItem, ReviewResolution, NewsReviewSelection } from '../types';
 import { EventTypeBadge, NatureBadge } from '../components/domain-badges';
 import { ObservationDisclaimer } from '../components/disclaimer';
 import {
@@ -55,6 +55,88 @@ const resolutions: Array<{
   { value: 'DUPLICATE', label: '중복 처리', description: '같은 사건의 반복 수집 건', icon: Braces },
 ];
 
+function NewsReviewControls({
+  review,
+  onChange,
+}: {
+  review: ReviewItem;
+  onChange: (selection: NewsReviewSelection) => void;
+}) {
+  const [term, setTerm] = useState('');
+  const [companyIds, setCompanyIds] = useState<string[]>(review.manualCompanyIds ?? []);
+  const [targetIndex, setTargetIndex] = useState('');
+  const companies = useQuery({
+    queryKey: ['news-review-companies', term],
+    queryFn: ({ signal }) => api.suggestions(term, { kind: 'companies' }, signal),
+    enabled: term.trim().length >= 2,
+  });
+  const select = (ids: string[], index: string) => {
+    setCompanyIds(ids);
+    setTargetIndex(index);
+    const target = index ? review.officialReferences?.[Number(index) - 1] : undefined;
+    onChange({
+      sourceHash: review.sourceHash ?? undefined,
+      ...(ids.length ? { companyIds: ids } : {}),
+      ...(target ? { officialTarget: { kind: target.kind, id: target.id } } : {}),
+    });
+  };
+  return (
+    <fieldset className="review-news-links">
+      <legend>뉴스와 기존 자료 연결</legend>
+      <p>관련 자료를 직접 대조해 연결합니다. 공시 등급이나 투자 판단은 변경하지 않습니다.</p>
+      <Input
+        aria-label="연결할 회사 검색"
+        value={term}
+        onChange={(event) => setTerm(event.target.value)}
+        placeholder="기존 회사 이름 또는 종목 검색"
+      />
+      {companies.data?.companies.map((company) => (
+        <label key={company.id}>
+          <input
+            type="checkbox"
+            checked={companyIds.includes(company.id)}
+            onChange={(event) =>
+              select(
+                event.target.checked
+                  ? [...new Set([...companyIds, company.id])]
+                  : companyIds.filter((id) => id !== company.id),
+                targetIndex,
+              )
+            }
+          />
+          {company.title}
+        </label>
+      ))}
+      {companyIds.length ? <p>선택한 회사 {companyIds.length}개</p> : null}
+      <label>
+        공식 자료 후보
+        <select
+          aria-label="공식 자료 후보"
+          value={targetIndex}
+          onChange={(event) => select(companyIds, event.target.value)}
+        >
+          <option value="">자료 선택</option>
+          {review.officialReferences?.map((ref, index) => (
+            <option key={`${ref.kind}:${ref.id}`} value={String(index + 1)}>
+              {ref.title ?? `공식 자료 ${index + 1}`} ·{' '}
+              {ref.matchMethod === 'COMPANY_TIME' ? '회사·시각 후보' : '명시적 참조'}
+            </option>
+          ))}
+        </select>
+      </label>
+      {targetIndex && review.officialReferences?.[Number(targetIndex) - 1]?.url ? (
+        <a
+          href={review.officialReferences[Number(targetIndex) - 1]!.url}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          선택한 공식 원문 열기
+        </a>
+      ) : null}
+    </fieldset>
+  );
+}
+
 export function ReviewCard({
   review,
   onResolve,
@@ -66,12 +148,16 @@ export function ReviewCard({
     resolution: ReviewResolution['resolution'],
     note: string | null,
     planExecutionMatchId?: string,
+    newsReview?: NewsReviewSelection,
   ) => void;
   pending: boolean;
   onConfirmSource?: (note: string | null) => void;
 }) {
   const [selected, setSelected] = useState<ReviewResolution['resolution']>('CONFIRMED');
   const [note, setNote] = useState('');
+  const [newsReview, setNewsReview] = useState<NewsReviewSelection>({
+    sourceHash: review.sourceHash ?? undefined,
+  });
   const [selectedMatchId, setSelectedMatchId] = useState(
     review.planExecutionCandidates?.[0]?.matchId,
   );
@@ -220,22 +306,31 @@ export function ReviewCard({
           </div>
         </fieldset>
       ) : null}
+      {review.sourceItemId ? <NewsReviewControls review={review} onChange={setNewsReview} /> : null}
       <div className="review-resolution" role="radiogroup" aria-label="검토 결과">
-        {resolutions.map(({ value, label, description, icon: Icon }) => (
-          <button
-            key={value}
-            className={selected === value ? 'active' : ''}
-            role="radio"
-            aria-checked={selected === value}
-            onClick={() => setSelected(value)}
-          >
-            <Icon size={16} />
-            <span>
-              <strong>{label}</strong>
-              <small>{description}</small>
-            </span>
-          </button>
-        ))}
+        {resolutions
+          .filter((option) => !review.sourceItemId || option.value !== 'CORRECTION_LINKED')
+          .map(({ value, label, description, icon: Icon }) => (
+            <button
+              key={value}
+              className={selected === value ? 'active' : ''}
+              role="radio"
+              aria-checked={selected === value}
+              onClick={() => setSelected(value)}
+            >
+              <Icon size={16} />
+              <span>
+                <strong>
+                  {review.sourceItemId && value === 'CONFIRMED' ? '자료 연결 확인' : label}
+                </strong>
+                <small>
+                  {review.sourceItemId && value === 'CONFIRMED'
+                    ? '직접 검토한 회사 또는 공식 자료 연결'
+                    : description}
+                </small>
+              </span>
+            </button>
+          ))}
       </div>
       {review.sourceReviewRequired ? (
         <div className="review-source-review">
@@ -271,6 +366,7 @@ export function ReviewCard({
               )
                 ? selectedMatchId
                 : undefined,
+              ...(review.sourceItemId ? [newsReview] : []),
             )
           }
           disabled={
@@ -313,17 +409,21 @@ export function ReviewsPage() {
       resolution,
       note,
       planExecutionMatchId,
+      newsReview,
     }: {
       id: string;
       resolution: ReviewResolution['resolution'];
       note: string | null;
       planExecutionMatchId?: string;
-    }) => api.resolveReview(id, resolution, note, planExecutionMatchId),
+      newsReview?: NewsReviewSelection;
+    }) => api.resolveReview(id, resolution, note, planExecutionMatchId, newsReview),
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['reviews'] }),
         queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
         queryClient.invalidateQueries({ queryKey: ['parse-integrity'] }),
+        queryClient.invalidateQueries({ queryKey: ['news'] }),
+        queryClient.invalidateQueries({ queryKey: ['search'] }),
       ]);
     },
   });
@@ -368,12 +468,13 @@ export function ReviewsPage() {
                 (confirmSource.isPending && confirmSource.variables?.id === review.id)
               }
               onConfirmSource={(note) => confirmSource.mutate({ id: review.id, note })}
-              onResolve={(resolution, note, planExecutionMatchId) =>
+              onResolve={(resolution, note, planExecutionMatchId, newsReview) =>
                 resolve.mutate({
                   id: review.id,
                   resolution,
                   note,
                   planExecutionMatchId,
+                  newsReview,
                 })
               }
             />

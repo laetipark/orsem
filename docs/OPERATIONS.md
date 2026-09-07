@@ -1,5 +1,31 @@
 # 운영
 
+## 조건부 뉴스 확장 운영 (2026-09-07)
+
+이번 확장은 운영 수집을 자동으로 켜지 않는다. `MARKETAUX_NEWS_ENABLED`, `ALPHAVANTAGE_NEWS_ENABLED`, `FINNHUB_NEWS_ENABLED`는 모두 false다. 키만 추가해도 요청하지 않는다. 코드의 공급자 권리, `APPROVED_FREE_NEWS_ACCESS`의 무료 이용 확인 만료일·entitlement, 정확한 원출판사별 정책을 모두 승인해야 한다. Finnhub는 계정에서 확인한 분당 요청 한도도 필요하다. 유료 플랜/요금 청구로 자동 전환하지 않는다.
+
+| 공급자               | 기본 일정 KST | Orsem 기본 요청 예산      | 대상                                                                         |
+| -------------------- | ------------- | ------------------------- | ---------------------------------------------------------------------------- |
+| Marketaux            | 매시          | 실행당 2, 최근 24시간 50  | 관리자 개인 그룹의 국내·미국 종목 우선, 여유분 미국 월간 목록; symbols 묶음  |
+| Alpha Vantage        | 00:00, 12:00  | 실행당 10, 최근 24시간 20 | 미국 종목 순환, LOW_FREQUENCY_SUPPLEMENTAL; tickers AND 필터이므로 개별 심볼 |
+| Finnhub Company News | 매시          | 실행당 5, 최근 24시간 120 | 미국 종목 순환; 무료 권한·분당 한도 확인 필수                                |
+
+이 숫자는 Orsem의 보수적인 설정값이다. 공급자의 공표 한도와 동일시하지 않는다. 실제 무료 한도는 [최신 비교](NEWS_PROVIDER_COMPARISON.md)를 참고한다. 기존 BullMQ 수집 작업을 사용하며 신규 큐나 별도 cron 서비스는 없다. 관리자 소유 개인 그룹만 초기 API 범위에 포함하고 회원·관심방 수집 범위를 섞지 않는다.
+
+각 HTTP 시도 **전** 기존 `source_checkpoints`의 `NEWS_API_BUDGET` 행을 잠가 최근 24시간 예약·cooldown·분당 한도를 검사하고 `api_usage_counters`의 UTC 날짜 카운터를 증가시킨다. 실패·timeout도 호출을 소비한다. 재시작하거나 중복 작업이 들어와도 예산을 초기화하지 않는다. 응답과 관련 기업을 저장한 뒤에만 기존 복구 checkpoint를 commit한다. 무료 한도 때문에 완료하지 못한 page/window는 미완료로 남기고 다음 실행에서 복구한다. 공급자 변경 fallback은 없다.
+
+401은 인증, 403은 entitlement, Marketaux 402는 일일 한도, 429는 속도 제한, 5xx는 공급자 장애다. timeout·잘못된 JSON/XML·반복 pagination도 완료로 표시하지 않는다. API 키·전체 요청 URL·응답 전문은 로그/상태에 넣지 않는다. 관리자의 기존 소스 화면에서 활성화 상태, 최근 성공/실패, 다음 실행, 일일·최근 24시간 예산/사용량, cursor, 권리·entitlement를 확인한다. health 조회는 외부 API를 호출하지 않는다.
+
+신규 RSS URL은 코드의 정확한 프로필과 host allowlist에 등록된 것만 사용한다. NVDA·AVGO·PANW와 한국경제 증권 프로필은 disabled/UNKNOWN이다. IR 등록은 현재 상장 company master와 프로필의 심볼·미국 시장이 일치해야 하며, URL을 선택하는 행위는 권리 승인이 아니다. 미등록 URL, HTML 대체 수집, redirect, 압축 응답, XML 이외 content-type은 허용하지 않는다. 승인 전에 실제 XML MIME/응답 구조도 소량 수동 확인해야 한다.
+
+`AddNewsTitleHash1788413000000`은 2026-09-07 12:32 KST 운영에 적용했다. nullable 제목 해시와 인덱스만 추가하며 본문 backfill·전체 기사 재분류·신규 테이블은 없다. 기존 `synchronize=false`를 유지한다. 비밀 파일·운영 산출물과 분리된 `/tmp` 복사본에서 검증한 뒤 이번 뉴스 확장과 자동완성 변경만 선별 배포했다. 기존 SEC·GDELT 수집 동작을 보존하고 신규 공급자는 모두 비활성으로 유지한다. 소스 전체 빌드에는 다른 미배포 변경도 포함되므로 재배포 시 [배포 기록과 명세](DEPLOYMENT.md)를 대조한다.
+
+2026-09-07 12:49 KST에 새 키로 세 뉴스 API를 각각 한 번 수동 점검해 HTTP 200·뉴스 목록·필수 필드를 확인했다. 요청은 기존 예산 카운터에 포함했고 응답 전문·기사는 저장하지 않았다. API·worker를 다시 시작해 환경 파일을 불러왔으며 신규 뉴스 수집은 비활성으로 유지했다.
+
+남은 수동 확인 목록: 세 API 계정의 무료 플랜·이용 확인 기한, Marketaux 한국 심볼 coverage, Finnhub Company News 무료 entitlement·분당 한도·보존 종료 조건, provider와 정확한 원출판사의 영속 metadata·AI/번역 권리, 각 IR/RSS 권리. Business Wire·GlobeNewswire의 feed 계약과 한국경제TV의 공식 XML 주소가 확인되기 전에는 소스를 등록하지 않는다. 원출판사 권리를 철회하면 공급자 기본 정책을 먼저 차단하고 저장된 사본의 접근을 재검토한다.
+
+`FSC_API_KEY`는 기존 금융위원회 조회 코드용 변수이나 현재 월간 시총 선정 경로에서는 사용하지 않는다. 국내·미국 월간 목록은 토스만 사용하므로 키 등록을 금융위원회 연결 또는 가격 공급자 활성화로 해석하지 않는다.
+
 시장 지표의 공급원, 무료 키 발급, 1분 시세·6시간 이력 수집 및 지연 표시는 [시장 지표 운영](MARKET_INDICATORS.md)을 참고합니다. 공통 footer의 신선도는 저장된 상태만 조회하며 외부 API 점검을 실행하지 않습니다.
 
 ## 소스별 수집 주기 (Asia/Seoul)

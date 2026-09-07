@@ -154,6 +154,7 @@ test('SEC event SQL filters linked source provenance rather than forcing an empt
   assert.match(sql, /esi.item_type = 'SOURCE_ITEM' AND ess.source = \?/u);
   assert.ok(values.includes('SEC'));
   assert.ok(values.includes('class-b'));
-  assert.doesNotMatch(sql, /1 = 0/u);
+  assert.match(sql, /audience_source\.source NOT IN \('MARKETAUX','ALPHAVANTAGE','FINNHUB'\)/u);
+  assert.doesNotMatch(sql, /WHERE 1 = 0/u);
   assert.match(sql, /LIMIT 2$/u);
 });

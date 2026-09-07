@@ -84,7 +84,11 @@ export class OperationsController {
 
   @Get('sources')
   async sources() {
-    const items = await this.data.connectorSourceViews();
+    const [existing, privateNews] = await Promise.all([
+      this.data.connectorSourceViews(),
+      this.data.privateNewsSourceViews(),
+    ]);
+    const items = [...existing, ...privateNews];
     return { items, nextCursor: null, pageInfo: { nextCursor: null, hasMore: false } };
   }
 

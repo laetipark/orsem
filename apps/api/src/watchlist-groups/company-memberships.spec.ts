@@ -407,6 +407,8 @@ test('membership controller validates the session and input without scheduling c
         throw new Error('No quote refresh');
       },
     } as never,
+    {} as never,
+    {} as never,
   );
   const request = { session: { memberId: actor.id } } as unknown as Request;
   await controller.companyMemberships(request, companyId);

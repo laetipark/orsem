@@ -115,7 +115,12 @@ export class WatchlistAccessService {
       WHERE r.id=? AND ${activeActorSql('r.owner_key')} FOR UPDATE`,
       [actor.key, id],
     );
-    if (!rows[0]) throw new NotFoundException('참여 가능한 공유방을 찾을 수 없습니다.');
+    if (!rows[0])
+      throw new NotFoundException({
+        statusCode: 404,
+        code: 'WATCH_SCOPE_NOT_FOUND',
+        message: '참여 가능한 공유방을 찾을 수 없습니다.',
+      });
     await this.lockActiveActor(m, rows[0].owner_key);
     return this.roomView(rows[0], actor);
   }
@@ -156,13 +161,22 @@ export class WatchlistAccessService {
       [id],
     );
     if (!stub || (!stub.room_id && stub.owner_key !== actor.key))
-      throw new NotFoundException('접근 가능한 그룹을 찾을 수 없습니다.');
+      throw new NotFoundException({
+        statusCode: 404,
+        code: 'WATCH_GROUP_NOT_FOUND',
+        message: '접근 가능한 그룹을 찾을 수 없습니다.',
+      });
     const scope = await this.scope(m, actor, stub.room_id);
     const [row]: GroupRow[] = await m.query(
       `SELECT g.*,(SELECT COUNT(*) FROM watchlist_group_items i WHERE i.group_id=g.id) itemCount FROM watchlist_groups g WHERE g.id=? FOR UPDATE`,
       [id],
     );
-    if (!row) throw new NotFoundException('그룹이 삭제되었습니다.');
+    if (!row)
+      throw new NotFoundException({
+        statusCode: 404,
+        code: 'WATCH_GROUP_NOT_FOUND',
+        message: '그룹이 삭제되었습니다.',
+      });
     return { row, scope };
   }
   require(scope: WatchPermissions, permission: keyof WatchPermissions): void {

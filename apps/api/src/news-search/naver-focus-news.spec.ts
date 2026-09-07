@@ -99,6 +99,32 @@ test('scheduled topics share the durable remaining slots and expose the budget r
   }
 });
 
+test('company arrays read existing snapshots without triggering one provider search per company', async () => {
+  const { service, calls } = context([
+    providerItem(),
+    providerItem('금리 정책 발표', '관련 기업이 없는 시장 뉴스'),
+  ]);
+  try {
+    const initial = await service.feed({ companyIds: [company.id], scope: 'company' }, 'MEMBER:a');
+    assert.deepEqual(initial.groups, []);
+    assert.deepEqual(calls, []);
+    await service.feed({ companyId: company.id, scope: 'company' }, 'MEMBER:a');
+    assert.equal(calls.length, 1);
+    const cached = await service.feed({ companyIds: [company.id], scope: 'company' }, 'MEMBER:a');
+    assert.equal(calls.length, 1);
+    assert.equal(cached.groups.flat().length, 1);
+    assert.deepEqual(cached.groups[0]![0]!.providerOriginal, providerItem());
+    assert.deepEqual(
+      (await service.feed({ companyIds: [], scope: 'company' }, 'MEMBER:a')).groups,
+      [],
+    );
+    assert.equal(calls.length, 1);
+    await assert.rejects(() => service.feed({ companyIds: [company.id, company.id] }, 'MEMBER:a'));
+  } finally {
+    await service.onApplicationShutdown();
+  }
+});
+
 test('market summaries cannot create badges from unlisted ordinary words or unreviewed alias rows', async () => {
   const ordinary = ['자금', '대해', '모든', '보라', '지지'].map((name) => ({
     ...company,

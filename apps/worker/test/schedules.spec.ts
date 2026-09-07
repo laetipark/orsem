@@ -117,6 +117,24 @@ describe('worker schedules', () => {
   it('uses the approved source and priority-specific discovery cadences', () => {
     expect(NEWS_DISCOVERY_SCHEDULES).toEqual([
       expect.objectContaining({
+        id: 'marketaux-news-hourly',
+        pattern: '0 * * * *',
+        timezone: 'Asia/Seoul',
+        payload: expect.objectContaining({ connectors: ['MARKETAUX'], suppressAlerts: true }),
+      }),
+      expect.objectContaining({
+        id: 'alphavantage-news-twice-daily',
+        pattern: '0 0,12 * * *',
+        timezone: 'Asia/Seoul',
+        payload: expect.objectContaining({ connectors: ['ALPHAVANTAGE'], suppressAlerts: true }),
+      }),
+      expect.objectContaining({
+        id: 'finnhub-news-hourly',
+        pattern: '0 * * * *',
+        timezone: 'Asia/Seoul',
+        payload: expect.objectContaining({ connectors: ['FINNHUB'], suppressAlerts: true }),
+      }),
+      expect.objectContaining({
         id: 'alpaca-news-thirty-minutes',
         pattern: '*/30 * * * *',
         timezone: 'Asia/Seoul',

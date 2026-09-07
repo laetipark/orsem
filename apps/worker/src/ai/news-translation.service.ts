@@ -1,6 +1,13 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
-import { RightsMode } from '@orsem/contracts';
+import {
+  RightsMode,
+  currentNewsSourcePolicy,
+  isNewsTranslationAllowed,
+  newsPolicyAllowsAudience,
+  registeredNewsSourcePolicies,
+  type NewsSourcePolicy,
+} from '@orsem/contracts';
 import { NewsItemEntity, SourceItemEntity } from '@orsem/database';
 import { Brackets, DataSource } from 'typeorm';
 import type { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
@@ -14,8 +21,21 @@ const DESCRIPTION_RIGHTS = new Set<RightsMode>([
   RightsMode.PRIVATE_DISPLAY_ONLY,
 ]);
 
-function sourcePolicyAllowsTranslation(source: SourceItemEntity): boolean {
+export function sourcePolicyAllowsTranslation(
+  source: Pick<SourceItemEntity, 'rightsMode' | 'sourcePolicyJson'>,
+  currentPolicy: NewsSourcePolicy | null = currentNewsSourcePolicy(source.sourcePolicyJson),
+): boolean {
   const policy = source.sourcePolicyJson;
+  if (policy?.policyVersion === 2) {
+    return Boolean(
+      policy.rightsMode === source.rightsMode &&
+      currentPolicy?.rightsMode === source.rightsMode &&
+      currentPolicy.policyId === policy.policyId &&
+      newsPolicyAllowsAudience(policy, 'ADMIN_UI', currentPolicy) &&
+      isNewsTranslationAllowed(policy) &&
+      isNewsTranslationAllowed(currentPolicy),
+    );
+  }
   return Boolean(
     policy &&
     DESCRIPTION_RIGHTS.has(source.rightsMode) &&
@@ -24,6 +44,44 @@ function sourcePolicyAllowsTranslation(source: SourceItemEntity): boolean {
     policy.displayAllowed === true &&
     policy.aiAllowed === true,
   );
+}
+
+function currentTranslationPolicyIds(): string[] {
+  return registeredNewsSourcePolicies()
+    .filter(
+      (policy) =>
+        policy.policyVersion === 2 &&
+        sourcePolicyAllowsTranslation(
+          { rightsMode: policy.rightsMode, sourcePolicyJson: policy },
+          policy,
+        ),
+    )
+    .map((policy) => policy.policyId!);
+}
+
+function sourcePolicyAllowsDescription(
+  policy: NewsSourcePolicy | null,
+  currentPolicy: NewsSourcePolicy | null,
+): boolean {
+  return policy?.policyVersion === 2
+    ? policy.summaryStorageAllowed === true && currentPolicy?.summaryStorageAllowed === true
+    : Boolean(policy && DESCRIPTION_RIGHTS.has(policy.rightsMode));
+}
+
+/** SQL prefilter plus claim-time registry checks keep unknown/revoked policies off the AI client. */
+function translationPolicyPredicate(column: string, approvedIds: readonly string[]): Brackets {
+  return new Brackets((query) => {
+    query.where(`JSON_EXTRACT(${column}, '$.policyVersion') IS NULL`);
+    if (approvedIds.length)
+      query.orWhere(
+        `(JSON_EXTRACT(${column}, '$.policyVersion') = 2
+        AND JSON_UNQUOTE(JSON_EXTRACT(${column}, '$.policyId')) IN (:...translationPolicyIds)
+        AND JSON_UNQUOTE(JSON_EXTRACT(${column}, '$.rightsStatus')) IN ('APPROVED', 'METADATA_ONLY')
+        AND JSON_EXTRACT(${column}, '$.translationAllowed') = CAST('true' AS JSON)
+        AND JSON_EXTRACT(${column}, '$.fullTextStorageAllowed') = CAST('false' AS JSON))`,
+        { translationPolicyIds: [...approvedIds] },
+      );
+  });
 }
 
 export function looksLikeEnglishNews(title: string): boolean {
@@ -54,10 +112,11 @@ export function translationIsDue(
 export function translationInput(
   source: SourceItemEntity,
   news: NewsItemEntity,
+  currentPolicy: NewsSourcePolicy | null = currentNewsSourcePolicy(source.sourcePolicyJson),
 ): NewsTranslationInput | null {
   if (
     source.source === 'NAVER' ||
-    !sourcePolicyAllowsTranslation(source) ||
+    !sourcePolicyAllowsTranslation(source, currentPolicy) ||
     !TRANSLATABLE_SOURCES.includes(source.source) ||
     source.rightsMode === RightsMode.LINK_ONLY ||
     source.rightsMode === RightsMode.NO_REDISTRIBUTION ||
@@ -67,7 +126,7 @@ export function translationInput(
     return null;
   return {
     title: source.title,
-    description: DESCRIPTION_RIGHTS.has(source.rightsMode)
+    description: sourcePolicyAllowsDescription(source.sourcePolicyJson, currentPolicy)
       ? news.description?.trim().slice(0, 1000) || null
       : null,
     tickers: (news.tickersJson ?? [])
@@ -113,7 +172,13 @@ export class NewsTranslationService {
       .where('source.source IN (:...sources)', { sources: TRANSLATABLE_SOURCES })
       .andWhere('source.manualTranslationJson IS NULL')
       .andWhere('source.rawHash IS NOT NULL')
-      .andWhere("source.rightsMode IN ('OFFICIAL_PUBLIC_DATA', 'PRIVATE_DISPLAY_ONLY')")
+      .andWhere(
+        `(source.rightsMode IN ('OFFICIAL_PUBLIC_DATA', 'PRIVATE_DISPLAY_ONLY') OR
+        (source.rightsMode = 'STORE_METADATA_ONLY' AND JSON_EXTRACT(source.sourcePolicyJson, '$.policyVersion') = 2))`,
+      )
+      .andWhere(
+        translationPolicyPredicate('source.sourcePolicyJson', currentTranslationPolicyIds()),
+      )
       .andWhere("JSON_EXTRACT(source.sourcePolicyJson, '$.aiAllowed') = CAST('true' AS JSON)")
       .andWhere(
         "JSON_EXTRACT(source.sourcePolicyJson, '$.metadataStorageAllowed') = CAST('true' AS JSON)",
@@ -198,7 +263,18 @@ export class NewsTranslationService {
     claimed: NonNullable<Awaited<ReturnType<NewsTranslationService['claim']>>>,
     translationJson: Record<string, string | number | null>,
   ): Promise<boolean> {
-    const saved = await this.dataSource
+    const currentPolicy = currentNewsSourcePolicy(claimed.policy);
+    if (
+      !sourcePolicyAllowsTranslation(
+        { rightsMode: claimed.rightsMode, sourcePolicyJson: claimed.policy },
+        currentPolicy,
+      ) ||
+      (claimed.input?.description !== null &&
+        claimed.input?.description !== undefined &&
+        !sourcePolicyAllowsDescription(claimed.policy, currentPolicy))
+    )
+      return false;
+    const query = this.dataSource
       .getRepository(SourceItemEntity)
       .createQueryBuilder()
       .update(SourceItemEntity)
@@ -208,14 +284,31 @@ export class NewsTranslationService {
       })
       .where('id = :id AND raw_hash = :rawHash', { id, rawHash: claimed.rawHash })
       .andWhere('manual_translation_json IS NULL')
+      .andWhere("JSON_EXTRACT(source_policy_json, '$.aiAllowed') = CAST('true' AS JSON)")
+      .andWhere(
+        "JSON_EXTRACT(source_policy_json, '$.metadataStorageAllowed') = CAST('true' AS JSON)",
+      )
+      .andWhere("JSON_EXTRACT(source_policy_json, '$.displayAllowed') = CAST('true' AS JSON)")
+      .andWhere("JSON_UNQUOTE(JSON_EXTRACT(source_policy_json, '$.rightsMode')) = rights_mode")
+      .andWhere(translationPolicyPredicate('source_policy_json', currentTranslationPolicyIds()))
       .andWhere("JSON_UNQUOTE(JSON_EXTRACT(translation_json, '$.status')) = 'PROCESSING'")
       .andWhere("JSON_UNQUOTE(JSON_EXTRACT(translation_json, '$.claimId')) = :claimId", {
         claimId: claimed.audit.claimId,
       })
       .andWhere("JSON_UNQUOTE(JSON_EXTRACT(translation_json, '$.attemptedAt')) = :attemptedAt", {
         attemptedAt: claimed.audit.attemptedAt,
-      })
-      .execute();
+      });
+    if (claimed.input?.description !== null && claimed.input?.description !== undefined)
+      query.andWhere(`(JSON_EXTRACT(source_policy_json, '$.policyVersion') IS NULL OR
+        JSON_EXTRACT(source_policy_json, '$.summaryStorageAllowed') = CAST('true' AS JSON))`);
+    if (claimed.policy?.policyVersion === 2)
+      query.andWhere(
+        "JSON_UNQUOTE(JSON_EXTRACT(source_policy_json, '$.policyId')) = :claimedPolicyId",
+        {
+          claimedPolicyId: claimed.policy.policyId,
+        },
+      );
+    const saved = await query.execute();
     return saved.affected === 1;
   }
 
@@ -292,7 +385,14 @@ export class NewsTranslationService {
           translationJson: audit as QueryDeepPartialEntity<SourceItemEntity>['translationJson'],
         },
       );
-      return { input, audit, rawHash: source.rawHash, attempts };
+      return {
+        input,
+        audit,
+        rawHash: source.rawHash,
+        attempts,
+        policy: source.sourcePolicyJson,
+        rightsMode: source.rightsMode,
+      };
     });
   }
 }

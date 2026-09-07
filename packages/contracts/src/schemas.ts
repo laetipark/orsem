@@ -451,6 +451,21 @@ export const sourceItemSchema = z.object({
   articleId: idSchema.nullable().optional(),
   sourceKind: z.enum(NewsSourceKind).optional(),
   sourceCount: z.number().int().positive().optional(),
+  providerCount: z.number().int().nonnegative().optional(),
+  independentSourceCount: z.number().int().nonnegative().optional(),
+  officialVerification: z.enum(['UNVERIFIED', 'LINKED', 'CONFIRMED']).optional(),
+  officialReferences: z
+    .array(
+      z.object({
+        kind: z.enum(['FILING', 'SOURCE_ITEM']),
+        id: idSchema,
+        matchMethod: z.enum(['EXPLICIT_ID', 'EXPLICIT_URL', 'COMPANY_TIME']),
+        status: z.enum(['RELATED', 'CONFIRMED', 'REJECTED']),
+        title: z.string().optional(),
+        url: httpUrlSchema.optional(),
+      }),
+    )
+    .optional(),
   contentState: z.enum(NewsContentState),
   contentSourceId: idSchema.nullable(),
   contentLanguage: newsContentLanguageSchema.nullable(),
@@ -490,14 +505,17 @@ export const newsDetailSchema = sourceItemSchema.extend({
 });
 export type NewsDetail = z.infer<typeof newsDetailSchema>;
 
-const samsungGlobalFeedUrl = NEWS_IR_SOURCE_PROFILES['samsung-global'].url;
+const reviewedIrUrlSchema = httpUrlSchema.refine(
+  (url) => Object.values(NEWS_IR_SOURCE_PROFILES).some((profile) => profile.url === url),
+  'IR URL must match an approved source profile.',
+);
 
 export const irSourceSchema = z.object({
   id: idSchema,
   companyId: idSchema,
-  url: z.literal(samsungGlobalFeedUrl),
+  url: reviewedIrUrlSchema,
   sourceType: z.literal('RSS'),
-  rightsMode: z.literal(RightsMode.PRIVATE_DISPLAY_ONLY),
+  rightsMode: z.enum(RightsMode),
   isActive: z.boolean(),
   lastCheckedAt: isoInstantSchema.nullable(),
   createdAt: isoInstantSchema,
@@ -505,14 +523,50 @@ export const irSourceSchema = z.object({
 });
 export type IrSource = z.infer<typeof irSourceSchema>;
 
-export const createIrSourceSchema = z.object({
+const irWriteFieldsSchema = z.object({
   companyId: idSchema,
-  url: z.literal(samsungGlobalFeedUrl),
+  url: reviewedIrUrlSchema,
   sourceType: z.literal('RSS').default('RSS'),
-  rightsMode: z.literal(RightsMode.PRIVATE_DISPLAY_ONLY).default(RightsMode.PRIVATE_DISPLAY_ONLY),
-  isActive: z.boolean().default(true),
+  rightsMode: z.enum(RightsMode).optional(),
+  isActive: z.boolean().optional(),
 });
-export const updateIrSourceSchema = createIrSourceSchema.omit({ companyId: true }).partial();
+export const createIrSourceSchema = irWriteFieldsSchema
+  .superRefine((input, context) => {
+    const profile = Object.values(NEWS_IR_SOURCE_PROFILES).find((value) => value.url === input.url);
+    if (input.rightsMode && profile && input.rightsMode !== profile.policy.rightsMode)
+      context.addIssue({
+        code: 'custom',
+        path: ['rightsMode'],
+        message: 'IR rights must match the registered source profile.',
+      });
+  })
+  .transform((input) => {
+    const profile = Object.values(NEWS_IR_SOURCE_PROFILES).find(
+      (value) => value.url === input.url,
+    )!;
+    return {
+      ...input,
+      rightsMode: profile.policy.rightsMode,
+      isActive: input.isActive ?? profile.enabled,
+    };
+  });
+export const updateIrSourceSchema = irWriteFieldsSchema
+  .omit({ companyId: true })
+  .partial()
+  .superRefine((input, context) => {
+    const profile = input.url
+      ? Object.values(NEWS_IR_SOURCE_PROFILES).find((value) => value.url === input.url)
+      : null;
+    if (
+      input.rightsMode &&
+      input.rightsMode !== (profile?.policy.rightsMode ?? RightsMode.PRIVATE_DISPLAY_ONLY)
+    )
+      context.addIssue({
+        code: 'custom',
+        path: ['rightsMode'],
+        message: 'IR rights must match an explicitly registered source profile.',
+      });
+  });
 
 export const eventSchema = z.object({
   id: idSchema,
@@ -852,10 +906,35 @@ export const resolveReviewSchema = z.object({
   resolution: z.enum(['CONFIRMED', 'UNKNOWN', 'DUPLICATE', 'CORRECTION_LINKED']),
   note: z.string().trim().max(4000).nullable().optional(),
   planExecutionMatchId: idSchema.optional(),
+  sourceHash: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/u)
+    .optional(),
+  companyIds: z.array(idSchema).max(25).optional(),
+  officialTarget: z.object({ kind: z.enum(['FILING', 'SOURCE_ITEM']), id: idSchema }).optional(),
 });
 
 export const reviewViewSchema = z.object({
   id: idSchema,
+  sourceItemId: idSchema.optional(),
+  sourceHash: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/u)
+    .nullable()
+    .optional(),
+  manualCompanyIds: z.array(idSchema).optional(),
+  officialReferences: z
+    .array(
+      z.object({
+        kind: z.enum(['FILING', 'SOURCE_ITEM']),
+        id: idSchema,
+        matchMethod: z.enum(['EXPLICIT_ID', 'EXPLICIT_URL', 'COMPANY_TIME']),
+        status: z.enum(['RELATED', 'CONFIRMED', 'REJECTED']),
+        title: z.string().optional(),
+        url: httpUrlSchema.optional(),
+      }),
+    )
+    .optional(),
   eventId: idSchema,
   companyName: z.string(),
   detailType: disclosureViewTypeSchema,

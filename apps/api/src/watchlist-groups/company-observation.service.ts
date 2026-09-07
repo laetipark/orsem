@@ -1,6 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { EntityManager } from 'typeorm';
-import { type Company, type GroupActivity, type WatchlistGroupItems } from '@orsem/contracts';
+import {
+  type Company,
+  type CompanyQuotes,
+  type GroupActivity,
+  type WatchlistGroupItems,
+} from '@orsem/contracts';
 import { APP_CONFIG, type AppConfig } from '../config/app-config';
 import { SessionRuntimeService } from '../security/session-runtime.service';
 import { DatabaseRuntimeService } from '../persistence/database-runtime.service';
@@ -11,6 +16,8 @@ import {
   type StoredGroupClose,
 } from './watchlist-group-observations';
 import { sqlBoolean } from './watchlist-access.service';
+import { eventAudienceSql, metadataNewsSql } from '../resources/news-query';
+import { newsAudienceSql } from '../resources/news-access';
 const marks = (ids: unknown[]) => ids.map(() => '?').join(',');
 const number = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 @Injectable()
@@ -61,6 +68,33 @@ export class CompanyObservationService {
       Boolean(this.config.tossClientId && this.config.tossClientSecret),
       now,
     );
+  }
+  async prices(companies: Company[], now = new Date()): Promise<CompanyQuotes> {
+    if (!companies.length) return { asOf: now.toISOString(), items: [] };
+    const ids = companies.map((company) => company.id);
+    const configured =
+      !this.config.fixtureMode && Boolean(this.config.tossClientId && this.config.tossClientSecret);
+    const [cached, closes] = await Promise.all([
+      configured
+        ? this.sessions.readMarketQuotes(ids)
+        : Promise.resolve({ available: false, values: ids.map(() => null) }),
+      this.config.fixtureMode
+        ? Promise.resolve(new Map<string, StoredGroupClose[]>())
+        : this.closes(this.database.requireDataSource().manager, ids, now),
+    ]);
+    return {
+      asOf: now.toISOString(),
+      items: companies.map((company, index) => ({
+        companyId: company.id,
+        displayPrice: groupDisplayPrice(
+          company,
+          { available: cached.available, value: cached.values[index] ?? null },
+          closes.get(company.id) ?? [],
+          configured,
+          now,
+        ),
+      })),
+    };
   }
   async recent(companyId: string, limit = 3) {
     const window = recentKstWindow(new Date());
@@ -142,13 +176,14 @@ export class CompanyObservationService {
         LEFT JOIN filings f ON ei.item_type='FILING' AND f.id=ei.item_id AND f.source='OPENDART'
         LEFT JOIN news_items ni ON ei.item_type='NEWS_ITEM' AND ni.id=ei.item_id
         LEFT JOIN source_items s ON ((ei.item_type='SOURCE_ITEM' AND s.id=ei.item_id) OR s.id=ni.source_item_id)
+          AND ${newsAudienceSql('s', 'SHARED_ROOM')}
           AND s.source<>'NAVER' AND ((s.rights_mode='OFFICIAL_PUBLIC_DATA' AND (s.source_policy_json IS NULL OR
             (JSON_UNQUOTE(JSON_EXTRACT(s.source_policy_json,'$.displayAllowed'))='true'
               AND JSON_UNQUOTE(JSON_EXTRACT(s.source_policy_json,'$.metadataStorageAllowed'))='true'))) OR
             (s.rights_mode IN ('PRIVATE_DISPLAY_ONLY','STORE_METADATA_ONLY','LINK_ONLY')
               AND JSON_UNQUOTE(JSON_EXTRACT(s.source_policy_json,'$.displayAllowed'))='true'
               AND JSON_UNQUOTE(JSON_EXTRACT(s.source_policy_json,'$.metadataStorageAllowed'))='true'))
-        WHERE (f.rcept_date BETWEEN ? AND ?) OR (s.id IS NOT NULL AND COALESCE(s.published_at,e.published_at)>=? AND COALESCE(s.published_at,e.published_at)<?)
+        WHERE ${eventAudienceSql('e', 'SHARED_ROOM')} AND ((f.rcept_date BETWEEN ? AND ?) OR (s.id IS NOT NULL AND ((s.source_policy_json IS NULL AND s.rights_mode='OFFICIAL_PUBLIC_DATA') OR (${metadataNewsSql('s')})) AND COALESCE(s.published_at,e.published_at)>=? AND COALESCE(s.published_at,e.published_at)<?))
       ), recent_events AS (
         SELECT id,company_id,'EVENT' kind,MAX(title) title,MAX(date) date,CONCAT('/events/',id) url,MAX(eventDate) eventDate
         FROM event_links GROUP BY id,company_id

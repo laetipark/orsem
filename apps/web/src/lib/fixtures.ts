@@ -28,7 +28,10 @@ import type {
   NotificationPreferences,
   NewsDetail,
   SourceItem,
+  PersonalFiling,
+  WatchlistGroupItem,
 } from '../types';
+import { ApiError } from './api';
 
 const now = '2026-09-03T08:42:00.000Z';
 
@@ -1193,13 +1196,31 @@ function fixtureNewsProjection({ companyId, item }: FixtureNewsSeed): SourceItem
   };
 }
 
-function pageNews(url: URL): CursorPage<SourceItem> {
+function pageNews(url: URL, scopedCompanyIds?: readonly string[]): CursorPage<SourceItem> {
   const q = (url.searchParams.get('q') ?? '').trim().toLowerCase();
   const sourceKind = url.searchParams.get('sourceKind');
   const source = url.searchParams.get('source');
   const scope = url.searchParams.get('scope');
   const publisher = url.searchParams.get('publisher');
   const companyId = url.searchParams.get('companyId');
+  const rawCompanyIds = url.searchParams.get('companyIds');
+  const requestedCompanyIds =
+    rawCompanyIds === null ? undefined : rawCompanyIds === '' ? [] : rawCompanyIds.split(',');
+  if (
+    requestedCompanyIds &&
+    (requestedCompanyIds.length > 20 ||
+      requestedCompanyIds.some((id) => !id || id !== id.trim()) ||
+      new Set(requestedCompanyIds).size !== requestedCompanyIds.length ||
+      scope !== 'company' ||
+      companyId ||
+      url.searchParams.has('asset'))
+  )
+    throw new ApiError(
+      400,
+      'INVALID_QUERY',
+      '기업 뉴스에 중복 없는 최근조회 종목을 최대 20개까지 지정해 주세요.',
+    );
+  const companyIds = scopedCompanyIds ?? requestedCompanyIds;
   const cursor = Math.max(0, Number.parseInt(url.searchParams.get('cursor') ?? '0', 10) || 0);
   const limit = Math.min(
     100,
@@ -1224,6 +1245,13 @@ function pageNews(url: URL): CursorPage<SourceItem> {
         !companyId ||
         fixtureNewsProjection(seed).relatedCompanies!.some((company) => company.id === companyId),
     )
+    .filter(
+      (seed) =>
+        companyIds === undefined ||
+        fixtureNewsProjection(seed).relatedCompanies!.some((company) =>
+          companyIds.includes(company.id),
+        ),
+    )
     .filter(({ item }) => {
       if (!q) return true;
       return [item.title, item.description, item.translation?.title, item.translation?.description]
@@ -1241,6 +1269,49 @@ function pageNews(url: URL): CursorPage<SourceItem> {
     items,
     nextCursor: cursor + limit < filtered.length ? String(cursor + limit) : null,
   };
+}
+
+function fixtureFilings(companyIds: readonly string[]): PersonalFiling[] {
+  return eventSeeds
+    .filter(
+      (event) =>
+        companyIds.includes(event.companyId) &&
+        event.detailType !== 'NEWS' &&
+        event.rightsMode === 'OFFICIAL_PUBLIC_DATA',
+    )
+    .map((event): PersonalFiling => {
+      const source = event.detailType === 'SEC' ? 'SEC' : 'OPENDART';
+      return {
+        id: `${source}:${event.id}`,
+        source,
+        externalId:
+          source === 'OPENDART'
+            ? (new URL(event.officialUrl).searchParams.get('rcpNo') ?? event.id)
+            : event.id,
+        title: event.title,
+        filingDate: event.rceptDate,
+        publishedAt: event.publishedAt,
+        firstObservedAt: event.firstObservedAt,
+        url: event.officialUrl,
+        relatedCompanies: companies
+          .filter((company) => company.id === event.companyId)
+          .map(({ id, nameKo, nameEn, stockCode, ticker, market }) => ({
+            id,
+            nameKo,
+            nameEn,
+            stockCode,
+            ticker,
+            market,
+          })),
+      };
+    })
+    .sort(
+      (a, b) =>
+        (b.filingDate ?? b.publishedAt ?? b.firstObservedAt).localeCompare(
+          a.filingDate ?? a.publishedAt ?? a.firstObservedAt,
+        ) || b.id.localeCompare(a.id),
+    )
+    .slice(0, 8);
 }
 
 function fixtureNewsDetail(id: string): NewsDetail {
@@ -1309,6 +1380,12 @@ export async function fixtureRequest<T>(path: string, init?: RequestInit): Promi
     init?.body ? JSON.parse(String(init.body)) : null,
     companies,
     now,
+    {
+      searchParams: url.searchParams,
+      authenticated: fixtureAuthenticated,
+      news: (companyIds) => pageNews(url, companyIds),
+      filings: fixtureFilings,
+    },
   );
   if (workspace.handled) return workspace.value as T;
   if (pathname === '/dashboard/personal-filings')
@@ -1395,6 +1472,44 @@ export async function fixtureRequest<T>(path: string, init?: RequestInit): Promi
   if (pathname === '/notifications/test') return { queued: true, simulated: true } as T;
 
   if (pathname === '/sources/freshness') return { asOf: now, items: sources } as T;
+  if (pathname === '/companies/quotes' && method === 'GET') {
+    if (!fixtureAuthenticated) throw new ApiError(401, 'UNAUTHORIZED', '로그인이 필요합니다.');
+    const rawIds = url.searchParams.get('ids') ?? '';
+    const ids = rawIds === '' ? [] : rawIds.split(',');
+    if (
+      ids.length > 20 ||
+      ids.some((id) => !id || id !== id.trim()) ||
+      new Set(ids).size !== ids.length
+    )
+      throw new ApiError(400, 'INVALID_QUERY', '중복 없는 종목을 최대 20개까지 지정해 주세요.');
+    return {
+      asOf: now,
+      items: ids.flatMap((id) => {
+        const company = companies.find((company) => company.id === id);
+        if (!company) return [];
+        const currency = company.ticker ? 'USD' : 'KRW';
+        const latest = fixturePrices(id, '1m', currency).at(-1)!;
+        const previous = fixturePrices(id, '1d', currency)
+          .filter((point) => point.sessionDate! < latest.sessionDate!)
+          .at(-1);
+        const change = previous ? latest.close - previous.close : null;
+        const displayPrice: WatchlistGroupItem['displayPrice'] = {
+          price: String(latest.close),
+          currency,
+          status: 'STALE',
+          basis: 'STALE',
+          source: fixturePriceDisclosure,
+          sessionDate: latest.sessionDate ?? null,
+          providerAt: latest.time,
+          referenceClose: previous?.close ?? null,
+          referenceDate: previous?.sessionDate ?? null,
+          change,
+          changePercent: previous && change !== null ? (change / previous.close) * 100 : null,
+        };
+        return [{ companyId: company.id, displayPrice }];
+      }),
+    } as T;
+  }
   if (pathname === '/watchlist/quotes')
     return {
       asOf: now,

@@ -393,6 +393,8 @@ test('candle refresh is requested only after an authorized page and queue failur
         throw new Error('Queue unavailable');
       },
     } as unknown as WorkerQueueService,
+    {} as never,
+    {} as never,
   );
   const request = { session: { memberId: reader.id } } as unknown as Request;
   await assert.rejects(() => controller.items(request, groupId, {}), NotFoundException);

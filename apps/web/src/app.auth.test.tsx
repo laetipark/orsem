@@ -124,6 +124,23 @@ it('logs out through the mounted App without losing its session subscription', a
   client.clear();
 });
 
+it('removes administrator news cached before a refreshed session changes audience', async () => {
+  const client = show();
+  expect(await screen.findByText('관측 대시보드')).toBeInTheDocument();
+  client.setQueryData(['news', 'private'], { title: 'administrator-only news' });
+  const member: Session = {
+    ...administrator,
+    user: { ...administrator.user!, id: 'member', provider: 'KAKAO', role: 'VIEWER' },
+  };
+  mocks.session.mockResolvedValue(member);
+  await act(async () => {
+    client.setQueryData(['session'], member);
+  });
+  await waitFor(() => expect(client.getQueryData(['news', 'private'])).toBeUndefined());
+  expect(client.getQueryData(['session'])).toEqual(member);
+  client.clear();
+});
+
 it('routes anonymous users between separate member and administrator pages', async () => {
   mocks.session.mockResolvedValue(anonymous);
   const client = show('/admin/login');
@@ -232,7 +249,7 @@ it('allows viewer observation navigation while redirecting administrator routes'
   expect(await screen.findByText('관측 대시보드')).toBeInTheDocument();
   expect(screen.queryByRole('link', { name: '운영' })).not.toBeInTheDocument();
   expect(screen.queryByRole('link', { name: '검토함' })).not.toBeInTheDocument();
-  expect(screen.getByRole('link', { name: '관심기업' })).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: '관심 종목' })).toBeInTheDocument();
   expect(screen.getByRole('link', { name: '데이터 출처·신선도' })).toHaveAttribute(
     'href',
     '/sources',

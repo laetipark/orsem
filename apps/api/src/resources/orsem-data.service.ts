@@ -1,3 +1,6 @@
+import { adminNewsSourceViews } from './news-operations';
+import { resolveNewsReview, type NewsReviewInput } from './news-review';
+import { newsAudienceAllows, newsAudienceSql, type NewsAudience } from './news-access';
 import { publicSourceUrl } from '../common/news-url';
 import { publicDiscoveryStatus } from './connector-public-status';
 import { verifyManualNewsSources } from './manual-news-translation';
@@ -25,7 +28,10 @@ import {
   ReviewTaskStatus,
   RightsMode,
   NEWS_IR_SOURCE_PROFILES,
+  getNewsIrSourceProfile,
+  newsPolicyApprovalReady,
   NEWS_RSS_FEEDS,
+  newsCompanyIdsSchema,
   sourceKindForSource,
   candleSourceSchema,
   matchesRegion,
@@ -73,6 +79,7 @@ import {
   PriceBarEntity,
   ReviewEntity,
   SourceItemEntity,
+  isReadableOfficialNewsSource,
   TradePlanEntity,
   TradePlanItemEntity,
   WatchlistItemEntity,
@@ -96,6 +103,7 @@ import {
   type FindOptionsWhere,
 } from 'typeorm';
 import { APP_CONFIG, type AppConfig } from '../config/app-config';
+import { parseWith } from '../common/zod';
 import { cursorInstant, decodeCursor } from '../common/cursor';
 import {
   finishPage,
@@ -108,6 +116,8 @@ import { DatabaseRuntimeService } from '../persistence/database-runtime.service'
 import { FixtureStoreService } from '../fixtures/fixture-store.service';
 import { literalSearchPattern, newsTranslationSearchCondition } from '../common/news-translation';
 import {
+  metadataNewsSql,
+  eventAudienceSql,
   newsFiltersSql,
   newsFilterParameters,
   representativeNewsSql,
@@ -144,9 +154,8 @@ function parsedSourceMatchesRun(
 
 function reviewedIrFeed(value: string) {
   const url = new URL(value).toString();
-  const profile = NEWS_IR_SOURCE_PROFILES['samsung-global'];
-  if (new URL(profile.url).toString() !== url)
-    throw new BadRequestException('검토가 완료된 IR 피드만 등록할 수 있습니다.');
+  const profile = getNewsIrSourceProfile(url);
+  if (!profile) throw new BadRequestException('검토가 완료된 IR 피드만 등록할 수 있습니다.');
   return { url: profile.url, profile };
 }
 
@@ -170,6 +179,7 @@ function sourcePolicyAllowsDisplay(
   row: SourceItemEntity,
   allowedKinds: readonly string[],
   allowedPublishers?: readonly string[],
+  audience: NewsAudience = 'MEMBER_UI',
 ): boolean {
   const policy = row.sourcePolicyJson;
   const publisherId =
@@ -178,9 +188,11 @@ function sourcePolicyAllowsDisplay(
       : (row.sourceName ?? row.source);
   return Boolean(
     !row.source.startsWith('NAVER') &&
+    newsAudienceAllows(row, audience) &&
     policy &&
     policy.metadataStorageAllowed === true &&
     policy.displayAllowed === true &&
+    policy.rightsMode === row.rightsMode &&
     allowedKinds.includes(resolvedSourceKind(row)) &&
     (!allowedPublishers || allowedPublishers.includes(publisherId)),
   );
@@ -222,9 +234,11 @@ function crosscheckReadyForProjection(
 export type { CursorPage } from '../common/pagination';
 
 export interface ListQuery extends PageQuery {
+  audience?: NewsAudience;
   personalActorKey?: string;
   q?: string;
   region?: Region;
+  companyIds?: string[];
   [key: string]: unknown;
 }
 
@@ -336,6 +350,23 @@ export class OrsemDataService {
     return mapCompany(row);
   }
 
+  async companiesByIds(ids: string[]): Promise<Company[]> {
+    if (!ids.length) return [];
+    const companies = this.fixtureMode
+      ? this.fixtures.companies.filter((company) => ids.includes(company.id))
+      : (
+          await this.source()
+            .getRepository(CompanyEntity)
+            .findBy({ id: In(ids) })
+        ).map(mapCompany);
+    const byId = new Map(companies.map((company) => [company.id, company]));
+    // A removed company in browser history does not suppress other companies' prices.
+    return ids.flatMap((id) => {
+      const company = byId.get(id);
+      return company ? [company] : [];
+    });
+  }
+
   async findCompanies(query: string, limit = 10): Promise<Company[]> {
     return (await this.listCompanies({ q: query, limit })).items;
   }
@@ -405,8 +436,11 @@ export class OrsemDataService {
     return { ...page, items };
   }
 
-  async getEventView(id: string): Promise<Record<string, unknown>> {
-    const event = await this.getEvent(id);
+  async getEventView(
+    id: string,
+    audience: NewsAudience = 'MEMBER_UI',
+  ): Promise<Record<string, unknown>> {
+    const event = await this.getEvent(id, audience);
     const summary = await this.eventSummaryView(event);
     const filing = event.filing ? await this.getFiling(event.filing.id) : null;
     const primarySource = event.sourceItems[0] ?? null;
@@ -935,6 +969,7 @@ export class OrsemDataService {
     const cursor = decodeCursor(query.cursor);
     const qb = this.source().getRepository(EventClusterEntity).createQueryBuilder('event');
     qb.andWhere(supportedEventFilingsSql);
+    qb.andWhere(eventAudienceSql('event', query.audience));
     if (query.region && query.region !== 'all') {
       qb.andWhere(
         `(
@@ -961,7 +996,7 @@ export class OrsemDataService {
             SELECT 1 FROM event_cluster_items nqi
             JOIN source_items nqs ON nqs.id = nqi.item_id
             WHERE nqi.event_cluster_id = event.id AND nqi.item_type = 'SOURCE_ITEM'
-              AND ${visibleEventSourceSql('nqs')}
+              AND ${visibleEventSourceSql('nqs', query.audience)}
               AND (nqs.title LIKE :translationPattern ESCAPE '!' OR ${newsTranslationSearchCondition('nqs', 'translationPattern')})
           ))`,
         { q: `%${query.q}%`, translationPattern: literalSearchPattern(query.q) },
@@ -1040,17 +1075,22 @@ export class OrsemDataService {
       .take(query.limit + 1)
       .getMany();
     const visible = rows.slice(0, query.limit);
-    const items = await this.mapEvents(visible);
+    const items = await this.mapEvents(visible, query.audience);
     return finishPage(rows, query.limit, items, (row) => row.firstObservedAt.toISOString());
   }
 
-  async getEvent(id: string): Promise<Event> {
+  async getEvent(id: string, audience: NewsAudience = 'MEMBER_UI'): Promise<Event> {
     if (this.fixtureMode) {
       const event = this.fixtures.events.find((item) => item.id === id);
       if (!event) throw new NotFoundException('이벤트를 찾을 수 없습니다.');
       return mapFixtureEvent(event);
     }
-    const row = await this.source().getRepository(EventClusterEntity).findOneBy({ id });
+    const row = await this.source()
+      .getRepository(EventClusterEntity)
+      .createQueryBuilder('event')
+      .where('event.id = :id', { id })
+      .andWhere(eventAudienceSql('event', audience))
+      .getOne();
     if (!row) throw new NotFoundException('이벤트를 찾을 수 없습니다.');
     const memberships = await this.source()
       .getRepository(EventClusterItemEntity)
@@ -1063,10 +1103,15 @@ export class OrsemDataService {
         throw new NotFoundException('현재 지원 범위에 포함되지 않는 공시입니다.');
       }
     }
-    return this.mapEvent(row);
+    return this.mapEvent(row, audience);
   }
 
   async listNews(query: ListQuery): Promise<CursorPage<SourceItem>> {
+    if (query.companyIds !== undefined) {
+      parseWith(newsCompanyIdsSchema, query.companyIds);
+      if (!query.companyIds.length)
+        return { items: [], nextCursor: null, pageInfo: { nextCursor: null, hasMore: false } };
+    }
     if (query.asset)
       return { items: [], nextCursor: null, pageInfo: { nextCursor: null, hasMore: false } };
     if (this.fixtureMode) {
@@ -1087,6 +1132,17 @@ export class OrsemDataService {
             this.fixtures.companies.some(
               (company) =>
                 company.id === query.companyId &&
+                [company.ticker, company.stockCode].some(
+                  (ticker) => ticker && item.tickers.includes(ticker),
+                ),
+            ),
+        )
+        .filter(
+          (item) =>
+            query.companyIds === undefined ||
+            this.fixtures.companies.some(
+              (company) =>
+                query.companyIds!.includes(company.id) &&
                 [company.ticker, company.stockCode].some(
                   (ticker) => ticker && item.tickers.includes(ticker),
                 ),
@@ -1181,6 +1237,7 @@ export class OrsemDataService {
               sourceName: true,
               url: true,
               sourcePolicyJson: true,
+              rightsMode: true,
               rawMetadataJson: true,
             },
             where: { newsArticleId: In(articleIds) },
@@ -1190,12 +1247,17 @@ export class OrsemDataService {
     for (const item of provenance) {
       if (
         !item.newsArticleId ||
+        !newsAudienceAllows(item, query.audience) ||
+        item.sourcePolicyJson?.rightsMode !== item.rightsMode ||
         !(
           sourcePolicyAllowsDisplay(
             item,
             ['OFFICIAL_RELEASE', 'COMPANY_IR'],
             PUBLIC_NEWS_PUBLISHERS,
+            query.audience,
           ) ||
+          (item.sourcePolicyJson?.policyVersion === 2 &&
+            newsAudienceAllows(item, query.audience)) ||
           (['GDELT', 'ALPACA_NEWS'].includes(item.source) &&
             item.rawMetadataJson?.rightsContext === 'APPROVED_PUBLISHER_METADATA' &&
             item.sourcePolicyJson?.metadataStorageAllowed === true &&
@@ -1209,30 +1271,117 @@ export class OrsemDataService {
       sources.push(item);
       sourcesByArticle.set(item.newsArticleId, sources);
     }
-    const relatedBySource = await this.newsRelatedCompanies(visible.map((row) => row.id));
-    const items = visible.map((row) => {
-      const sources = row.newsArticleId ? (sourcesByArticle.get(row.newsArticleId) ?? []) : [];
-      return {
-        ...mapSourceItem(row),
-        relatedCompanies: relatedBySource.get(row.id) ?? [],
-        sourceCount: sources.length || 1,
-        sources: (sources.length ? sources : [row]).map((item) => ({
-          id: item.id,
-          source: item.source,
-          sourceName: item.sourceName,
-          url: item.url,
-        })),
-      };
-    });
+    const relatedBySource = await this.newsRelatedCompanies(
+      visible.map((row) => row.id),
+      query.audience,
+    );
+    const items = await Promise.all(
+      visible.map(async (row) => {
+        const sources = row.newsArticleId ? (sourcesByArticle.get(row.newsArticleId) ?? []) : [];
+        return {
+          ...mapSourceItem(row),
+          ...(await this.newsLinkageView(row, query.audience)),
+          relatedCompanies: relatedBySource.get(row.id) ?? [],
+          sourceCount: sources.length || 1,
+          providerCount: new Set((sources.length ? sources : [row]).map((item) => item.source))
+            .size,
+          independentSourceCount: new Set(
+            (sources.length ? sources : [row]).flatMap((item) =>
+              (item.sourceKind === 'INDEPENDENT_MEDIA' ||
+                (item.sourceKind === 'AGGREGATOR' &&
+                  item.rawMetadataJson?.publisherSourceKind === 'INDEPENDENT_MEDIA')) &&
+              item.rawMetadataJson?.independentVerification === true &&
+              typeof item.rawMetadataJson?.originalPublisherId === 'string' &&
+              item.rawMetadataJson.originalPublisherId.trim().length > 0
+                ? [item.rawMetadataJson.originalPublisherId]
+                : [],
+            ),
+          ).size,
+          sources: (sources.length ? sources : [row]).map((item) => ({
+            id: item.id,
+            source: item.source,
+            sourceName: item.sourceName,
+            url: item.url,
+          })),
+        };
+      }),
+    );
     const positions = rows.map((row) => ({
-      id: row.newsArticleId ?? row.id,
-      sort: (row.newsArticle?.sortAt ?? row.publishedAt ?? row.firstObservedAt).toISOString(),
+      id: row.id,
+      sort: (row.publishedAt ?? row.firstObservedAt).toISOString(),
     }));
     return finishPage(positions, query.limit, items, (row) => row.sort);
   }
 
+  private async newsLinkageView(
+    row: SourceItemEntity,
+    audience: NewsAudience = 'MEMBER_UI',
+  ): Promise<Pick<SourceItem, 'officialVerification' | 'officialReferences'>> {
+    if (audience !== 'ADMIN_UI')
+      return { officialVerification: 'UNVERIFIED', officialReferences: [] };
+    const values = Array.isArray(row.rawMetadataJson?.officialReferences)
+      ? row.rawMetadataJson.officialReferences
+      : [];
+    const officialReferences: NonNullable<SourceItem['officialReferences']> = [];
+    for (const value of values.slice(0, 50)) {
+      if (!value || typeof value !== 'object') continue;
+      const ref = value as Record<string, unknown>;
+      if (
+        ref.sourceHash !== row.rawHash ||
+        !['FILING', 'SOURCE_ITEM'].includes(String(ref.kind)) ||
+        typeof ref.id !== 'string' ||
+        !/^[a-f0-9-]{36}$/u.test(ref.id) ||
+        !['EXPLICIT_ID', 'EXPLICIT_URL', 'COMPANY_TIME'].includes(String(ref.matchMethod)) ||
+        !['RELATED', 'CONFIRMED', 'REJECTED'].includes(String(ref.status))
+      )
+        continue;
+      let status = ref.status as 'RELATED' | 'CONFIRMED' | 'REJECTED';
+      let title: string;
+      let url: string;
+      if (ref.kind === 'SOURCE_ITEM') {
+        const target = await this.source()
+          .getRepository(SourceItemEntity)
+          .findOneBy({ id: ref.id });
+        if (
+          !target ||
+          !newsAudienceAllows(target, audience) ||
+          !isReadableOfficialNewsSource(target)
+        )
+          continue;
+        const officialUrl = publicSourceUrl(target.url);
+        if (!officialUrl) continue;
+        title = target.title;
+        url = officialUrl;
+        if (status === 'CONFIRMED' && (!ref.targetHash || ref.targetHash !== target.rawHash))
+          status = 'RELATED';
+      } else {
+        const target = await this.source().getRepository(FilingEntity).findOneBy({ id: ref.id });
+        if (!target || target.source !== 'OPENDART') continue;
+        title = target.reportName;
+        url = `https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${encodeURIComponent(target.rceptNo)}`;
+      }
+      officialReferences.push({
+        kind: ref.kind as 'FILING' | 'SOURCE_ITEM',
+        id: ref.id,
+        matchMethod: ref.matchMethod as 'EXPLICIT_ID' | 'EXPLICIT_URL' | 'COMPANY_TIME',
+        status,
+        title,
+        url,
+      });
+    }
+    return {
+      officialReferences,
+      officialVerification: officialReferences.some((ref) => ref.status === 'CONFIRMED')
+        ? 'CONFIRMED'
+        : officialReferences.some((ref) => ref.status === 'RELATED')
+          ? 'LINKED'
+          : 'UNVERIFIED',
+    };
+  }
+
   private async newsRelatedCompanies(
     sourceIds: readonly string[],
+    audience: NewsAudience = 'MEMBER_UI',
   ): Promise<Map<string, NonNullable<SourceItem['relatedCompanies']>>> {
     const result = new Map<string, NonNullable<SourceItem['relatedCompanies']>>();
     if (!sourceIds.length) return result;
@@ -1248,7 +1397,7 @@ export class OrsemDataService {
       `SELECT DISTINCT displayed.id AS sourceItemId, c.id, c.market, c.stock_code AS stockCode, c.ticker, c.name_ko AS nameKo, c.name_en AS nameEn
        FROM source_items displayed JOIN source_items related ON (related.id = displayed.id OR (displayed.news_article_id IS NOT NULL AND related.news_article_id = displayed.news_article_id))
        JOIN news_source_companies r ON r.source_item_id = related.id JOIN companies c ON c.id = r.company_id
-       WHERE displayed.id IN (${sourceIds.map(() => '?').join(',')}) ORDER BY c.name_ko, c.id`,
+       WHERE ${newsAudienceSql('related', audience)} AND ${metadataNewsSql('related')} AND displayed.id IN (${sourceIds.map(() => '?').join(',')}) ORDER BY c.name_ko, c.id`,
       [...sourceIds],
     );
     for (const { sourceItemId, ...company } of rows) {
@@ -1288,7 +1437,7 @@ export class OrsemDataService {
     );
   }
 
-  async getNews(id: string): Promise<NewsDetail> {
+  async getNews(id: string, audience: NewsAudience = 'MEMBER_UI'): Promise<NewsDetail> {
     if (this.fixtureMode) {
       const row = this.fixtures.sourceItems.find(
         (item) =>
@@ -1311,16 +1460,16 @@ export class OrsemDataService {
       .getRepository(SourceItemEntity)
       .createQueryBuilder('item')
       .where('(item.id = :id OR item.externalId = :id OR item.news_article_id = :id)', { id })
-      .andWhere(newsFiltersSql('item', {}))
+      .andWhere(newsFiltersSql('item', { audience }))
       .getOne();
     if (!target) throw new NotFoundException('뉴스 항목을 찾을 수 없습니다.');
 
     const detailQuery = source
       .getRepository(SourceItemEntity)
       .createQueryBuilder('item')
-      .where(newsFiltersSql('item', {}))
+      .where(newsFiltersSql('item', { audience }))
       .andWhere(visibleNewsSql('unused', 'item'))
-      .andWhere(representativeNewsSql({}, 'item'));
+      .andWhere(representativeNewsSql({ audience }, 'item'));
     if (target.newsArticleId) {
       detailQuery.andWhere('item.news_article_id = :articleId', {
         articleId: target.newsArticleId,
@@ -1338,7 +1487,9 @@ export class OrsemDataService {
           row,
           ['OFFICIAL_RELEASE', 'COMPANY_IR'],
           PUBLIC_NEWS_PUBLISHERS,
+          audience,
         ) ||
+        (row.sourcePolicyJson.policyVersion === 2 && newsAudienceAllows(row, audience)) ||
         (['GDELT', 'ALPACA_NEWS'].includes(row.source) &&
           row.rightsMode === RightsMode.STORE_METADATA_ONLY &&
           row.rawMetadataJson?.rightsContext === 'APPROVED_PUBLISHER_METADATA' &&
@@ -1353,7 +1504,8 @@ export class OrsemDataService {
     const news = await source.getRepository(NewsItemEntity).findOneBy({ sourceItemId: row.id });
     return {
       ...mapSourceItem(row, news),
-      relatedCompanies: (await this.newsRelatedCompanies([row.id])).get(row.id) ?? [],
+      ...(await this.newsLinkageView(row, audience)),
+      relatedCompanies: (await this.newsRelatedCompanies([row.id], audience)).get(row.id) ?? [],
       content: null,
     };
   }
@@ -1365,7 +1517,7 @@ export class OrsemDataService {
           (item) =>
             isReviewedIrFeed(item.url) &&
             item.sourceType === 'RSS' &&
-            item.rightsMode === RightsMode.PRIVATE_DISPLAY_ONLY,
+            item.rightsMode === getNewsIrSourceProfile(item.url)?.policy.rightsMode,
         )
         .filter((item) => !query.companyId || item.companyId === query.companyId)
         .sort(
@@ -1376,14 +1528,11 @@ export class OrsemDataService {
     }
     const cursor = decodeCursor(query.cursor);
     const qb = this.source().getRepository(IrSourceEntity).createQueryBuilder('source');
-    qb.andWhere(
-      'source.url = :reviewedIrUrl AND source.sourceType = :reviewedIrType AND source.rightsMode = :reviewedIrRights',
-      {
-        reviewedIrUrl: NEWS_IR_SOURCE_PROFILES['samsung-global'].url,
-        reviewedIrType: 'RSS',
-        reviewedIrRights: RightsMode.PRIVATE_DISPLAY_ONLY,
-      },
-    );
+    qb.andWhere('source.url IN (:...reviewedIrUrls) AND source.sourceType = :reviewedIrType', {
+      reviewedIrUrls: Object.values(NEWS_IR_SOURCE_PROFILES).map((profile) => profile.url),
+      reviewedIrType: 'RSS',
+      reviewedIrRights: RightsMode.PRIVATE_DISPLAY_ONLY,
+    });
     if (query.companyId)
       qb.andWhere('source.companyId = :companyId', { companyId: query.companyId });
     if (cursor) {
@@ -1404,11 +1553,12 @@ export class OrsemDataService {
     companyId: string;
     url: string;
     sourceType: 'RSS';
-    rightsMode: 'PRIVATE_DISPLAY_ONLY';
+    rightsMode: RightsMode;
     isActive: boolean;
   }): Promise<IrSource> {
-    await this.getCompany(input.companyId);
+    const company = await this.getCompany(input.companyId);
     const { url, profile } = reviewedIrFeed(input.url);
+    this.assertIrRegistration(profile, company, input.isActive);
     const controlled = {
       ...input,
       url,
@@ -1449,6 +1599,11 @@ export class OrsemDataService {
       const item = this.fixtures.irSources.find((value) => value.id === id);
       if (!item) throw new NotFoundException('IR 소스를 찾을 수 없습니다.');
       const { url, profile } = reviewedIrFeed(input.url ?? item.url);
+      this.assertIrRegistration(
+        profile,
+        await this.getCompany(item.companyId),
+        input.isActive ?? item.isActive,
+      );
       Object.assign(item, input, {
         url,
         sourceType: 'RSS',
@@ -1461,6 +1616,11 @@ export class OrsemDataService {
     const row = await repository.findOneBy({ id });
     if (!row) throw new NotFoundException('IR 소스를 찾을 수 없습니다.');
     const { url: approvedUrl, profile } = reviewedIrFeed(input.url ?? row.url);
+    this.assertIrRegistration(
+      profile,
+      await this.getCompany(row.companyId),
+      input.isActive ?? row.isActive,
+    );
     if (input.url) {
       row.url = approvedUrl;
       row.urlHash = sha256(row.url);
@@ -1469,6 +1629,23 @@ export class OrsemDataService {
     row.rightsMode = profile.policy.rightsMode;
     if (input.isActive !== undefined) row.isActive = input.isActive;
     return mapIrSource(await repository.save(row));
+  }
+
+  private assertIrRegistration(
+    profile: NonNullable<ReturnType<typeof getNewsIrSourceProfile>>,
+    company: Company,
+    active: boolean,
+  ): void {
+    if (
+      profile.companySymbols &&
+      (!profile.companySymbols.includes(company.ticker ?? '') ||
+        !['NASDAQ', 'NYSE', 'AMEX'].includes(company.market))
+    )
+      throw new BadRequestException('IR 프로필의 상장기업과 연결 대상이 일치하지 않습니다.');
+    if (active && (!profile.enabled || !newsPolicyApprovalReady(profile.policy)))
+      throw new BadRequestException(
+        '권리 검토와 소스 승인이 완료되기 전에는 활성화할 수 없습니다.',
+      );
   }
 
   async deleteIrSource(id: string): Promise<void> {
@@ -1663,6 +1840,61 @@ export class OrsemDataService {
     const page = await this.listReviews(query);
     const items = await Promise.all(
       page.items.map(async (review) => {
+        if (review.subjectType === 'SOURCE_ITEM' && !this.fixtureMode) {
+          const item = await this.source()
+            .getRepository(SourceItemEntity)
+            .findOneBy({ id: review.subjectId });
+          const refs = Array.isArray(item?.rawMetadataJson?.officialReferences)
+            ? item.rawMetadataJson.officialReferences
+            : [];
+          const officialReferences: Record<string, unknown>[] = [];
+          for (const value of refs) {
+            if (
+              !value ||
+              typeof value !== 'object' ||
+              value.sourceHash !== item?.rawHash ||
+              typeof value.id !== 'string'
+            )
+              continue;
+            if (value.kind === 'FILING') {
+              const filing = await this.source()
+                .getRepository(FilingEntity)
+                .findOneBy({ id: value.id });
+              if (filing?.source === 'OPENDART')
+                officialReferences.push({
+                  ...value,
+                  title: filing.reportName,
+                  url: `https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${encodeURIComponent(filing.rceptNo)}`,
+                });
+            } else if (value.kind === 'SOURCE_ITEM') {
+              const official = await this.source()
+                .getRepository(SourceItemEntity)
+                .findOneBy({ id: value.id });
+              if (
+                official &&
+                newsAudienceAllows(official, 'ADMIN_UI') &&
+                official.sourcePolicyJson?.displayAllowed === true &&
+                publicSourceUrl(official.url)
+              )
+                officialReferences.push({ ...value, title: official.title, url: official.url });
+            }
+          }
+          return {
+            ...review,
+            eventId: review.subjectId,
+            sourceItemId: review.subjectId,
+            sourceHash: item?.rawHash ?? null,
+            companyName: item && newsAudienceAllows(item, 'ADMIN_UI') ? item.title : '뉴스 검토',
+            detailType: 'NEWS',
+            reason: review.reason,
+            methodRaw: null,
+            extractedText: null,
+            proposedNature: 'UNKNOWN',
+            parserConfidence: 0,
+            officialReferences,
+            manualCompanyIds: item?.rawMetadataJson?.manualCompanyIds ?? [],
+          };
+        }
         const event = await this.eventForReview(review);
         const storedFilingId =
           review.subjectType === 'FILING' ? review.subjectId : (event?.filing?.id ?? null);
@@ -1797,7 +2029,11 @@ export class OrsemDataService {
     const repository = this.source().getRepository(ReviewEntity);
     const row = await repository.findOneBy({ id });
     if (!row) throw new NotFoundException('검토 작업을 찾을 수 없습니다.');
-    if (row.subjectType === 'FILING_RELATION' || row.dedupeKey.startsWith('parse:')) {
+    if (
+      row.subjectType === 'SOURCE_ITEM' ||
+      row.subjectType === 'FILING_RELATION' ||
+      row.dedupeKey.startsWith('parse:')
+    ) {
       throw new BadRequestException(
         '공시 관계·재파싱 검토는 도메인 상태 전이가 필요하므로 /reviews/:id/resolve를 사용하세요.',
       );
@@ -1901,16 +2137,12 @@ export class OrsemDataService {
 
   async resolveReview(
     id: string,
-    input: {
-      resolution: 'CONFIRMED' | 'UNKNOWN' | 'DUPLICATE' | 'CORRECTION_LINKED';
-      note?: string | null;
-      planExecutionMatchId?: string;
-    },
+    input: NewsReviewInput,
     adminId: string,
   ): Promise<Record<string, unknown>> {
     const resolvedAt = new Date();
     let projectionQueued = false;
-    const serialized = JSON.stringify({
+    let serialized = JSON.stringify({
       resolution: input.resolution,
       note: input.note ?? null,
       planExecutionMatchId: input.planExecutionMatchId ?? null,
@@ -1947,7 +2179,10 @@ export class OrsemDataService {
         if (row.status !== ReviewTaskStatus.OPEN) {
           throw new BadRequestException('이미 종료된 검토 작업입니다.');
         }
-        if (input.resolution === 'CORRECTION_LINKED') {
+        if (row.subjectType === 'SOURCE_ITEM') {
+          const audit = await resolveNewsReview(manager, row, input, adminId, resolvedAt);
+          serialized = JSON.stringify({ ...input, newsReview: audit });
+        } else if (input.resolution === 'CORRECTION_LINKED') {
           await this.confirmCorrectionLineage(manager, row, adminId, resolvedAt);
         } else if (input.resolution === 'CONFIRMED') {
           if (row.subjectType === 'FILING') {
@@ -1997,6 +2232,12 @@ export class OrsemDataService {
     manager: EntityManager,
     review: ReviewEntity,
   ): Promise<void> {
+    if (review.subjectType === 'SOURCE_ITEM') {
+      await manager
+        .getRepository(SourceItemEntity)
+        .findOne({ where: { id: review.subjectId }, lock: { mode: 'pessimistic_write' } });
+      return;
+    }
     if (review.subjectType === 'FILING') {
       await manager
         .getRepository(FilingEntity)
@@ -2110,7 +2351,12 @@ export class OrsemDataService {
       .split(',')
       .map((value) => value.trim())
       .filter(Boolean);
-    if (configuredFeeds.some((value) => isReviewedIrFeed(value))) {
+    if (
+      configuredFeeds.some((value) => {
+        const profile = getNewsIrSourceProfile(value);
+        return profile?.enabled && newsPolicyApprovalReady(profile.policy);
+      })
+    ) {
       return true;
     }
     if (this.fixtureMode) {
@@ -2118,17 +2364,28 @@ export class OrsemDataService {
         (source) =>
           source.isActive &&
           source.sourceType === 'RSS' &&
-          source.rightsMode === RightsMode.PRIVATE_DISPLAY_ONLY &&
-          isReviewedIrFeed(source.url),
+          source.rightsMode === getNewsIrSourceProfile(source.url)?.policy.rightsMode &&
+          getNewsIrSourceProfile(source.url)?.enabled === true &&
+          newsPolicyApprovalReady(getNewsIrSourceProfile(source.url)?.policy),
       );
     }
     if (!this.database.dataSource) return false;
     const persisted = await this.database.dataSource.getRepository(IrSourceEntity).findBy({
       isActive: true,
       sourceType: 'RSS',
-      rightsMode: RightsMode.PRIVATE_DISPLAY_ONLY,
     });
-    return persisted.some((source) => isReviewedIrFeed(source.url));
+    return persisted.some((source) => {
+      const profile = getNewsIrSourceProfile(source.url);
+      return (
+        profile?.enabled &&
+        profile.policy.rightsMode === source.rightsMode &&
+        newsPolicyApprovalReady(profile.policy)
+      );
+    });
+  }
+
+  async privateNewsSourceViews() {
+    return adminNewsSourceViews(this.database.dataSource ?? undefined);
   }
 
   async connectorSourceViews(): Promise<Array<Record<string, unknown>>> {
@@ -2403,14 +2660,25 @@ export class OrsemDataService {
       JOIN watchlist_groups g ON g.id=i.group_id WHERE g.room_id IS NULL AND g.owner_key=?`,
       [personalActorKey],
     );
+    return this.filingsForCompanies(companies);
+  }
+
+  async filingsForCompanies(
+    companies: Array<Pick<Company, 'id' | 'nameKo' | 'nameEn' | 'stockCode' | 'ticker' | 'market'>>,
+  ) {
+    const asOf = new Date().toISOString();
+    // These companies were resolved from an authorized server-side scope. A personal
+    // union can span several 200-stock groups, so it has no single-group size cap.
+    const ids = companies.map((company) => company.id);
+    if (this.fixtureMode) return { asOf, companyCount: companies.length, items: [] };
     if (!companies.length) return { asOf, companyCount: 0, items: [] };
-    const mine = `SELECT i.company_id FROM watchlist_group_items i JOIN watchlist_groups g ON g.id=i.group_id WHERE g.room_id IS NULL AND g.owner_key=?`;
+    const mine = ids.map(() => '?').join(',');
     const [dart, sec] = await Promise.all([
       this.source().query(
         `SELECT f.id, f.company_id companyId, f.rcept_no externalId, f.report_name title,
         f.rcept_date filingDate, f.first_observed_at firstObservedAt FROM filings f
         WHERE f.source='OPENDART' AND f.company_id IN (${mine}) ORDER BY f.rcept_date DESC, f.id DESC LIMIT 12`,
-        [personalActorKey],
+        ids,
       ),
       this.source().query(
         `SELECT s.id, s.company_id companyId, s.external_id externalId, s.title, s.url,
@@ -2419,7 +2687,7 @@ export class OrsemDataService {
         WHERE s.source='SEC' AND s.rights_mode='OFFICIAL_PUBLIC_DATA' AND (s.company_id IN (${mine}) OR EXISTS
           (SELECT 1 FROM news_source_companies r WHERE r.source_item_id=s.id AND r.company_id IN (${mine})))
         ORDER BY COALESCE(CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(s.raw_metadata_json, '$.filingDate')) REGEXP '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$' THEN JSON_UNQUOTE(JSON_EXTRACT(s.raw_metadata_json, '$.filingDate')) END,s.published_at,s.first_observed_at) DESC, s.id DESC LIMIT 12`,
-        [personalActorKey, personalActorKey],
+        [...ids, ...ids],
       ),
     ]);
     const relations = sec.length
@@ -2490,7 +2758,7 @@ export class OrsemDataService {
     return { asOf, companyCount: companies.length, items };
   }
 
-  async personalNews(personalActorKey: string) {
+  async personalNews(personalActorKey: string, audience: NewsAudience = 'MEMBER_UI') {
     const asOf = new Date().toISOString();
     // Personal groups only: never substitute the shared operational P2 list.
     if (this.fixtureMode) return { asOf, companyCount: 0, events: [], news: [] };
@@ -2502,8 +2770,8 @@ export class OrsemDataService {
     const companyCount = Number(count?.companyCount ?? 0);
     if (!companyCount) return { asOf, companyCount, events: [], news: [] };
     const [events, news] = await Promise.all([
-      this.listEventViews({ personalActorKey, limit: 3 }),
-      this.listNews({ personalActorKey, scope: 'company', limit: 3 }),
+      this.listEventViews({ personalActorKey, audience, limit: 3 }),
+      this.listNews({ personalActorKey, audience, scope: 'company', limit: 3 }),
     ]);
     return { asOf, companyCount, events: events.items, news: news.items };
   }
@@ -3603,7 +3871,10 @@ export class OrsemDataService {
     return active;
   }
 
-  private async mapEvents(rows: EventClusterEntity[]): Promise<Event[]> {
+  private async mapEvents(
+    rows: EventClusterEntity[],
+    audience: NewsAudience = 'MEMBER_UI',
+  ): Promise<Event[]> {
     if (!rows.length) return [];
     const memberships = await this.source()
       .getRepository(EventClusterItemEntity)
@@ -3645,11 +3916,12 @@ export class OrsemDataService {
         const source = sourceById.get(link.itemId);
         if (
           source &&
-          sourcePolicyAllowsDisplay(source, [
-            'OFFICIAL_DISCLOSURE',
-            'OFFICIAL_RELEASE',
-            'COMPANY_IR',
-          ])
+          sourcePolicyAllowsDisplay(
+            source,
+            ['OFFICIAL_DISCLOSURE', 'OFFICIAL_RELEASE', 'COMPANY_IR'],
+            undefined,
+            audience,
+          )
         ) {
           sourceItems.push(mapSourceItem(source));
         }
@@ -3703,6 +3975,7 @@ export class OrsemDataService {
         )
         .where('event.companyId IN (:...companyIds)', { companyIds: ids })
         .andWhere(supportedEventFilingsSql)
+        .andWhere(eventAudienceSql('event'))
         .groupBy('event.companyId')
         .getRawMany<{ companyId: string; lastEventAt: string }>(),
     ]);
@@ -3964,7 +4237,10 @@ export class OrsemDataService {
     };
   }
 
-  private async mapEvent(row: EventClusterEntity): Promise<Event> {
+  private async mapEvent(
+    row: EventClusterEntity,
+    audience: NewsAudience = 'MEMBER_UI',
+  ): Promise<Event> {
     const source = this.source();
     const company = row.companyId
       ? await source.getRepository(CompanyEntity).findOneBy({ id: row.companyId })
@@ -3989,11 +4265,12 @@ export class OrsemDataService {
     const sourceItems = sourceMemberships.map((item) => {
       const sourceRow = sourcesById.get(item.itemId);
       return sourceRow &&
-        sourcePolicyAllowsDisplay(sourceRow, [
-          'OFFICIAL_DISCLOSURE',
-          'OFFICIAL_RELEASE',
-          'COMPANY_IR',
-        ])
+        sourcePolicyAllowsDisplay(
+          sourceRow,
+          ['OFFICIAL_DISCLOSURE', 'OFFICIAL_RELEASE', 'COMPANY_IR'],
+          undefined,
+          audience,
+        )
         ? mapSourceItem(sourceRow)
         : null;
     });

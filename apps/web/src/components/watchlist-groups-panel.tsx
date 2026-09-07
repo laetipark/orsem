@@ -1,18 +1,31 @@
 import { companyPath } from '../lib/company-path';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Copy, LayoutGrid, List, RefreshCw, Settings2, Users } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import {
+  useInfiniteQuery,
+  useQuery,
+  useQueryClient,
+  type InfiniteData,
+} from '@tanstack/react-query';
+import { Check, Copy, LayoutGrid, List, RefreshCw, Settings2, Users } from 'lucide-react';
+import { useCallback, useEffect, useId, useState } from 'react';
 import { Link, useLocation, useOutletContext, useSearchParams } from 'react-router-dom';
-import { api, ApiError } from '../lib/api';
+import { api } from '../lib/api';
+import { watchlistAccessDenied } from '../lib/watchlist-access';
 import { formatDate, formatMoney, formatPercent } from '../lib/format';
 import { useVisiblePanel } from '../lib/use-visible-panel';
-import type { Session, WatchlistGroupItem } from '../types';
+import { COMPACT_LAYOUT_QUERY, useMediaQuery } from '../lib/use-media-query';
+import type { Session, WatchlistGroupItem, WatchlistGroupPage } from '../types';
 import { CompanyAvatar } from './company-avatar';
 import { Button, Card, EmptyState, ErrorState, LoadingState } from './ui';
 import { moveEntry } from './watchlist-dialog';
 import { ChangeError, CopyGroupDialog, watchActorKey } from './watchlist-group-editors';
 import { RoomDirectoryDialog, RoomManageDialog, RoomOrderDialog } from './watchlist-room-dialogs';
 import { GroupManagerDialog } from './group-manager-dialog';
+import { useStockContentPreference } from '../lib/stock-content-preference';
+import { WatchGroupTabs } from './watch-group-tabs';
+import { useRecentCompanies } from '../lib/recent-companies';
+import { RecentStocks } from './recent-stocks';
+import { WatchlistNewsFeed } from './watchlist-news-feed';
+import { WatchlistModeFrame } from './watchlist-mode-frame';
 import './watchlist-groups-panel.css';
 export const movedIds = (ids: string[], index: number, direction: -1 | 1) =>
   moveEntry(ids, index, index + direction);
@@ -116,28 +129,43 @@ export function WatchlistGroupsPanel({ compact = false }: { compact?: boolean })
     actor = watchActorKey(session?.user),
     { ref, visible } = useVisiblePanel(),
     [params, setParams] = useSearchParams();
+  const stacked = useMediaQuery(COMPACT_LAYOUT_QUERY);
+  const recentCompanies = useRecentCompanies(actor);
+  const panelId = useId();
+  const [filterHost, setFilterHost] = useState<HTMLDivElement | null>(null);
+  const contentPreference = useStockContentPreference(actor);
+  const showNews = (params.get('watchContent') ?? contentPreference.content) === 'news';
   const roomId = params.get('watchRoom') || undefined,
-    view = params.get('watchView') === 'list' ? 'list' : 'grid';
+    view = params.has('watchView')
+      ? params.get('watchView') === 'list'
+        ? 'list'
+        : 'grid'
+      : stacked
+        ? 'list'
+        : 'grid';
+  const recentSelected =
+    compact && (params.get('watchGroup') === 'recent' || (!params.has('watchGroup') && !roomId));
   const client = useQueryClient();
+  const pageSize = stacked ? 3 : 6;
   const [blockedScope, setBlockedScope] = useState<string | null>(null);
-  const scopeKey = roomId ?? 'personal';
-  const offset = Math.max(
-    0,
-    Math.min(189, Math.floor(Number(params.get('watchPage') || 0) || 0) * 21),
-  );
+  const scopeKey = `${actor}:${roomId ?? 'personal'}`;
   const [dialog, setDialog] = useState<
     'directory' | 'room' | 'roomOrder' | 'groups' | 'copy' | null
   >(null);
   const rooms = useQuery({
     queryKey: ['watchlist-v2', actor, 'rooms'],
     queryFn: ({ signal }) => api.watchlistRooms(signal),
-    enabled: !!actor && visible,
+    enabled: !!actor && !!session?.canAccess && visible,
     refetchInterval: visible ? 60000 : false,
     refetchIntervalInBackground: false,
     retry: false,
   });
   const room = rooms.data?.items.find((r) => r.id === roomId),
-    scopeReady = blockedScope !== scopeKey && (!roomId || Boolean(room && !rooms.isError));
+    scopeReady =
+      !!actor &&
+      !!session?.canAccess &&
+      blockedScope !== scopeKey &&
+      (!roomId || Boolean(room && !rooms.isError));
   const groups = useQuery({
     queryKey: ['watchlist-v2', actor, 'groups', roomId ?? 'personal'],
     queryFn: ({ signal }) => api.watchlistGroups(signal, roomId),
@@ -146,22 +174,111 @@ export function WatchlistGroupsPanel({ compact = false }: { compact?: boolean })
     refetchIntervalInBackground: false,
     retry: false,
   });
-  const selected =
-    groups.data?.items.find((g) => g.id === params.get('watchGroup')) ?? groups.data?.items[0];
+  const selected = recentSelected
+    ? undefined
+    : (groups.data?.items.find((g) => g.id === params.get('watchGroup')) ?? groups.data?.items[0]);
+  const tabs = [
+    ...(compact ? [{ id: 'recent', name: '최근조회', itemCount: recentCompanies.length }] : []),
+    ...(groups.data?.items ?? []),
+  ];
+  const activeGroup = recentSelected ? 'recent' : selected?.id;
+  const pageIndex = Math.max(
+    0,
+    Math.min(
+      // Group metadata may lag behind the items response. Only cap at the 200-stock limit here.
+      Math.floor(199 / pageSize),
+      Math.floor(Number(params.get('watchPage')) || 0),
+    ),
+  );
+  const offset = pageIndex * pageSize;
   const page = useQuery({
-    queryKey: ['watchlist-v2', actor, 'items', roomId ?? 'personal', selected?.id, offset],
-    queryFn: ({ signal }) => api.watchlistGroupItems(selected!.id, offset, signal),
-    enabled: !!actor && visible && scopeReady && !!selected && !groups.isError,
+    queryKey: [
+      'watchlist-v2',
+      actor,
+      'items',
+      roomId ?? 'personal',
+      selected?.id,
+      offset,
+      pageSize,
+    ],
+    queryFn: ({ signal }) => api.watchlistGroupItems(selected!.id, offset, signal, pageSize),
+    enabled: compact && !!actor && visible && scopeReady && !!selected && !groups.isError,
     refetchInterval: visible ? 60000 : false,
     refetchIntervalInBackground: false,
     retry: false,
   });
-  const accessLost =
-    [rooms.error, groups.error, page.error].some(
-      (error) => error instanceof ApiError && [401, 403, 404].includes(error.statusCode),
-    ) || Boolean(roomId && rooms.isSuccess && !room);
+  const fullPage = useInfiniteQuery({
+    queryKey: ['watchlist-v2', actor, 'full-items', roomId ?? 'personal', selected?.id, 20],
+    initialPageParam: 0,
+    queryFn: ({ signal, pageParam }) =>
+      api.watchlistGroupItems(selected!.id, pageParam, signal, 20),
+    getNextPageParam: (last, _pages, previousOffset) =>
+      last.nextOffset !== null &&
+      last.nextOffset > previousOffset &&
+      last.nextOffset < Math.min(last.total, 200)
+        ? last.nextOffset
+        : undefined,
+    enabled:
+      !compact && !!actor && visible && scopeReady && !!selected && !groups.isError && !showNews,
+    refetchInterval: visible && !showNews ? 60000 : false,
+    refetchIntervalInBackground: false,
+    retry: false,
+  });
   useEffect(() => {
-    if (!accessLost || blockedScope === scopeKey) return;
+    if (compact || !selected) return;
+    const key = ['watchlist-v2', actor, 'full-items', roomId ?? 'personal', selected.id, 20];
+    // Returning to a group begins at its first batch; no other group's rows or scroll position carry over.
+    return () => {
+      client.setQueryData<InfiniteData<WatchlistGroupPage, number>>(key, (cached) =>
+        cached
+          ? { pages: cached.pages.slice(0, 1), pageParams: cached.pageParams.slice(0, 1) }
+          : undefined,
+      );
+    };
+  }, [actor, client, compact, roomId, selected?.id]);
+  const fullLatest = fullPage.data?.pages.at(-1);
+  const stockData = compact
+    ? page.data
+    : fullLatest
+      ? {
+          ...fullLatest,
+          items: [
+            ...new Map(
+              fullPage
+                .data!.pages.flatMap((batch) => batch.items)
+                .map((item) => [item.company.id, item] as const),
+            ).values(),
+          ].slice(0, 200),
+        }
+      : undefined;
+  const stockQuery = compact ? page : fullPage;
+  const loadMoreStocks = () => {
+    if (
+      !compact &&
+      visible &&
+      scopeReady &&
+      !showNews &&
+      !fullPage.isFetching &&
+      fullPage.hasNextPage
+    )
+      void fullPage.fetchNextPage({ cancelRefetch: false });
+  };
+  const currentTotal = compact && !showNews && !recentSelected ? page.data?.total : undefined;
+  useEffect(() => {
+    if (currentTotal === undefined || offset === 0 || offset < currentTotal) return;
+    setParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.set('watchPage', String(Math.max(0, Math.ceil(currentTotal / pageSize) - 1)));
+        return next;
+      },
+      { replace: true },
+    );
+  }, [currentTotal, offset, pageSize, setParams]);
+  const accessLost =
+    [rooms.error, groups.error, page.error, fullPage.error].some(watchlistAccessDenied) ||
+    Boolean(roomId && rooms.isSuccess && !room);
+  const blockAccess = useCallback(() => {
     setBlockedScope(scopeKey);
     setDialog(null);
     client.removeQueries({
@@ -170,7 +287,27 @@ export function WatchlistGroupsPanel({ compact = false }: { compact?: boolean })
         q.queryKey[1] === actor &&
         q.queryKey[2] !== 'rooms',
     });
-  }, [accessLost, actor, blockedScope, client, scopeKey]);
+  }, [actor, client, scopeKey]);
+  useEffect(
+    () =>
+      client.getQueryCache().subscribe((event) => {
+        if (event.type !== 'updated' || event.action.type !== 'error') return;
+        const key = event.query.queryKey;
+        const error = event.query.state.error;
+        if (
+          key[0] === 'watchlist-v2' &&
+          key[1] === actor &&
+          (key[2] === 'rooms' || key[3] === (roomId ?? 'personal')) &&
+          watchlistAccessDenied(error)
+        ) {
+          blockAccess();
+        }
+      }),
+    [actor, blockAccess, client, roomId],
+  );
+  useEffect(() => {
+    if (accessLost) blockAccess();
+  }, [accessLost, blockAccess]);
   const updateParams = (values: Record<string, string | null>) =>
     setParams(
       (current) => {
@@ -185,17 +322,34 @@ export function WatchlistGroupsPanel({ compact = false }: { compact?: boolean })
     );
   const selectRoom = (id: string) => {
     setBlockedScope(null);
-    updateParams({ watchRoom: id || null, watchGroup: null, watchPage: null });
+    updateParams({
+      watchRoom: id || null,
+      watchGroup: null,
+      watchPage: null,
+      watchCompany: null,
+      watchNewsType: null,
+    });
     setDialog(null);
   };
-  const editable = page.data?.group ?? selected,
+  const editable = stockData?.group ?? selected,
     permissions = groups.data?.permissions;
   const close = () => setDialog(null);
   return (
     <div ref={ref}>
-      <Card className="watch-groups" aria-label="관심 종목 그룹">
-        <header className="watch-groups__header">
-          <h2>관심 종목</h2>
+      <Card
+        className={`watch-groups observation-card${compact ? '' : ' watch-groups--full'}`}
+        aria-label="관심 종목 그룹"
+      >
+        <header className="watch-groups__header observation-card__header">
+          <div className="observation-card__heading">
+            <h2>{compact ? '내 종목' : '관심 종목'}</h2>
+            <span className="observation-card__count">
+              {recentSelected
+                ? recentCompanies.length
+                : (stockData?.total ?? selected?.itemCount ?? 0)}
+              종목
+            </span>
+          </div>
           <div className="watch-groups__actions">
             <Button size="sm" variant="ghost" onClick={() => setDialog('directory')}>
               <Users size={15} />
@@ -205,13 +359,19 @@ export function WatchlistGroupsPanel({ compact = false }: { compact?: boolean })
               size="sm"
               variant="ghost"
               aria-label="관심 종목 새로고침"
-              disabled={groups.isFetching || page.isFetching}
+              disabled={groups.isFetching || stockQuery.isFetching}
               onClick={() => {
                 setBlockedScope(null);
                 void rooms.refetch();
                 if (scopeReady) {
                   void groups.refetch();
-                  if (selected) void page.refetch();
+                  void client.invalidateQueries({ queryKey: ['watchlist-v2', actor] });
+                  if (recentSelected) {
+                    void client.invalidateQueries({ queryKey: ['company-quotes', actor] });
+                    void client.invalidateQueries({
+                      queryKey: ['news', actor, 'recent-companies'],
+                    });
+                  }
                 }
               }}
             >
@@ -260,53 +420,39 @@ export function WatchlistGroupsPanel({ compact = false }: { compact?: boolean })
         ) : null}
         {!scopeReady && !rooms.isPending ? (
           <ErrorState
-            message="공유방에 접근할 수 없습니다. 탈퇴·강퇴 또는 이용 승인 상태를 확인하세요."
+            message={
+              roomId
+                ? '공유방에 접근할 수 없습니다. 탈퇴·강퇴 또는 이용 승인 상태를 확인하세요.'
+                : '개인 공간에 접근할 수 없습니다. 로그인 및 이용 승인 상태를 확인하세요.'
+            }
             onRetry={() => {
+              setBlockedScope(null);
               void rooms.refetch();
             }}
           />
         ) : null}
-        {scopeReady ? (
+        {scopeReady && !accessLost ? (
           <>
             <div className="watch-groups__toolbar">
-              <div className="watch-groups__tabs" role="tablist" aria-label="관심 종목 그룹 선택">
-                {groups.data?.items.map((g) => (
-                  <button
-                    key={g.id}
-                    role="tab"
-                    aria-selected={selected?.id === g.id}
-                    tabIndex={selected?.id === g.id ? 0 : -1}
-                    onClick={() => updateParams({ watchGroup: g.id, watchPage: null })}
-                    onKeyDown={(e) => {
-                      const list = groups.data.items,
-                        index = list.findIndex((x) => x.id === g.id);
-                      const target =
-                        e.key === 'ArrowRight'
-                          ? (index + 1) % list.length
-                          : e.key === 'ArrowLeft'
-                            ? (index + list.length - 1) % list.length
-                            : e.key === 'Home'
-                              ? 0
-                              : e.key === 'End'
-                                ? list.length - 1
-                                : null;
-                      if (target !== null) {
-                        e.preventDefault();
-                        updateParams({ watchGroup: list[target]!.id, watchPage: null });
-                        const tabs =
-                          e.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>(
-                            '[role=tab]',
-                          );
-                        tabs?.[target]?.focus();
-                      }
-                    }}
-                  >
-                    {g.name}
-                    <small>{g.itemCount}</small>
-                  </button>
-                ))}
-              </div>
-              <div className="watch-groups__views" role="group" aria-label="관심 종목 보기 방식">
+              <WatchGroupTabs
+                tabs={tabs}
+                selected={activeGroup}
+                panelId={panelId}
+                onSelect={(id) =>
+                  updateParams({
+                    watchGroup: id,
+                    watchPage: null,
+                    watchCompany: null,
+                    watchNewsType: null,
+                  })
+                }
+              />
+              <div
+                className="watch-groups__views"
+                hidden={showNews}
+                role="group"
+                aria-label="관심 종목 보기 방식"
+              >
                 <button
                   aria-label="그리드 보기"
                   aria-pressed={view === 'grid'}
@@ -322,109 +468,219 @@ export function WatchlistGroupsPanel({ compact = false }: { compact?: boolean })
                   <List size={17} />
                 </button>
               </div>
+              <div
+                className="watch-groups__content-switch"
+                role="radiogroup"
+                aria-label="종목·소식 보기"
+              >
+                {(['stocks', 'news'] as const).map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    role="radio"
+                    aria-checked={showNews === (value === 'news')}
+                    onClick={() => {
+                      contentPreference.save(value);
+                      updateParams({ watchContent: value });
+                    }}
+                  >
+                    <span className="watch-groups__check" aria-hidden="true">
+                      {showNews === (value === 'news') ? <Check size={12} /> : null}
+                    </span>
+                    {value === 'stocks' ? '종목' : '소식'}
+                  </button>
+                ))}
+              </div>
             </div>
             <div className="watch-groups__tools">
-              {permissions?.canManageGroups || editable?.canManageStocks ? (
-                <Button size="sm" variant="ghost" onClick={() => setDialog('groups')}>
-                  <Settings2 size={14} /> 그룹 관리
-                </Button>
-              ) : null}
-              {selected && !roomId ? (
-                <Button size="sm" variant="ghost" onClick={() => setDialog('copy')}>
-                  <Copy size={13} />
-                  공유방에 복사
-                </Button>
-              ) : null}
-              <small>
-                {room
-                  ? `${room.memberCount}명 · ${room.role === 'OWNER' ? '방장' : room.role === 'ADMIN' ? '방 관리자' : '참여 중'}`
-                  : '나만 볼 수 있는 개인 공간'}
-              </small>
+              <div className="watch-groups__management">
+                {permissions?.canManageGroups || editable?.canManageStocks ? (
+                  <Button size="sm" variant="ghost" onClick={() => setDialog('groups')}>
+                    <Settings2 size={14} /> 그룹 관리
+                  </Button>
+                ) : null}
+                {selected && !roomId ? (
+                  <Button size="sm" variant="ghost" onClick={() => setDialog('copy')}>
+                    <Copy size={13} />
+                    공유방에 복사
+                  </Button>
+                ) : null}
+              </div>
+              <div
+                className="watch-groups__news-filter"
+                ref={setFilterHost}
+                aria-hidden={!showNews}
+              />
             </div>
-            <div className="watch-groups__content">
-              {groups.isPending ? (
-                <LoadingState label="그룹을 불러오는 중입니다." />
-              ) : groups.isError ? (
-                <ErrorState message={groups.error.message} onRetry={() => void groups.refetch()} />
-              ) : !selected ? (
-                <EmptyState
-                  title="관심 종목 그룹을 만들어 보세요"
-                  description={
-                    permissions?.canManageGroups
-                      ? '그룹을 만들고 종목을 추가하세요.'
-                      : '그룹 관리자가 그룹을 만들면 여기에 표시됩니다.'
-                  }
-                />
-              ) : page.isPending ? (
-                <LoadingState label="시세와 최근 소식을 불러오는 중입니다." />
-              ) : page.isError ? (
-                <ErrorState
-                  message={page.error.message}
-                  onRetry={() => {
-                    void groups.refetch();
-                    void page.refetch();
-                  }}
-                />
-              ) : page.data ? (
-                <>
-                  <div className="watch-groups__stock-viewport" data-view={view}>
-                    <div
-                      className="watch-groups__stocks watch-groups__stocks--grid watch-groups__grid-measure"
-                      aria-hidden="true"
-                      inert
-                    >
-                      {page.data.items.map((item) => (
-                        <WatchlistGroupStock key={item.company.id} item={item} measurement />
-                      ))}
-                    </div>
-                    <div
-                      className={`watch-groups__stocks watch-groups__stocks--${view} watch-groups__stocks--display`}
-                    >
-                      {page.data.items.map((item) => (
-                        <WatchlistGroupStock key={item.company.id} item={item} />
-                      ))}
-                    </div>
-                  </div>
-                  {!page.data.items.length ? (
+            <div
+              className="watch-groups__content"
+              id={panelId}
+              role={activeGroup ? 'tabpanel' : undefined}
+              aria-labelledby={activeGroup ? `${panelId}-${activeGroup}` : undefined}
+            >
+              <WatchlistModeFrame
+                compact={compact}
+                newsKey={`${scopeKey}:${activeGroup}:${params.get('watchCompany') ?? ''}:${params.get('watchNewsType') ?? 'news'}`}
+                showNews={showNews && (recentSelected || Boolean(selected))}
+                news={
+                  recentSelected ? (
+                    <WatchlistNewsFeed
+                      filterHost={filterHost}
+                      actor={actor}
+                      recentCompanies={recentCompanies}
+                      enabled={visible && !!session?.canAccess}
+                      onAccessLost={blockAccess}
+                    />
+                  ) : selected ? (
+                    <WatchlistNewsFeed
+                      filterHost={filterHost}
+                      key={`${actor}:${roomId ?? 'personal'}:${selected.id}`}
+                      actor={actor}
+                      groupId={selected.id}
+                      roomId={roomId}
+                      enabled={visible && !!session?.canAccess && !accessLost}
+                      onAccessLost={blockAccess}
+                    />
+                  ) : null
+                }
+                stocks={
+                  recentSelected ? (
+                    <RecentStocks
+                      actor={actor}
+                      companies={recentCompanies}
+                      view={view}
+                      visible={visible && !!session?.canAccess}
+                      pageSize={pageSize}
+                    />
+                  ) : groups.isPending ? (
+                    <LoadingState label="그룹을 불러오는 중입니다." />
+                  ) : groups.isError ? (
+                    <ErrorState
+                      message={groups.error.message}
+                      onRetry={() => void groups.refetch()}
+                    />
+                  ) : !selected ? (
                     <EmptyState
-                      title="아직 종목이 없습니다"
+                      title="관심 종목 그룹을 만들어 보세요"
                       description={
-                        editable?.canManageStocks
-                          ? '그룹 관리에서 관심 종목을 추가하세요.'
-                          : '종목 관리자가 등록하면 표시됩니다.'
+                        permissions?.canManageGroups
+                          ? '그룹을 만들고 종목을 추가하세요.'
+                          : '그룹 관리자가 그룹을 만들면 여기에 표시됩니다.'
                       }
                     />
-                  ) : null}
-                  <footer className="watch-groups__pagination">
-                    <small>
-                      {page.data.total}종목 · 최근 7일 {formatDate(page.data.windowStartDate)}–
-                      {formatDate(page.data.windowEndDate)} KST
-                    </small>
-                    {page.data.total > 21 ? (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          disabled={!offset}
-                          onClick={() => updateParams({ watchPage: String(offset / 21 - 1) })}
+                  ) : stockQuery.isPending ? (
+                    <LoadingState label="시세와 최근 소식을 불러오는 중입니다." />
+                  ) : stockQuery.isError && (compact || !stockData) ? (
+                    <ErrorState
+                      message={stockQuery.error.message}
+                      onRetry={() => {
+                        void groups.refetch();
+                        void stockQuery.refetch();
+                      }}
+                    />
+                  ) : stockData ? (
+                    <>
+                      <div
+                        key={`${scopeKey}:${selected.id}`}
+                        className={`watch-groups__stock-viewport${compact ? '' : ' watch-groups__stock-viewport--full'}`}
+                        data-view={view}
+                        role={compact ? undefined : 'region'}
+                        aria-label={compact ? undefined : '관심 종목 전체 목록'}
+                      >
+                        {compact ? (
+                          <div
+                            className="watch-groups__stocks watch-groups__stocks--grid watch-groups__grid-measure"
+                            aria-hidden="true"
+                            inert
+                          >
+                            {stockData.items.map((item) => (
+                              <WatchlistGroupStock key={item.company.id} item={item} measurement />
+                            ))}
+                          </div>
+                        ) : null}
+                        <div
+                          className={`watch-groups__stocks watch-groups__stocks--${view} watch-groups__stocks--display`}
                         >
-                          이전
-                        </Button>
-                        <span>{offset / 21 + 1}</span>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          disabled={page.data.nextOffset == null}
-                          onClick={() => updateParams({ watchPage: String(offset / 21 + 1) })}
-                        >
-                          다음
-                        </Button>
-                      </>
-                    ) : null}
-                    {compact ? <Link to={`/watchlist?${params.toString()}`}>전체 관리</Link> : null}
-                  </footer>
-                </>
-              ) : null}
+                          {stockData.items.map((item) => (
+                            <WatchlistGroupStock key={item.company.id} item={item} />
+                          ))}
+                        </div>
+                      </div>
+                      {!stockData.items.length ? (
+                        <EmptyState
+                          title="아직 종목이 없습니다"
+                          description={
+                            editable?.canManageStocks
+                              ? '그룹 관리에서 관심 종목을 추가하세요.'
+                              : '종목 관리자가 등록하면 표시됩니다.'
+                          }
+                        />
+                      ) : null}
+                      {compact ? (
+                        <footer className="watch-groups__pagination observation-card__pagination">
+                          <small>
+                            {stockData.total
+                              ? `${offset + 1}–${offset + stockData.items.length} / ${stockData.total}종목`
+                              : '0종목'}
+                          </small>
+                          {stockData.total > pageSize ? (
+                            <div role="group" aria-label="관심 종목 페이지">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                aria-label="이전 관심 종목"
+                                disabled={!offset}
+                                onClick={() => updateParams({ watchPage: String(pageIndex - 1) })}
+                              >
+                                이전
+                              </Button>
+                              <span aria-live="polite">
+                                {pageIndex + 1} / {Math.ceil(stockData.total / pageSize)}
+                              </span>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                aria-label="다음 관심 종목"
+                                disabled={stockData.nextOffset == null}
+                                onClick={() => updateParams({ watchPage: String(pageIndex + 1) })}
+                              >
+                                다음
+                              </Button>
+                            </div>
+                          ) : null}
+                          <Link to={`/watchlist?${params.toString()}`}>전체 관리</Link>
+                        </footer>
+                      ) : (
+                        <div className="watch-groups__full-status">
+                          <small aria-live="polite">
+                            {stockData.items.length} / {stockData.total}종목
+                          </small>
+                          {fullPage.hasNextPage ? (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              disabled={fullPage.isFetching || !visible}
+                              onClick={loadMoreStocks}
+                            >
+                              {fullPage.isFetchingNextPage ? '종목을 불러오는 중…' : '종목 더 보기'}
+                            </Button>
+                          ) : null}
+                          {fullPage.isError ? (
+                            <ErrorState
+                              message="추가 종목을 불러오지 못했습니다."
+                              onRetry={loadMoreStocks}
+                            />
+                          ) : null}
+                        </div>
+                      )}
+                      <p className="watch-groups__period">
+                        활동 기준 · {formatDate(stockData.windowStartDate)}–
+                        {formatDate(stockData.windowEndDate)} KST
+                      </p>
+                    </>
+                  ) : null
+                }
+              />
             </div>
           </>
         ) : null}

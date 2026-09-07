@@ -26,7 +26,9 @@ export interface NewsDiscoveryScheduleDefinition {
   readonly pattern: string;
   readonly timezone: 'Asia/Seoul';
   readonly payload: Readonly<{
-    connectors: readonly ('SEC' | 'IR' | 'NEWS_RSS' | 'GDELT' | 'ALPACA_NEWS')[];
+    connectors: readonly (
+      'SEC' | 'IR' | 'NEWS_RSS' | 'GDELT' | 'ALPACA_NEWS' | 'MARKETAUX' | 'ALPHAVANTAGE' | 'FINNHUB'
+    )[];
     priorities: readonly (
       typeof WatchPriority.P1 | typeof WatchPriority.P2 | typeof WatchPriority.P3
     )[];
@@ -36,6 +38,26 @@ export interface NewsDiscoveryScheduleDefinition {
 }
 
 export const NEWS_DISCOVERY_SCHEDULES: readonly NewsDiscoveryScheduleDefinition[] = Object.freeze([
+  ...(
+    [
+      { id: 'marketaux-news-hourly', pattern: '0 * * * *', connector: 'MARKETAUX' },
+      { id: 'alphavantage-news-twice-daily', pattern: '0 0,12 * * *', connector: 'ALPHAVANTAGE' },
+      { id: 'finnhub-news-hourly', pattern: '0 * * * *', connector: 'FINNHUB' },
+    ] as const
+  ).map((schedule) =>
+    Object.freeze({
+      id: schedule.id,
+      pattern: schedule.pattern,
+      timezone: 'Asia/Seoul' as const,
+      payload: Object.freeze({
+        reason: 'SCHEDULED' as const,
+        connectors: Object.freeze([schedule.connector]),
+        priorities: Object.freeze([]),
+        companyIds: Object.freeze([]),
+        suppressAlerts: true,
+      }),
+    }),
+  ),
   Object.freeze({
     id: 'alpaca-news-thirty-minutes',
     pattern: '*/30 * * * *',

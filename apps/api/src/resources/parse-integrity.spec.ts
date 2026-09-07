@@ -425,11 +425,19 @@ for (const type of ['D099'] as const) {
       getRepository: (entity: unknown) => {
         if (entity === EventClusterEntity)
           return {
-            findOneBy: async () => ({
-              id: 'event',
-              companyId: null,
-              firstObservedAt: now,
-              state: 'ACTIVE',
+            createQueryBuilder: () => ({
+              where() {
+                return this;
+              },
+              andWhere() {
+                return this;
+              },
+              getOne: async () => ({
+                id: 'event',
+                companyId: null,
+                firstObservedAt: now,
+                state: 'ACTIVE',
+              }),
             }),
           };
         if (entity === EventClusterItemEntity)
@@ -458,11 +466,19 @@ test('every filing membership is checked before a direct event exposes an unsupp
     getRepository: (entity: unknown) => {
       if (entity === EventClusterEntity)
         return {
-          findOneBy: async () => ({
-            id: 'event',
-            companyId: null,
-            firstObservedAt: now,
-            state: 'ACTIVE',
+          createQueryBuilder: () => ({
+            where() {
+              return this;
+            },
+            andWhere() {
+              return this;
+            },
+            getOne: async () => ({
+              id: 'event',
+              companyId: null,
+              firstObservedAt: now,
+              state: 'ACTIVE',
+            }),
           }),
         };
       if (entity === EventClusterItemEntity)

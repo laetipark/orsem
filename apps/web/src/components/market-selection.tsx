@@ -1,9 +1,11 @@
 import { ArrowUpRight, CalendarDays, ChartNoAxesCombined } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
+import type { CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { companyPath } from '../lib/company-path';
 import { formatDate, formatKst, formatMoney } from '../lib/format';
+import type { Region as RegionFilter } from '../types';
 import { CompanyAvatar } from './company-avatar';
 import { Card, CardHeader, EmptyState, ErrorState, LoadingState } from './ui';
 import './market-selection.css';
@@ -124,12 +126,21 @@ function MarketRegion({ region, code }: { region?: Region; code: 'kr' | 'us' }) 
       {items.length ? (
         <>
           <div className="market-leaders__columns" aria-hidden="true">
-            <span>순위 · 종목</span>
-            <span>시가총액 · {currency}</span>
+            {[0, 1].map((column) => (
+              <div key={column}>
+                <span>순위 · 종목</span>
+                <span>시가총액 · {currency}</span>
+              </div>
+            ))}
           </div>
           <ol className="market-leaders__list" aria-label={`${label} 시가총액 순위`}>
             {items.map((item) => (
-              <li key={item.id} value={item.rank}>
+              <li
+                key={item.id}
+                value={item.rank}
+                className={item.rank > 10 ? 'market-leaders__second-half' : undefined}
+                style={{ '--rank-row': ((item.rank - 1) % 10) + 1 } as CSSProperties}
+              >
                 <Link className="market-leaders__row" to={companyPath(item)}>
                   <span className="market-leaders__rank" aria-label={`${item.rank}위`}>
                     {item.rank}
@@ -172,10 +183,15 @@ function MarketRegion({ region, code }: { region?: Region; code: 'kr' | 'us' }) 
   );
 }
 
-export function MarketSelection() {
+export function MarketSelection({ region: selectedRegion = 'all' }: { region?: RegionFilter }) {
   const query = useMarketSelection();
   return (
-    <Card className="market-leaders" aria-labelledby="market-leaders-title">
+    <Card
+      id="market-leaders"
+      className="market-leaders"
+      data-region={selectedRegion}
+      aria-labelledby="market-leaders-title"
+    >
       <CardHeader>
         <div>
           <h2 id="market-leaders-title">
@@ -202,13 +218,15 @@ export function MarketSelection() {
       ) : null}
       {query.data ? (
         <div className="market-leaders__regions">
-          {(['kr', 'us'] as const).map((code) => (
-            <MarketRegion
-              key={code}
-              code={code}
-              region={query.data.regions.find((region) => region.region === code)}
-            />
-          ))}
+          {(['kr', 'us'] as const)
+            .filter((code) => selectedRegion === 'all' || code === selectedRegion)
+            .map((code) => (
+              <MarketRegion
+                key={code}
+                code={code}
+                region={query.data.regions.find((region) => region.region === code)}
+              />
+            ))}
         </div>
       ) : null}
     </Card>
@@ -230,7 +248,7 @@ export function MarketSelectionMembership({ companyId }: { companyId: string }) 
   return (
     <Link
       className="market-leaders__membership"
-      to={`/watchlist#market-leaders-${region.region}`}
+      to={`/markets?region=${region.region}#market-leaders-${region.region}`}
       title={`시가총액 상위 20종목 · ${region.basisDate ? formatDate(region.basisDate) + ' 자료' : '자료 기준일 미제공'} · 매월 1회 갱신`}
     >
       <ChartNoAxesCombined size={13} aria-hidden="true" />

@@ -11,6 +11,8 @@ import {
   NEWS_RSS_FEEDS,
   NEWS_RSS_FEED_IDS,
   NEWS_SOURCE_RESEARCH_CANDIDATES,
+  currentNewsSourcePolicy,
+  registeredNewsSourcePolicies,
 } from './news-sources';
 import { newsDetailSchema } from './schemas';
 
@@ -46,13 +48,14 @@ test('AI requires explicit permission and NAVER cannot be opted in through metad
   assert.equal(isNewsAiAllowed({ source: 'IR', sourcePolicyJson: { aiAllowed: true } }), true);
 });
 
-test('only approved official RSS feeds are executable and explicitly allow content', () => {
+test('the RSS registry includes disabled candidates but keeps only five existing official feeds approved', () => {
   assert.deepEqual(NEWS_RSS_FEED_IDS, [
     'fed-press',
     'fed-speeches',
     'bls-latest',
     'eia-today',
     'eia-press',
+    'hankyung-finance-rss',
   ]);
   assert.deepEqual(Object.keys(NEWS_RSS_FEEDS), [...NEWS_RSS_FEED_IDS]);
   assert.equal(Object.isFrozen(NEWS_RSS_FEED_IDS), true);
@@ -61,6 +64,14 @@ test('only approved official RSS feeds are executable and explicitly allow conte
     const feed = NEWS_RSS_FEEDS[id];
     assert.equal(Object.isFrozen(feed), true);
     assert.equal(new URL(feed.url).protocol, 'https:');
+    if ('enabled' in feed && feed.enabled === false) {
+      assert.equal(feed.policy.rightsStatus, 'UNKNOWN');
+      assert.equal(feed.policy.metadataStorageAllowed, null);
+      assert.equal(feed.policy.fullTextStorageAllowed, false);
+      assert.equal(isNewsDisplayAllowed(feed.policy), false);
+      assert.equal(currentNewsSourcePolicy(feed.policy), null);
+      continue;
+    }
     assert.equal(feed.policy.metadataStorageAllowed, true);
     assert.equal(feed.policy.displayAllowed, true);
     assert.equal(feed.policy.fullTextStorageAllowed, true);
@@ -68,10 +79,22 @@ test('only approved official RSS feeds are executable and explicitly allow conte
     assert.equal(feed.policy.notifyAllowed, false);
     assert.ok(feed.policy.policyUrl);
   }
+  assert.deepEqual(
+    NEWS_RSS_FEED_IDS.filter((id) => {
+      const feed = NEWS_RSS_FEEDS[id];
+      return (!('enabled' in feed) || feed.enabled) && isNewsDisplayAllowed(feed.policy);
+    }),
+    ['fed-press', 'fed-speeches', 'bls-latest', 'eia-today', 'eia-press'],
+  );
 });
 
 test('only the exact Samsung profile promotes arbitrary IR feeds to content collection', () => {
-  assert.deepEqual(NEWS_IR_SOURCE_PROFILE_IDS, ['samsung-global']);
+  assert.deepEqual(NEWS_IR_SOURCE_PROFILE_IDS, [
+    'samsung-global',
+    'nvidia-ir-press',
+    'broadcom-ir-news',
+    'palo-alto-networks-ir-news',
+  ]);
   assert.deepEqual(Object.keys(NEWS_IR_SOURCE_PROFILES), [...NEWS_IR_SOURCE_PROFILE_IDS]);
   assert.equal(Object.isFrozen(NEWS_IR_SOURCE_PROFILE_IDS), true);
   assert.equal(Object.isFrozen(NEWS_IR_SOURCE_PROFILES), true);
@@ -86,12 +109,32 @@ test('only the exact Samsung profile promotes arbitrary IR feeds to content coll
   assert.equal(isNewsFullTextCollectionAllowed(samsung.policy), true);
   assert.equal(samsung.policy.aiAllowed, true);
   assert.equal(samsung.policy.publicRedistributionAllowed, false);
+  assert.deepEqual(
+    NEWS_IR_SOURCE_PROFILE_IDS.filter((id) => NEWS_IR_SOURCE_PROFILES[id].enabled),
+    ['samsung-global'],
+  );
+  for (const id of NEWS_IR_SOURCE_PROFILE_IDS.filter((id) => id !== 'samsung-global')) {
+    const profile = NEWS_IR_SOURCE_PROFILES[id];
+    assert.equal(Object.isFrozen(profile), true);
+    assert.equal(profile.policy.rightsStatus, 'UNKNOWN');
+    assert.equal(profile.policy.fullTextStorageAllowed, false);
+    assert.equal(isNewsDisplayAllowed(profile.policy), false);
+    assert.equal(currentNewsSourcePolicy(profile.policy), null);
+    assert.equal(registeredNewsSourcePolicies().includes(profile.policy), false);
+  }
 });
 
-test('research candidates cannot enter either runtime feed allowlist', () => {
+test('research candidates cannot become executable through a disabled registry entry', () => {
   const activeUrls = new Set<string>([
-    ...NEWS_RSS_FEED_IDS.map((id) => NEWS_RSS_FEEDS[id].url),
-    ...NEWS_IR_SOURCE_PROFILE_IDS.map((id) => NEWS_IR_SOURCE_PROFILES[id].url),
+    ...NEWS_RSS_FEED_IDS.filter((id) => {
+      const feed = NEWS_RSS_FEEDS[id];
+      return (!('enabled' in feed) || feed.enabled) && isNewsDisplayAllowed(feed.policy);
+    }).map((id) => NEWS_RSS_FEEDS[id].url),
+    ...NEWS_IR_SOURCE_PROFILE_IDS.filter(
+      (id) =>
+        NEWS_IR_SOURCE_PROFILES[id].enabled &&
+        isNewsDisplayAllowed(NEWS_IR_SOURCE_PROFILES[id].policy),
+    ).map((id) => NEWS_IR_SOURCE_PROFILES[id].url),
   ]);
   assert.equal(activeUrls.size, 6);
   for (const candidate of NEWS_SOURCE_RESEARCH_CANDIDATES) {

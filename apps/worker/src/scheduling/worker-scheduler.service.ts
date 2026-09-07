@@ -165,7 +165,12 @@ export class WorkerSchedulerService implements OnModuleInit {
           (!schedule.payload.connectors.includes('NEWS_RSS') ||
             this.config.newsRssFeeds.length > 0) &&
           (!schedule.payload.connectors.includes('GDELT') || this.config.gdeltEnabled) &&
-          (!schedule.payload.connectors.includes('ALPACA_NEWS') || this.config.alpacaNewsEnabled),
+          (!schedule.payload.connectors.includes('ALPACA_NEWS') || this.config.alpacaNewsEnabled) &&
+          (!schedule.payload.connectors.includes('MARKETAUX') ||
+            this.config.marketauxNewsEnabled) &&
+          (!schedule.payload.connectors.includes('ALPHAVANTAGE') ||
+            this.config.alphaVantageNewsEnabled) &&
+          (!schedule.payload.connectors.includes('FINNHUB') || this.config.finnhubNewsEnabled),
       ).map((schedule) =>
         (schedule.payload.connectors.includes('SEC') ? this.healthQueue : this.marketNewsQueue).add(
           JobName.DISCOVER_LINKS,

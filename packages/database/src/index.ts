@@ -34,3 +34,5 @@ export * from './migrations/1788408000000-AddWatchlistRooms';
 export * from './migrations/1788411000000-UseNewsMetadataOnly';
 export * from './migrations/1788412000000-UseMonthlyMarketLeaders';
 export * from './market-leader-scope';
+export * from './migrations/1788413000000-AddNewsTitleHash';
+export * from './news-official-references';

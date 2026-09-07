@@ -3,6 +3,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import type { ReviewItem } from '../types';
 import { ReviewCard } from './reviews-page';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 const review: ReviewItem = {
   id: 'review-plan-match',
@@ -43,6 +44,48 @@ const review: ReviewItem = {
     },
   ],
 };
+
+it('confirms the selected official news reference with its current source hash', () => {
+  const onResolve = vi.fn();
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <MemoryRouter>
+        <ReviewCard
+          review={{
+            ...review,
+            detailType: 'NEWS',
+            sourceItemId: 'news-source',
+            sourceHash: 'a'.repeat(64),
+            planExecutionCandidates: [],
+            officialReferences: [
+              {
+                kind: 'FILING',
+                id: 'filing-target',
+                matchMethod: 'COMPANY_TIME',
+                status: 'RELATED',
+                title: '공식 실적 공시',
+                url: 'https://dart.fss.or.kr/',
+              },
+            ],
+          }}
+          onResolve={onResolve}
+          pending={false}
+        />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+  expect(screen.queryByRole('radio', { name: /정정 연결/ })).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('공식 자료 후보'), { target: { value: '1' } });
+  expect(screen.getByRole('link', { name: '선택한 공식 원문 열기' })).toHaveAttribute(
+    'href',
+    'https://dart.fss.or.kr/',
+  );
+  fireEvent.click(screen.getByRole('button', { name: '검토 확정' }));
+  expect(onResolve).toHaveBeenCalledWith('CONFIRMED', null, undefined, {
+    sourceHash: 'a'.repeat(64),
+    officialTarget: { kind: 'FILING', id: 'filing-target' },
+  });
+});
 
 describe('plan execution review', () => {
   it('sends the explicitly selected D005↔D002 match id', () => {

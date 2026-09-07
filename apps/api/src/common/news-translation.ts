@@ -5,6 +5,12 @@ import {
 } from '../resources/manual-news-translation';
 import {
   RightsMode,
+  isNewsTranslationAllowed,
+  isNewsSummaryStorageAllowed,
+  currentNewsSourcePolicy,
+  registeredNewsSourcePolicies,
+  newsPolicyAllowsAudience,
+  type NewsSourcePolicy,
   isoInstantSchema,
   newsTranslationSchema,
   type NewsTranslation,
@@ -53,6 +59,7 @@ export function publicNewsTranslation(source: TranslationSource): NewsTranslatio
     }
   }
   if (
+    !translationPolicyAllows(policy) ||
     !translationSources.some((allowed) => allowed === source.source) ||
     !policy ||
     typeof policy !== 'object' ||
@@ -119,6 +126,7 @@ export function publicNewsTranslationStatus(
   if (publicNewsTranslation(source)) return 'COMPLETED';
   const policy = storedJson(source.sourcePolicyJson) as Record<string, unknown> | null;
   if (
+    !translationPolicyAllows(policy) ||
     !translationSources.some((allowed) => allowed === source.source) ||
     !translationRights.includes(source.rightsMode) ||
     policy?.rightsMode !== source.rightsMode ||
@@ -151,12 +159,50 @@ export function literalSearchPattern(term: string): string {
   return `%${term.replace(/[!%_]/gu, (character) => `!${character}`)}%`;
 }
 
-export function publicNewsDescription(rightsMode: RightsMode, description: unknown): string | null {
+function translationPolicyAllows(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const policy = value as NewsSourcePolicy;
+  return (
+    policy.policyVersion !== 2 ||
+    (newsPolicyAllowsAudience(policy, 'ADMIN_UI') &&
+      isNewsTranslationAllowed(policy) &&
+      isNewsTranslationAllowed(currentNewsSourcePolicy(policy)))
+  );
+}
+
+export function publicNewsDescription(
+  rightsMode: RightsMode,
+  description: unknown,
+  policy?: NewsSourcePolicy | null,
+): string | null {
+  if (policy?.policyVersion === 2)
+    return newsPolicyAllowsAudience(policy, 'ADMIN_UI') &&
+      isNewsSummaryStorageAllowed(policy) &&
+      isNewsSummaryStorageAllowed(currentNewsSourcePolicy(policy)) &&
+      typeof description === 'string'
+      ? description
+      : null;
   return (rightsMode === RightsMode.OFFICIAL_PUBLIC_DATA ||
     rightsMode === RightsMode.PRIVATE_DISPLAY_ONLY) &&
     typeof description === 'string'
     ? description
     : null;
+}
+
+function translationPolicySql(alias: string): string {
+  const policies = registeredNewsSourcePolicies().filter(
+    (policy) =>
+      policy.policyVersion === 2 &&
+      newsPolicyAllowsAudience(policy, 'ADMIN_UI') &&
+      isNewsTranslationAllowed(policy),
+  );
+  const ids = policies.flatMap((policy) =>
+    policy.policyId && /^[a-z0-9-]+$/u.test(policy.policyId) ? [policy.policyId] : [],
+  );
+  const current = ids.length
+    ? `JSON_UNQUOTE(JSON_EXTRACT(${alias}.source_policy_json, '$.policyId')) IN (${ids.map((id) => `'${id}'`).join(',')})`
+    : '1 = 0';
+  return `(COALESCE(JSON_EXTRACT(${alias}.source_policy_json, '$.policyVersion'), 0) <> 2 OR (${current} AND JSON_EXTRACT(${alias}.source_policy_json, '$.translationAllowed') = true AND JSON_EXTRACT(${alias}.source_policy_json, '$.aiAllowed') = true))`;
 }
 
 export function completedAutomaticNewsTranslationCondition(alias: string): string {
@@ -192,7 +238,7 @@ export function completedAutomaticNewsTranslationCondition(alias: string): strin
 }
 
 export function completedNewsTranslationCondition(alias: string): string {
-  return `((${alias}.manual_translation_json IS NULL AND ${completedAutomaticNewsTranslationCondition(alias)}) OR ${manualNewsTranslationSql(alias)})`;
+  return `(${translationPolicySql(alias)} AND ((${alias}.manual_translation_json IS NULL AND ${completedAutomaticNewsTranslationCondition(alias)}) OR ${manualNewsTranslationSql(alias)}))`;
 }
 
 export function newsTranslationSearchCondition(alias: string, parameter: string): string {
@@ -201,5 +247,5 @@ export function newsTranslationSearchCondition(alias: string, parameter: string)
     throw new Error('Invalid translation search identifier.');
   const json = `${alias}.translation_json`;
   const title = `CASE WHEN ${alias}.manual_translation_json IS NOT NULL THEN JSON_UNQUOTE(JSON_EXTRACT(${alias}.manual_translation_json, '$.title')) ELSE JSON_UNQUOTE(JSON_EXTRACT(${json}, '$.title')) END`;
-  return `(${completedNewsTranslationCondition(alias)} AND ${title} LIKE :${parameter} ESCAPE '!')`;
+  return `(${completedNewsTranslationCondition(alias)} AND LOWER(${title}) LIKE LOWER(:${parameter}) ESCAPE '!')`;
 }

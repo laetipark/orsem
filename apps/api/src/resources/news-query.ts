@@ -1,7 +1,9 @@
 import { marketsForRegion, type Region } from '@orsem/contracts';
+import { newsAudienceSql, type NewsAudience } from './news-access';
 import { literalSearchPattern, newsTranslationSearchCondition } from '../common/news-translation';
 
 export interface NewsFilters {
+  audience?: NewsAudience;
   scope?: unknown;
   asset?: unknown;
   personalActorKey?: string;
@@ -11,10 +13,11 @@ export interface NewsFilters {
   sourceKind?: unknown;
   publisher?: unknown;
   companyId?: unknown;
+  companyIds?: string[];
 }
 
 export function gdeltMetadataSql(alias: string): string {
-  return `(${alias}.source IN ('GDELT','ALPACA_NEWS') AND ${alias}.rights_mode = 'STORE_METADATA_ONLY'
+  return `(${alias}.source IN ('GDELT','ALPACA_NEWS','MARKETAUX','ALPHAVANTAGE','FINNHUB') AND ${alias}.rights_mode = 'STORE_METADATA_ONLY'
     AND JSON_UNQUOTE(JSON_EXTRACT(${alias}.raw_metadata_json, '$.rightsContext')) = 'APPROVED_PUBLISHER_METADATA'
     AND JSON_EXTRACT(${alias}.source_policy_json, '$.metadataStorageAllowed') = true
     AND JSON_EXTRACT(${alias}.source_policy_json, '$.displayAllowed') = true
@@ -26,8 +29,13 @@ export function visibleNewsSql(contentAlias: string, sourceAlias: string): strin
   return metadataNewsSql(sourceAlias);
 }
 
-export function companyRelevanceSql(alias: string, companyId = false, region = false): string {
-  return `EXISTS (SELECT 1 FROM news_source_companies relevance JOIN source_items relevance_source ON relevance_source.id = relevance.source_item_id ${region ? 'JOIN companies relevance_company ON relevance_company.id = relevance.company_id' : ''} WHERE (relevance.source_item_id = ${alias}.id OR (${alias}.news_article_id IS NOT NULL AND relevance_source.news_article_id = ${alias}.news_article_id))${companyId ? ' AND relevance.company_id = :newsCompanyId' : ''}${region ? ' AND relevance_company.market IN (:...newsMarkets)' : ''})`;
+export function companyRelevanceSql(
+  alias: string,
+  companyId = false,
+  region = false,
+  audience: NewsAudience = 'MEMBER_UI',
+): string {
+  return `EXISTS (SELECT 1 FROM news_source_companies relevance JOIN source_items relevance_source ON relevance_source.id = relevance.source_item_id ${region ? 'JOIN companies relevance_company ON relevance_company.id = relevance.company_id' : ''} WHERE ${newsAudienceSql('relevance_source', audience)} AND ${metadataNewsSql('relevance_source')} AND (relevance.source_item_id = ${alias}.id OR (${alias}.news_article_id IS NOT NULL AND relevance_source.news_article_id = ${alias}.news_article_id))${companyId ? ' AND relevance.company_id = :newsCompanyId' : ''}${region ? ' AND relevance_company.market IN (:...newsMarkets)' : ''})`;
 }
 
 export const PUBLIC_NEWS_PUBLISHERS = [
@@ -44,18 +52,30 @@ function newsPublisherSql(alias: string): string {
 export function newsKindSql(alias: string): string {
   return `COALESCE(${alias}.source_kind, CASE WHEN ${alias}.source IN ('OPENDART','SEC') THEN 'OFFICIAL_DISCLOSURE' WHEN ${alias}.source = 'IR' THEN 'COMPANY_IR' WHEN ${alias}.source = 'NEWS_RSS' THEN 'INDEPENDENT_MEDIA' ELSE 'UNKNOWN' END)`;
 }
-export function visibleEventSourceSql(alias: string): string {
+export function visibleEventSourceSql(alias: string, audience: NewsAudience = 'MEMBER_UI'): string {
   return `${alias}.source NOT LIKE 'NAVER%'
     AND JSON_EXTRACT(${alias}.source_policy_json, '$.metadataStorageAllowed') = true
     AND JSON_EXTRACT(${alias}.source_policy_json, '$.displayAllowed') = true
+    AND ${newsAudienceSql(alias, audience)}
     AND ${newsKindSql(alias)} IN ('OFFICIAL_DISCLOSURE', 'OFFICIAL_RELEASE', 'COMPANY_IR')`;
+}
+
+/** An event summary may contain facts from every member; hide mixed events before counting. */
+export function eventAudienceSql(alias: string, audience: NewsAudience = 'MEMBER_UI'): string {
+  if (!/^[a-z_][a-z0-9_]*$/iu.test(alias)) throw new Error('Invalid event identifier.');
+  return `NOT EXISTS (SELECT 1 FROM event_cluster_items audience_item
+    LEFT JOIN news_items audience_news ON audience_item.item_type='NEWS_ITEM' AND audience_news.id=audience_item.item_id
+    JOIN source_items audience_source ON (audience_item.item_type='SOURCE_ITEM' AND audience_source.id=audience_item.item_id)
+      OR audience_source.id=audience_news.source_item_id
+    WHERE audience_item.event_cluster_id=${alias}.id AND COALESCE((${newsAudienceSql('audience_source', audience)}), false) = false)`;
 }
 export function newsFiltersSql(alias: string, query: NewsFilters): string {
   const clauses = [
     `${alias}.source NOT LIKE 'NAVER%'`,
+    newsAudienceSql(alias, query.audience),
     `JSON_EXTRACT(${alias}.source_policy_json, '$.metadataStorageAllowed') = true`,
     `JSON_EXTRACT(${alias}.source_policy_json, '$.displayAllowed') = true`,
-    `((${newsKindSql(alias)} IN ('OFFICIAL_RELEASE', 'COMPANY_IR') AND ${newsPublisherSql(alias)} IN (${PUBLIC_NEWS_PUBLISHERS.map((value) => `'${value}'`).join(', ')})) OR ${gdeltMetadataSql(alias)})`,
+    `((${newsKindSql(alias)} IN ('OFFICIAL_RELEASE', 'COMPANY_IR') AND ${newsPublisherSql(alias)} IN (${PUBLIC_NEWS_PUBLISHERS.map((value) => `'${value}'`).join(', ')})) OR ${gdeltMetadataSql(alias)} OR (JSON_EXTRACT(${alias}.source_policy_json, '$.policyVersion') = 2 AND ${newsKindSql(alias)} IN ('COMPANY_IR','PRESS_RELEASE','INDEPENDENT_MEDIA','AGGREGATOR')))`,
   ];
   if (query.personalActorKey)
     clauses.push(`EXISTS (
@@ -63,19 +83,30 @@ export function newsFiltersSql(alias: string, query: NewsFilters): string {
     JOIN source_items personal_source ON personal_source.id=personal_relevance.source_item_id
     JOIN watchlist_group_items personal_item ON personal_item.company_id=personal_relevance.company_id
     JOIN watchlist_groups personal_group ON personal_group.id=personal_item.group_id
-    WHERE personal_group.room_id IS NULL AND personal_group.owner_key=:personalActorKey
+    WHERE ${newsAudienceSql('personal_source', query.audience)} AND ${metadataNewsSql('personal_source')} AND personal_group.room_id IS NULL AND personal_group.owner_key=:personalActorKey
       AND (personal_relevance.source_item_id=${alias}.id OR (${alias}.news_article_id IS NOT NULL AND personal_source.news_article_id=${alias}.news_article_id)))`);
-  if (query.companyId) clauses.push(companyRelevanceSql(alias, true));
+  if (query.companyId) clauses.push(companyRelevanceSql(alias, true, false, query.audience));
+  if (query.companyIds !== undefined)
+    clauses.push(
+      query.companyIds.length
+        ? `EXISTS (SELECT 1 FROM news_source_companies selected_relevance
+          JOIN source_items selected_source ON selected_source.id=selected_relevance.source_item_id
+          WHERE ${newsAudienceSql('selected_source', query.audience)} AND ${metadataNewsSql('selected_source')}
+          AND selected_relevance.company_id IN (:...newsCompanyIds)
+          AND (selected_relevance.source_item_id=${alias}.id OR (${alias}.news_article_id IS NOT NULL AND selected_source.news_article_id=${alias}.news_article_id)))`
+        : '1 = 0',
+    );
   if (query.asset) clauses.push('1 = 0'); // Asset feeds are transient Naver snapshots only.
   if (query.scope === 'market')
     clauses.push(`${newsPublisherSql(alias)} IN ('federal-reserve', 'bls')`);
-  if (query.scope === 'company') clauses.push(companyRelevanceSql(alias));
+  if (query.scope === 'company')
+    clauses.push(companyRelevanceSql(alias, false, false, query.audience));
   if (query.source) clauses.push(`${alias}.source = :newsSource`);
   if (query.sourceKind) clauses.push(`${newsKindSql(alias)} = :newsKind`);
   if (query.publisher) clauses.push(`${newsPublisherSql(alias)} = :newsPublisher`);
   if (query.region && query.region !== 'all')
     clauses.push(
-      `(${companyRelevanceSql(alias, false, true)} OR (NOT (${companyRelevanceSql(alias)}) AND (${alias}.source = :newsRegionSource OR JSON_UNQUOTE(JSON_EXTRACT(${alias}.raw_metadata_json, '$.marketRegion')) IN ('global', :newsRegion))))`,
+      `(${companyRelevanceSql(alias, false, true, query.audience)} OR (NOT (${companyRelevanceSql(alias, false, false, query.audience)}) AND (${alias}.source = :newsRegionSource OR JSON_UNQUOTE(JSON_EXTRACT(${alias}.raw_metadata_json, '$.marketRegion')) IN ('global', :newsRegion))))`,
     );
   if (query.q)
     clauses.push(
@@ -87,6 +118,7 @@ export function newsFilterParameters(query: NewsFilters): Record<string, unknown
   return {
     personalActorKey: query.personalActorKey,
     newsCompanyId: query.companyId,
+    newsCompanyIds: query.companyIds,
     newsSource: query.source,
     newsKind: query.sourceKind,
     newsPublisher: query.publisher,
@@ -97,9 +129,8 @@ export function newsFilterParameters(query: NewsFilters): Record<string, unknown
   };
 }
 
-export const NEWS_GROUP_SORT =
-  'COALESCE(article.sort_at, source.published_at, source.first_observed_at)';
-export const NEWS_GROUP_ID = 'COALESCE(source.news_article_id, source.id)';
+export const NEWS_GROUP_SORT = 'COALESCE(source.published_at, source.first_observed_at)';
+export const NEWS_GROUP_ID = 'source.id';
 
 export function metadataNewsSql(sourceAlias: string): string {
   if (!/^[a-z_][a-z0-9_]*$/iu.test(sourceAlias)) throw new Error('Invalid news source identifier.');
@@ -119,8 +150,8 @@ export function representativeNewsSql(query: NewsFilters, sourceAlias = 'source'
   return `NOT EXISTS (SELECT 1 FROM source_items duplicate WHERE ${sourceAlias}.news_article_id IS NOT NULL
     AND duplicate.news_article_id = ${sourceAlias}.news_article_id AND ${newsFiltersSql('duplicate', query)}
     AND ${metadataNewsSql('duplicate')}
-    AND ((duplicate.source IN ('GDELT','ALPACA_NEWS')) < (${sourceAlias}.source IN ('GDELT','ALPACA_NEWS'))
-      OR ((duplicate.source IN ('GDELT','ALPACA_NEWS')) = (${sourceAlias}.source IN ('GDELT','ALPACA_NEWS')) AND
+    AND ((duplicate.source IN ('GDELT','ALPACA_NEWS','MARKETAUX','ALPHAVANTAGE','FINNHUB')) < (${sourceAlias}.source IN ('GDELT','ALPACA_NEWS','MARKETAUX','ALPHAVANTAGE','FINNHUB'))
+      OR ((duplicate.source IN ('GDELT','ALPACA_NEWS','MARKETAUX','ALPHAVANTAGE','FINNHUB')) = (${sourceAlias}.source IN ('GDELT','ALPACA_NEWS','MARKETAUX','ALPHAVANTAGE','FINNHUB')) AND
         (duplicate.first_observed_at < ${sourceAlias}.first_observed_at OR
          (duplicate.first_observed_at = ${sourceAlias}.first_observed_at AND duplicate.id < ${sourceAlias}.id)))))`;
 }

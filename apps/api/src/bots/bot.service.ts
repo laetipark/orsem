@@ -312,8 +312,8 @@ export class BotService {
       ? new Set<string>()
       : await marketLeaderCompanyIds(this.database.requireDataSource(), region);
     const [stored, market, naver] = await Promise.all([
-      this.data.listNews({ region, scope: 'company', limit: 100 }),
-      this.data.listNews({ region, scope: 'market', limit: 20 }),
+      this.data.listNews({ audience: 'BOT', region, scope: 'company', limit: 100 }),
+      this.data.listNews({ audience: 'BOT', region, scope: 'market', limit: 20 }),
       // No companyId: read the existing short-lived snapshots without provider requests.
       this.naverNews.feed({ region, scope: 'company' }, 'BOT:PUBLIC'),
     ]);

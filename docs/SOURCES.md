@@ -1,14 +1,16 @@
 # 소스 어댑터
 
-| 어댑터          | 범위                                                                    | 저장 내용                                                                                         | 검증에서의 역할                        |
-| --------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | -------------------------------------- |
-| OpenDART        | D001~D005, 기업 코드, 원문, 기업별·일별 요약                            | 공식 목록 필드, ZIP 해시·경로, 파싱한 사실과 경고                                                 | 한국 공시의 1차 증거                   |
-| Toss Securities | 한국·미국 비수정 일봉·분봉, 실시간 체결가, 제한된 범위의 공식 기업 이름 | 소스별 봉, 원본 필드, 출처, 거래일·관측 시각, 캐시된 실시간 시세, 원본 기업 정보와 이름 적용 이력 | 유일한 차트 공급자, 개인용 표시만 허용 |
-| SEC EDGAR       | P1/P2 제출 문서와 공식 공시 링크                                        | 공식 공시 메타데이터와 허용된 사실                                                                | 미국 공시의 1차 증거                   |
-| Samsung Global  | 코드에 검토된 정확한 Global Newsroom RSS와 공식 기사 URL                | 원문 필드, 정화한 텍스트 본문, 본문 해시, 정책 스냅샷, 로컬 번역                                  | 인증 회원용 기업 직접 발표             |
-| NAVER 뉴스 API  | 정기 대상 순환·종목별 자동 조회                                         | 제한된 메모리 표시, DB·로그·AI 저장 없음                                                          | 원출처 링크 검색                       |
-| 공식 뉴스 RSS   | Federal Reserve 2종·BLS·EIA 2종, 15분마다 전체 피드                     | 원문 필드, 정화한 공식 텍스트 본문, 본문 해시, 정책 스냅샷, 로컬 번역                             | 미국 공식 기관 발표                    |
-| Alpaca          | 미국 자산 마스터만 사용, 가격 수집 종료                                 | 자산 식별 메타데이터와 소스 이용 권리                                                             | 미국 종목 코드와 거래소 식별           |
+| 어댑터                          | 범위                                                                    | 저장 내용                                                                                         | 검증에서의 역할                        |
+| ------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| OpenDART                        | D001~D005, 기업 코드, 원문, 기업별·일별 요약                            | 공식 목록 필드, ZIP 해시·경로, 파싱한 사실과 경고                                                 | 한국 공시의 1차 증거                   |
+| Toss Securities                 | 한국·미국 비수정 일봉·분봉, 실시간 체결가, 제한된 범위의 공식 기업 이름 | 소스별 봉, 원본 필드, 출처, 거래일·관측 시각, 캐시된 실시간 시세, 원본 기업 정보와 이름 적용 이력 | 유일한 차트 공급자, 개인용 표시만 허용 |
+| SEC EDGAR                       | P1/P2 제출 문서와 공식 공시 링크                                        | 공식 공시 메타데이터와 허용된 사실                                                                | 미국 공시의 1차 증거                   |
+| Samsung Global                  | 코드에 검토된 정확한 Global Newsroom RSS                                | 제목·제공 요약·원문 링크·원시 발행 문자열·권리 스냅샷·허용된 번역                                 | 기존 정책에 따른 기업 직접 발표        |
+| NAVER 뉴스 API                  | 정기 대상 순환·종목별 자동 조회                                         | 제한된 메모리 표시, DB·로그·AI 저장 없음                                                          | 원출처 링크 검색                       |
+| 공식 뉴스 RSS                   | Federal Reserve 2종·BLS·EIA 2종, 15분마다 전체 피드                     | 제목·제공 요약·원문 링크·발행 시각·권리 스냅샷·허용된 번역                                        | 미국 공식 기관 발표                    |
+| Alpaca                          | 미국 자산 마스터만 사용, 가격 수집 종료                                 | 자산 식별 메타데이터와 소스 이용 권리                                                             | 미국 종목 코드와 거래소 식별           |
+| Marketaux·Alpha Vantage·Finnhub | 기존 MARKET_NEWS worker의 조건부 API 어댑터                             | 승인 시 허용 metadata와 출처·시각·회사 연결·권리 스냅샷; 현재 요청·저장 차단                      | 관리자 개인 관측의 뉴스 후보 발견      |
+| 신규 등록 RSS                   | NVDA·AVGO·PANW 공식 IR, 한국경제 증권                                   | 비활성 프로필·UNKNOWN 정책만 등록; 권리 확인 전 수집 없음                                         | 기업 직접 발표와 국내 언론을 구분      |
 
 활성 소스는 상태 점검 결과를 제공합니다. 키가 없으면 해당 소스만 비활성 상태가 되며 다른 소스는 중단하지 않습니다. 출처, 시의성, 이용 권리가 다르므로 커넥터가 다른 소스로 조용히 대체해서는 안 됩니다.
 
@@ -57,12 +59,35 @@ NAVER는 공식 기사와 함께 원문 링크로 표시하며, 정기·종목�
 
 ## 뉴스 정규화
 
-정규 URL, 정규화한 제목 해시, 소스·이벤트 시각·기업·핵심 사실, 유사도 순으로 적용합니다. 같은 보도가 여러 곳에 전재돼도 증거 등급이 높아지지 않습니다. 지시문처럼 보이는 내용은 신뢰할 수 없는 기사 본문으로 취급하며 분류기 정책, 이용 권리 제한, 도구 동작을 바꾸지 못합니다.
+정규 URL을 먼저 확인하고, 원출판사·기업·발행 시각이 일치하는 정규화 제목 해시를 기존 뉴스 그룹 연결에서 사용합니다. 제목 유사성만으로 서로 다른 사건을 자동 병합하지 않습니다. 소스·시각·기업·핵심 사실의 확인은 기존 공식 자료 연결과 검토함을 이용합니다. 같은 보도를 여러 aggregator가 반환해도 발견 경로 수와 독립 출처 수를 분리하므로 증거 등급이 높아지지 않습니다. 기사 내용은 신뢰할 수 없는 외부 데이터이며 이용 권리나 도구 동작을 바꾸는 지시가 아닙니다.
 
-선택적인 [뉴스 한국어 번역](NEWS_TRANSLATION.md)은 정규화 이후 저장된 영문 제목과 승인된 본문 전체에 적용합니다. 원문과 출처를 바꾸지 않고 번역을 별도로 보관하며, 제목과 모든 본문 블록의 현재 해시·출처·이용 권리가 일치하는 완료 결과만 표시합니다. 번역 문장은 공식 검증이나 새로운 증거로 취급하지 않습니다.
+선택적인 [뉴스 한국어 번역](NEWS_TRANSLATION.md)은 현재 수집 경로의 제목과 허용된 제공 요약에 적용합니다. 신규 뉴스는 기사 원문 HTML·본문·이미지를 요청하지 않으며, AI·번역 권리가 명시적으로 허용되지 않으면 queue에 넣지 않습니다. 원문·해시·출처·현재 권리와 일치하는 완료 결과만 표시하고 번역을 공식 검증이나 새 증거로 취급하지 않습니다.
 
 ## 2026-09-06 SEC·GDELT·Alpaca 추가 경계
 
 이 절은 위의 기존 최근 건수·GDELT 일반 활성화 안내보다 우선한다. SEC 공식 API는 계속 1차 원본이며 최근 20건 선택은 정기 복구 경로에서 제거했다. [SEC 복구](SEC_GAP_RECOVERY.md)와 [Form 3/4/5](SEC_OWNERSHIP.md)를 따른다. 민간 SEC-API.io는 문서상 대안으로만 남긴다.
 
-GDELT는 정확한 publisher 정책 승인 전 비활성이다. 단순 무료 데이터 검색 가능 여부로 본문·재배포·AI 권리를 승인하지 않는다. 시간 구간 복구와 incomplete 표시는 [뉴스 수집](NEWS_COLLECTION.md)에 설명한다. 미국 종목 보완 후보 [Alpaca News / Marketaux / GNews](NEWS_PROVIDER_COMPARISON.md)는 비용과 권리를 구분해 비교했으며 Alpaca 어댑터만 기본 비활성으로 제공한다.
+GDELT는 정확한 publisher 정책 승인 전 비활성이다. 단순 무료 데이터 검색 가능 여부로 본문·재배포·AI 권리를 승인하지 않는다. 시간 구간 복구와 incomplete 표시는 기존 GDELT recovery 경로를 유지한다. Alpaca News 어댑터의 비활성 경계도 유지한다. 2026-09-07 추가 후보와 현재 판단은 [국내·미국 뉴스 공급자 비교](NEWS_PROVIDER_COMPARISON.md)를 따른다.
+
+## 2026-09-07 확장 전 repository audit
+
+README, AGENTS, SOURCES, NEWS_COLLECTION, NEWS_PROVIDER_COMPARISON, RIGHTS, ARCHITECTURE, DATA_MODEL, API, OPERATIONS, `.env.example`을 worker·API·database·contracts 코드와 대조한 뒤 확장을 시작했습니다. 아래 상태는 코드 수정 전 기준이며 실제 운영 환경변수의 활성 상태를 뜻하지 않습니다. 문서의 과거 본문 수집 설명과 실제 metadata 수집 경로의 차이도 정리했습니다.
+
+| Provider·기능                                       | 확장 전 상태                          | 실제 코드 위치                                                               | 주요 문서                           | enabled 기본값·조건                             | 기존 권리 상태                         | 이번 변경                                                 |
+| --------------------------------------------------- | ------------------------------------- | ---------------------------------------------------------------------------- | ----------------------------------- | ----------------------------------------------- | -------------------------------------- | --------------------------------------------------------- |
+| OpenDART D001~D005·기업 코드·검색·ZIP/XML·지분 파서 | 구현됨                                | `apps/worker/src/opendart/`, `packages/opendart-parser/src/`                 | README, SOURCES, DATA_MODEL         | 키가 있어야 동작                                | 공식 공시 정책                         | 재구현 없음; 공식 근거 연결에서 기존 저장 자료 사용       |
+| SEC EDGAR                                           | 구현됨                                | `apps/worker/src/connectors/connector-adapters.ts`의 SecSubmissionsConnector | SOURCES, SEC_GAP_RECOVERY           | SEC_USER_AGENT 필요                             | 공식 공시 정책                         | 수집기 유지                                               |
+| SEC Form 3/4/5                                      | 구현됨                                | `apps/worker/src/sec/ownership-parser.ts`, `ownership-ingestion.ts`          | SEC_OWNERSHIP                       | Form 처리 플래그 기본 true; SEC 접근 설정 필요  | 공식 ownership 자료                    | 변경 없음                                                 |
+| NAVER developers/ncloud                             | 구현됨                                | `apps/api/src/news-search/`, 기존 NaverNewsConnector                         | NEWS_COLLECTION, RIGHTS, OPERATIONS | 키·선택 provider·무료 이용 확인 필요            | 메모리 표시; DB·로그·AI 저장 금지      | 변경 없음                                                 |
+| Samsung Global RSS                                  | 구현됨, 기업 IR 처리에 전용 제약 존재 | RegisteredIrFeedConnector, `packages/contracts/src/news-sources.ts`          | SOURCES, NEWS_COLLECTION            | IR_FEED_URLS 등록 필요                          | PRIVATE_DISPLAY_ONLY, 기존 승인 프로필 | 프로필 조회를 일반화하고 기존 동작 유지                   |
+| Fed·BLS·EIA RSS                                     | 구현됨                                | PublisherNewsRssConnector, NEWS_RSS_FEEDS                                    | SOURCES, NEWS_COLLECTION            | NEWS_RSS_FEEDS 설정 필요; config 기본 빈 목록   | 공식 기관 정책                         | 기존 안전 parser 재사용                                   |
+| 토스 국내·미국 가격·차트·기업명                     | 구현됨                                | `apps/worker/src/market-data/toss-*.ts`                                      | SOURCES, OPERATIONS                 | 토스 자격 증명 필요                             | 개인용 표시 정책                       | 가격 공급자 추가 없음                                     |
+| GDELT                                               | 비활성 구현·publisher 승인 경계 존재  | GdeltMetadataConnector, `gdelt-window-recovery.ts`                           | NEWS_PROVIDER_COMPARISON, RIGHTS    | GDELT_ENABLED=false; 정확한 publisher 승인 필요 | provider metadata와 원출판사 권리 분리 | 새 어댑터 없음                                            |
+| Alpaca 자산 master                                  | 구현됨                                | `apps/worker/src/market-data/alpaca-asset-master.client.ts`                  | SOURCES, OPERATIONS                 | 키 쌍 필요                                      | 자산 식별 metadata                     | 변경 없음                                                 |
+| Alpaca News                                         | 비활성 구현 존재                      | `apps/worker/src/connectors/alpaca-news.connector.ts`                        | NEWS_PROVIDER_COMPARISON            | ALPACA_NEWS_ENABLED=false; 승인 registry null   | entitlement·publisher 검토 필요        | 기존 어댑터·checkpoint·overlap·include_content=false 유지 |
+| Marketaux                                           | 비교 문서만, 어댑터 없음              | 신규 `free-news-api.connector.ts`                                            | NEWS_PROVIDER_COMPARISON            | 이번 추가: false                                | 이번 추가: UNKNOWN                     | 조건부 어댑터 추가                                        |
+| Alpha Vantage NEWS_SENTIMENT                        | 어댑터 없음                           | 신규 `free-news-api.connector.ts`                                            | NEWS_PROVIDER_COMPARISON            | 이번 추가: false                                | 이번 추가: UNKNOWN                     | 저빈도 조건부 어댑터 추가                                 |
+| Finnhub Company News                                | 어댑터 없음                           | 신규 `free-news-api.connector.ts`                                            | NEWS_PROVIDER_COMPARISON            | 이번 추가: false                                | 이번 추가: UNKNOWN                     | 조건부 어댑터 추가; News Sentiment 제외                   |
+| 미국 IR·한국경제 증권                               | 해당 개별 프로필 없음                 | 기존 NEWS_IR_SOURCE_PROFILES / NEWS_RSS_FEEDS                                | NEWS_PROVIDER_COMPARISON            | 이번 추가 프로필 false                          | UNKNOWN                                | 정확한 feed와 host만 등록                                 |
+
+신규 API는 `FreeNewsApiConnector` 계열로 기존 `LinkDiscoveryAdapter`, `DiscoveryCandidate`, `DiscoveryBatch`, `RecoveryStore`, `MARKET_NEWS/DISCOVER_LINKS`를 사용합니다. 예산은 기존 source_checkpoints와 api_usage_counters에 저장하며 별도 table·company master·범용 RSS proxy를 만들지 않습니다. 공개 공시·정부·기업 IR → 독립 언론 → aggregator → 후보 발견의 순서를 유지하고 뉴스만으로 투자 추천·자동 주문을 만들지 않습니다.

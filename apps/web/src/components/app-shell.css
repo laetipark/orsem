@@ -5,6 +5,11 @@
   flex-direction: column;
   min-height: 100dvh;
 }
+@media (min-width: 1200px) {
+  .app-shell[data-stock-sidebar] {
+    padding-right: 56px;
+  }
+}
 .site-header {
   position: sticky;
   top: 0;

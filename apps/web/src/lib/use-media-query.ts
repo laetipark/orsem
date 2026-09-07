@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useSyncExternalStore } from 'react';
 
-export const COMPACT_LAYOUT_QUERY = '(max-width: 900px)';
+export const COMPACT_LAYOUT_QUERY = '(max-width: 900px), (hover: none) and (pointer: coarse)';
 
 export function useMediaQuery(query: string): boolean {
   const media = useMemo(

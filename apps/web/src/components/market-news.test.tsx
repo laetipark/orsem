@@ -19,6 +19,8 @@ function newsItem(patch: Partial<SourceItem> = {}): SourceItem {
     id: 'news-1',
     articleId: 'article-1',
     sourceCount: 2,
+    providerCount: 2,
+    independentSourceCount: 1,
     contentState: 'AVAILABLE',
     contentSourceId: 'source-1',
     contentLanguage: 'en',
@@ -72,7 +74,7 @@ describe('market news presentation', () => {
     expect(screen.getByText(translation.title)).toBeVisible();
     expect(screen.getByText(translation.description!)).toBeVisible();
     expect(screen.getByText('자동 번역')).toBeVisible();
-    expect(screen.getByText('2개 출처에서 확인')).toBeVisible();
+    expect(screen.getByText('수집 경로 2개')).toBeVisible();
     expect(screen.getByRole('link', { name: /원문 새 창에서 보기/ })).toHaveAttribute(
       'href',
       'https://publisher-one.example/story',
@@ -92,7 +94,7 @@ describe('market news presentation', () => {
     expect(screen.queryByText('The original verified summary.')).not.toBeInTheDocument();
     expect(screen.getByText('자동 번역')).toBeVisible();
     expect(screen.getByText('지역 미확인')).toBeVisible();
-    expect(screen.getByText('2개 출처에서 확인')).toBeVisible();
+    expect(screen.getByText('수집 경로 2개')).toBeVisible();
 
     const sourceDetails = screen.getByText('연결된 원문 출처 2개').closest('details')!;
     fireEvent.click(within(sourceDetails).getByText('연결된 원문 출처 2개'));

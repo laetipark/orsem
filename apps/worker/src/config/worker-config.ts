@@ -1,11 +1,10 @@
 import { z } from 'zod';
-import { isGdeltDomainFilter } from '@orsem/contracts';
+import { getNewsIrSourceProfile, isGdeltDomainFilter } from '@orsem/contracts';
 import { readFileSync } from 'node:fs';
 import { loadWebPushConfig, type WebPushConfig } from '@orsem/database';
 import { DisclosureDetailType } from '@orsem/contracts';
 import {
   assertRegisteredFeedUrl,
-  isApprovedContentIrFeed,
   MAX_REGISTERED_IR_FEEDS,
   NEWS_RSS_FEED_IDS,
 } from '../connectors/connector-adapters';
@@ -100,8 +99,8 @@ const registeredIrFeedUrls = z
     urls.forEach((url, index) => {
       try {
         assertRegisteredFeedUrl(url);
-        if (!isApprovedContentIrFeed(url))
-          throw new Error('IR feed is not in the reviewed content-source registry.');
+        if (!getNewsIrSourceProfile(url))
+          throw new Error('IR feed is not in the registered source registry.');
       } catch (error) {
         context.addIssue({
           code: 'custom',
@@ -154,6 +153,18 @@ const workerConfigSchema = z
     gdeltOverlapMinutes: z.coerce.number().int().min(5).max(15).default(10),
     gdeltMaxSplitDepth: z.coerce.number().int().min(0).max(8).default(4),
     alpacaNewsEnabled: booleanFromEnv,
+    marketauxNewsEnabled: booleanFromEnv,
+    marketauxApiToken: optionalTrimmed,
+    marketauxNewsDailyBudget: z.coerce.number().int().min(1).max(50).default(50),
+    marketauxNewsRequestsPerRun: z.coerce.number().int().min(1).max(2).default(2),
+    alphaVantageNewsEnabled: booleanFromEnv,
+    alphaVantageApiKey: optionalTrimmed,
+    alphaVantageNewsDailyBudget: z.coerce.number().int().min(1).max(20).default(20),
+    alphaVantageNewsRequestsPerRun: z.coerce.number().int().min(1).max(10).default(10),
+    finnhubNewsEnabled: booleanFromEnv,
+    finnhubApiKey: optionalTrimmed,
+    finnhubNewsDailyBudget: z.coerce.number().int().min(1).max(120).default(120),
+    finnhubNewsRequestsPerRun: z.coerce.number().int().min(1).max(5).default(5),
     alpacaApiKey: optionalTrimmed,
     alpacaApiSecret: optionalTrimmed,
     alpacaTradingBaseUrl,
@@ -262,6 +273,18 @@ export function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerCo
     gdeltOverlapMinutes: env.GDELT_OVERLAP_MINUTES || undefined,
     gdeltMaxSplitDepth: env.GDELT_MAX_SPLIT_DEPTH || undefined,
     alpacaNewsEnabled: env.ALPACA_NEWS_ENABLED,
+    marketauxNewsEnabled: env.MARKETAUX_NEWS_ENABLED,
+    marketauxApiToken: env.MARKETAUX_API_TOKEN,
+    marketauxNewsDailyBudget: env.MARKETAUX_NEWS_DAILY_BUDGET || undefined,
+    marketauxNewsRequestsPerRun: env.MARKETAUX_NEWS_REQUESTS_PER_RUN || undefined,
+    alphaVantageNewsEnabled: env.ALPHAVANTAGE_NEWS_ENABLED,
+    alphaVantageApiKey: env.ALPHAVANTAGE_API_KEY,
+    alphaVantageNewsDailyBudget: env.ALPHAVANTAGE_NEWS_DAILY_BUDGET || undefined,
+    alphaVantageNewsRequestsPerRun: env.ALPHAVANTAGE_NEWS_REQUESTS_PER_RUN || undefined,
+    finnhubNewsEnabled: env.FINNHUB_NEWS_ENABLED,
+    finnhubApiKey: env.FINNHUB_API_KEY,
+    finnhubNewsDailyBudget: env.FINNHUB_NEWS_DAILY_BUDGET || undefined,
+    finnhubNewsRequestsPerRun: env.FINNHUB_NEWS_REQUESTS_PER_RUN || undefined,
     alpacaApiKey: env.ALPACA_API_KEY,
     alpacaApiSecret: env.ALPACA_API_SECRET,
     alpacaTradingBaseUrl: env.ALPACA_TRADING_BASE_URL,

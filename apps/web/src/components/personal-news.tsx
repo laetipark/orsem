@@ -1,12 +1,13 @@
 import { newsItems } from '../lib/news-feed';
 import { useQuery } from '@tanstack/react-query';
-import { useId, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { api } from '../lib/api';
 import { formatDate, formatKst } from '../lib/format';
+import { COMPACT_LAYOUT_QUERY, useMediaQuery } from '../lib/use-media-query';
 import type { Session } from '../types';
 import { watchActorKey } from './watchlist-group-editors';
-import { Card, CardHeader, EmptyState, LoadingState, ErrorState } from './ui';
+import { Button, Card, CardHeader, EmptyState, LoadingState, ErrorState } from './ui';
 import { MarketNewsList } from './market-news';
 
 export function PersonalNews() {
@@ -14,6 +15,9 @@ export function PersonalNews() {
   const actor = watchActorKey(session?.user);
   const id = useId();
   const [tab, setTab] = useState<'news' | 'filings'>('news');
+  const pageSize = useMediaQuery(COMPACT_LAYOUT_QUERY) ? 4 : 6;
+  const pageScope = `${actor}:${tab}:${pageSize}`;
+  const [pagination, setPagination] = useState({ scope: pageScope, page: 0 });
   const enabled = !!actor && !!session?.canAccess;
   const news = useQuery({
     queryKey: ['watchlist-v2', actor, 'personal-news'],
@@ -36,12 +40,23 @@ export function PersonalNews() {
   const items = news.data
     ? newsItems([{ items: news.data.news, providerGroups: news.data.providerGroups }], 20)
     : [];
-  const empty = tab === 'news' ? !items.length : !filings.data?.items.length;
+  const filingItems = filings.data?.items ?? [];
+  const total = enabled ? (tab === 'news' ? items.length : filingItems.length) : 0;
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  const page = pagination.scope === pageScope ? Math.min(pagination.page, pageCount - 1) : 0;
+  const offset = page * pageSize;
+  useEffect(() => {
+    setPagination((previous) =>
+      previous.scope === pageScope && previous.page === page
+        ? previous
+        : { scope: pageScope, page },
+    );
+  }, [pageScope, page]);
   return (
-    <Card className="personal-news">
-      <CardHeader>
+    <Card className="personal-news observation-card">
+      <CardHeader className="observation-card__header">
         <h2>내 관심 종목 소식</h2>
-        <span className="muted">{count}종목</span>
+        <span className="observation-card__count">{count}종목</span>
       </CardHeader>
       <div className="personal-news__tabs" role="tablist" aria-label="개인 관심 종목 소식 종류">
         {(['news', 'filings'] as const).map((key) => (
@@ -75,10 +90,12 @@ export function PersonalNews() {
           />
         ) : enabled && current.data ? (
           <>
-            {tab === 'news' && items.length ? <MarketNewsList items={items} headlineOnly /> : null}
-            {tab === 'filings' && filings.data?.items.length ? (
+            {tab === 'news' && total ? (
+              <MarketNewsList items={items.slice(offset, offset + pageSize)} headlineOnly />
+            ) : null}
+            {tab === 'filings' && total ? (
               <ul className="personal-filings">
-                {filings.data.items.map((item) => (
+                {filingItems.slice(offset, offset + pageSize).map((item) => (
                   <li key={item.id}>
                     <a href={item.url} target="_blank" rel="noopener noreferrer">
                       <strong>{item.title}</strong>
@@ -96,7 +113,7 @@ export function PersonalNews() {
                 ))}
               </ul>
             ) : null}
-            {empty ? (
+            {!total ? (
               <EmptyState
                 title={count ? '아직 연결된 소식이 없습니다' : '개인 관심 종목을 추가해 보세요'}
                 description={
@@ -109,6 +126,38 @@ export function PersonalNews() {
           </>
         ) : null}
       </div>
+      {enabled && current.data && !current.isError && total > 0 ? (
+        <footer className="observation-card__pagination">
+          <small>
+            총 {total}건 · {offset + 1}–{Math.min(offset + pageSize, total)}건
+          </small>
+          <div role="group" aria-label="관심 소식 페이지">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              aria-label="이전 소식"
+              disabled={page === 0}
+              onClick={() => setPagination({ scope: pageScope, page: page - 1 })}
+            >
+              이전
+            </Button>
+            <span aria-live="polite">
+              {page + 1} / {pageCount}
+            </span>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              aria-label="다음 소식"
+              disabled={page + 1 >= pageCount}
+              onClick={() => setPagination({ scope: pageScope, page: page + 1 })}
+            >
+              다음
+            </Button>
+          </div>
+        </footer>
+      ) : null}
     </Card>
   );
 }

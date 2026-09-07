@@ -7,6 +7,7 @@ import {
   matchesRegion,
   createNewsCompanyMatcher,
   newsBadgeCompanyAliases,
+  newsCompanyIdsSchema,
 } from '@orsem/contracts';
 import { activeActorSql } from '../watchlist-groups/watchlist-access.service';
 import { MARKET_LEADER_COMPANIES_SQL } from '@orsem/database';
@@ -14,6 +15,7 @@ import { Inject, Injectable, OnApplicationBootstrap, OnApplicationShutdown } fro
 import { APP_CONFIG, type AppConfig } from '../config/app-config';
 import { DatabaseRuntimeService } from '../persistence/database-runtime.service';
 import { NaverNewsSearchService, type NaverNewsSearchResult } from './naver-news-search.service';
+import { parseWith } from '../common/zod';
 
 export const NAVER_FOCUS_INTERVAL_MS = 15 * 60_000;
 type FocusCompany = {
@@ -220,12 +222,14 @@ export class NaverFocusNewsService implements OnApplicationBootstrap, OnApplicat
   async feed(
     input: {
       companyId?: string;
+      companyIds?: string[];
       scope?: string;
       asset?: 'gold' | 'silver' | 'wti' | 'btc' | 'eth';
       region?: 'all' | 'kr' | 'us';
     },
     actorKey: string,
   ) {
+    if (input.companyIds !== undefined) parseWith(newsCompanyIdsSchema, input.companyIds);
     if (this.config.fixtureMode)
       return {
         groups: [] as SourceItem[][],
@@ -241,13 +245,20 @@ export class NaverFocusNewsService implements OnApplicationBootstrap, OnApplicat
         ? []
         : input.companyId
           ? await db.query(base + 'c.id=?', [input.companyId])
-          : input.scope === 'personal'
-            ? await db.query(
-                base +
-                  'EXISTS (SELECT 1 FROM watchlist_group_items i JOIN watchlist_groups g ON g.id=i.group_id WHERE i.company_id=c.id AND g.room_id IS NULL AND g.owner_key=?)',
-                [actorKey],
-              )
-            : await db.query(base + `c.id IN (${MARKET_LEADER_COMPANIES_SQL})`);
+          : input.companyIds !== undefined
+            ? input.companyIds.length
+              ? await db.query(
+                  base + `c.id IN (${input.companyIds.map(() => '?').join(',')})`,
+                  input.companyIds,
+                )
+              : []
+            : input.scope === 'personal'
+              ? await db.query(
+                  base +
+                    'EXISTS (SELECT 1 FROM watchlist_group_items i JOIN watchlist_groups g ON g.id=i.group_id WHERE i.company_id=c.id AND g.room_id IS NULL AND g.owner_key=?)',
+                  [actorKey],
+                )
+              : await db.query(base + `c.id IN (${MARKET_LEADER_COMPANIES_SQL})`);
     const selected = companies.filter(
       (c) =>
         !input.region ||
@@ -258,7 +269,10 @@ export class NaverFocusNewsService implements OnApplicationBootstrap, OnApplicat
       ? NAVER_NEWS_TOPICS.filter((topic) => topic.id === `topic:${input.asset}`)
       : input.scope === 'market'
         ? NAVER_NEWS_TOPICS.slice(0, 3)
-        : input.companyId || input.scope === 'personal' || input.scope === 'company'
+        : input.companyId ||
+            input.companyIds !== undefined ||
+            input.scope === 'personal' ||
+            input.scope === 'company'
           ? selected
           : [...selected, ...NAVER_NEWS_TOPICS];
     // Only opening a specific company can initiate an on-demand provider request.
@@ -281,7 +295,10 @@ export class NaverFocusNewsService implements OnApplicationBootstrap, OnApplicat
           );
           const related = relevance.companies.filter((candidate) => ids.includes(candidate.id));
           if (
-            (input.companyId || input.scope === 'personal' || input.scope === 'company') &&
+            (input.companyId ||
+              input.companyIds !== undefined ||
+              input.scope === 'personal' ||
+              input.scope === 'company') &&
             !related.some((candidate) => selectedIds.has(candidate.id))
           )
             return [];

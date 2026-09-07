@@ -9,7 +9,9 @@ it('tracks breakpoint changes, keeps one subscription and releases it on unmount
   const { resize, media, listenerCount } = mockMediaQuery(true);
   const { result, rerender, unmount } = renderHook(() => useMediaQuery(COMPACT_LAYOUT_QUERY));
   expect(result.current).toBe(true);
-  expect(window.matchMedia).toHaveBeenCalledWith('(max-width: 900px)');
+  expect(window.matchMedia).toHaveBeenCalledWith(
+    '(max-width: 900px), (hover: none) and (pointer: coarse)',
+  );
   act(() => resize(false));
   expect(result.current).toBe(false);
   rerender();

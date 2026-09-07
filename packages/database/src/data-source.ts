@@ -1,3 +1,4 @@
+import { AddNewsTitleHash1788413000000 } from './migrations/1788413000000-AddNewsTitleHash';
 import { UseMonthlyMarketLeaders1788412000000 } from './migrations/1788412000000-UseMonthlyMarketLeaders';
 import { UseNewsMetadataOnly1788411000000 } from './migrations/1788411000000-UseNewsMetadataOnly';
 import { AddMarketSelectionProfiles1788410000000 } from './migrations/1788410000000-AddMarketSelectionProfiles';
@@ -70,6 +71,7 @@ export function createTypeOrmOptions(databaseUrl: string): DataSourceOptions {
       AddMarketSelectionProfiles1788410000000,
       UseNewsMetadataOnly1788411000000,
       UseMonthlyMarketLeaders1788412000000,
+      AddNewsTitleHash1788413000000,
     ],
     migrationsTableName: 'typeorm_migrations',
   };

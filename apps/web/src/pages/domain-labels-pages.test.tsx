@@ -61,7 +61,7 @@ afterEach(() => {
 
 it('labels dashboard sections and disclosure counts without changing their coded filter destinations', async () => {
   show('/');
-  expect(await screen.findByRole('region', { name: '관심 그룹과 소식' })).toBeInTheDocument();
+  expect(await screen.findByRole('region', { name: '내 종목' })).toBeInTheDocument();
   expect(screen.queryByRole('heading', { name: '중점 관찰' })).not.toBeInTheDocument();
   expect(screen.queryByRole('link', { name: '그룹 관리' })).not.toBeInTheDocument();
   const summary = screen.getByRole('region', { name: 'OpenDART 공시 건수' });

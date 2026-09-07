@@ -28,7 +28,9 @@ export function useNewsCacheExpiry() {
     const expire = () => {
       for (const query of client.getQueryCache().findAll({
         predicate: (query) =>
-          query.queryKey[0] === 'news' || query.queryKey.includes('personal-news'),
+          query.queryKey[0] === 'news' ||
+          query.queryKey.includes('personal-news') ||
+          query.queryKey.includes('group-news'),
       })) {
         const data = query.state.data,
           next = expireNews(data, Date.now());

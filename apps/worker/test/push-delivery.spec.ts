@@ -374,7 +374,15 @@ describe('personal push fan-out and source policy', () => {
     const delivery = h.tables.get(PushDeliveryEntity)![0] as PushDeliveryEntity;
     source.source = 'NAVER';
     expect(await fanout.resolveDelivery(h.manager, delivery, NOW)).toBeNull();
-    for (const connector of ['NAVER', 'NEWS_RSS', 'IR', 'GDELT']) {
+    for (const connector of [
+      'NAVER',
+      'NEWS_RSS',
+      'IR',
+      'GDELT',
+      'MARKETAUX',
+      'ALPHAVANTAGE',
+      'FINNHUB',
+    ]) {
       expect(
         await fanout.enqueueNews(
           h.manager,

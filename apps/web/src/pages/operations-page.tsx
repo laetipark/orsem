@@ -248,6 +248,47 @@ export function OperationsPage() {
                   <span>지연 {formatLag(source.lagSeconds)}</span>
                 </div>
                 <RightsBadge status={source.rightsMode} />
+                {source.rightsStatus ? (
+                  <dl className="source-health-meta">
+                    <div>
+                      <dt>활성 상태</dt>
+                      <dd>{source.enabled ? '활성' : '비활성'}</dd>
+                    </div>
+                    <div>
+                      <dt>이용 권리</dt>
+                      <dd>{source.rightsStatus}</dd>
+                    </div>
+                    <div>
+                      <dt>계정 이용 권한</dt>
+                      <dd>{source.entitlementStatus ?? 'UNKNOWN'}</dd>
+                    </div>
+                    <div>
+                      <dt>일간 요청</dt>
+                      <dd>
+                        {source.dailyRequestCount ?? 0} / {source.dailyRequestBudget ?? '미확인'}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>구간 요청</dt>
+                      <dd>
+                        {source.rollingRequestCount ?? '미확인'} /{' '}
+                        {source.rollingRequestBudget ?? '미확인'}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>다음 요청</dt>
+                      <dd>{source.nextRunAt ? formatKst(source.nextRunAt) : '예약 없음'}</dd>
+                    </div>
+                    <div>
+                      <dt>마지막 오류</dt>
+                      <dd>{source.lastError ?? '없음'}</dd>
+                    </div>
+                    <div>
+                      <dt>저장된 수집 위치</dt>
+                      <dd>{source.lastCursor ?? '없음'}</dd>
+                    </div>
+                  </dl>
+                ) : null}
               </CardContent>
             </Card>
           ))}

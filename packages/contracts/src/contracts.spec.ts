@@ -28,6 +28,7 @@ import {
   classifyFilingDocumentKind,
   hasParseTypeInvariant,
   notificationPreferencesSchema,
+  NEWS_IR_SOURCE_PROFILES,
 } from './index';
 
 test('all five filing domains retain their meaning across correction titles', () => {
@@ -213,7 +214,7 @@ test('domestic stock codes and SEC CIK values keep their fixed-width identities'
   );
 });
 
-test('IR source writes accept only the exact reviewed private-display RSS profile', () => {
+test('IR source writes preserve the exact Samsung private-display RSS profile', () => {
   const base = {
     companyId: '00000000-0000-4000-8000-000000000001',
     sourceType: 'RSS' as const,
@@ -304,6 +305,26 @@ test('IR source writes accept only the exact reviewed private-display RSS profil
     createIrSourceSchema.safeParse({ ...base, url: 'https://[::ffff:127.0.0.1]/feed' }).success,
     false,
   );
+});
+
+test('new conditional IR profiles default to inactive and retain their registered rights', () => {
+  for (const profile of Object.values(NEWS_IR_SOURCE_PROFILES).filter((value) => !value.enabled)) {
+    const source = createIrSourceSchema.parse({
+      companyId: '00000000-0000-4000-8000-000000000001',
+      url: profile.url,
+    });
+    assert.equal(source.isActive, false);
+    assert.equal(source.sourceType, 'RSS');
+    assert.equal(source.rightsMode, profile.policy.rightsMode);
+    assert.equal(
+      createIrSourceSchema.safeParse({
+        companyId: source.companyId,
+        url: profile.url,
+        rightsMode: RightsMode.OFFICIAL_PUBLIC_DATA,
+      }).success,
+      false,
+    );
+  }
 });
 
 test('price timelines preserve source rights and feed limitations', () => {

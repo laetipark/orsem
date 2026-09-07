@@ -3,8 +3,15 @@ import { companyPath } from '../lib/company-path';
 import { CompanyInformation } from '../components/company-information';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ArrowUpRight, PanelRightClose, PanelRightOpen } from 'lucide-react';
-import { useEffect, useState, type CSSProperties } from 'react';
-import { Link, useLocation, useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import {
+  Link,
+  useLocation,
+  useParams,
+  useNavigate,
+  useSearchParams,
+  useOutletContext,
+} from 'react-router-dom';
 import { api } from '../lib/api';
 import { hasChartCandles } from '../lib/chart-prices';
 import { domesticFallbackClose, effectiveLiveStatus } from '../lib/live-price';
@@ -13,7 +20,9 @@ import { disclosureLabels, displayDomainText } from '../lib/domain-labels';
 import { CompanyNewsPanel } from '../components/company-news-panel';
 import { CompanyGroupPicker } from '../components/company-group-picker';
 import { MarketSelectionMembership } from '../components/market-selection';
-import { useMediaQuery } from '../lib/use-media-query';
+import { recordRecentCompany } from '../lib/recent-companies';
+import { watchActorKey } from '../components/watchlist-group-editors';
+import type { Session } from '../types';
 import { CompanyChart } from '../components/company-chart';
 import { CompanyAvatar } from '../components/company-avatar';
 import { RightsBadge } from '../components/domain-badges';
@@ -43,8 +52,24 @@ const eventReturnLabels = {
 const marketRefreshInterval = 2_000;
 
 export function CompanyPage() {
-  const location = useLocation(),
-    desktop = useMediaQuery('(min-width: 1200px)');
+  const location = useLocation();
+  const session = useOutletContext<Session | undefined>();
+  const actor = watchActorKey(session?.user);
+  const [pageElement, setPageElement] = useState<HTMLDivElement | null>(null);
+  const [desktop, setDesktop] = useState(false);
+  const recordedVisit = useRef('');
+  useEffect(() => {
+    if (!pageElement) return;
+    const measure = () => setDesktop(pageElement.getBoundingClientRect().width >= 1144);
+    measure();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    observer?.observe(pageElement);
+    if (!observer) window.addEventListener('resize', measure);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+  }, [pageElement]);
   const [sideOpen, setSideOpen] = useState(() => {
     try {
       return localStorage.getItem('orsem-company-sidebar-v1') !== 'closed';
@@ -124,6 +149,14 @@ export function CompanyPage() {
     enabled: Boolean(address),
   });
   const id = company.data?.id ?? '';
+  useEffect(() => {
+    // Query refreshes and canonical URL replacements are the same visit.
+    if (!actor || !company.data || !company.isSuccess) return;
+    const visit = `${actor}:${company.data.id}`;
+    if (recordedVisit.current === visit) return;
+    recordedVisit.current = visit;
+    recordRecentCompany(actor, company.data);
+  }, [actor, company.data, company.isSuccess]);
   useEffect(() => {
     if (!company.data) return;
     const canonical = companyPath(company.data);
@@ -248,7 +281,10 @@ export function CompanyPage() {
     </div>
   );
   return (
-    <div className="page-stack company-page">
+    <div
+      ref={setPageElement}
+      className={`page-stack company-page${desktop ? '' : ' company-page--compact'}`}
+    >
       <div className="company-top">
         <section className="company-heading">
           <Link

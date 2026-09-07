@@ -61,12 +61,19 @@ afterEach(() => {
   clients.splice(0).forEach((client) => client.clear());
 });
 
-it('shows two read-only lists with twenty real ranks, source links, currencies and KST dates', async () => {
+it('shows country columns with descending ranks for the all-region view and retains source and KST metadata', async () => {
   show();
   const korean = await screen.findByRole('list', { name: '국내 시가총액 순위' });
   const american = screen.getByRole('list', { name: '미국 시가총액 순위' });
   expect(within(korean).getAllByRole('listitem')).toHaveLength(20);
   expect(within(american).getAllByRole('listitem')).toHaveLength(20);
+  expect(korean.closest('.market-leaders')).toHaveAttribute('data-region', 'all');
+  for (const list of [korean, american]) {
+    const items = within(list).getAllByRole('listitem');
+    expect(items.map((item) => Number(item.getAttribute('value')))).toEqual(
+      Array.from({ length: 20 }, (_, index) => index + 1),
+    );
+  }
   expect(within(korean).getByRole('link', { name: /국내 기업 1 KOSPI/ })).toHaveAttribute(
     'href',
     '/companies/000001',
@@ -75,8 +82,8 @@ it('shows two read-only lists with twenty real ranks, source links, currencies a
     'href',
     '/companies/US1',
   );
-  expect(screen.getByText('시가총액 · KRW')).toBeInTheDocument();
-  expect(screen.getByText('시가총액 · USD')).toBeInTheDocument();
+  expect(screen.getAllByText('시가총액 · KRW')).toHaveLength(2);
+  expect(screen.getAllByText('시가총액 · USD')).toHaveLength(2);
   expect(screen.getAllByText('2026. 09. 04.')).toHaveLength(2);
   expect(screen.getAllByText('2026. 09. 07. 06:00 KST')).toHaveLength(2);
   expect(screen.getAllByText('2026. 10. 01. 00:00 KST')).toHaveLength(2);
@@ -88,6 +95,45 @@ it('shows two read-only lists with twenty real ranks, source links, currencies a
   );
   expect(screen.queryByRole('button')).not.toBeInTheDocument();
   expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+});
+
+it('splits a selected country into ranks 1–10 and 11–20 while retaining natural reading order', async () => {
+  show(<MarketSelection region="kr" />);
+  const list = await screen.findByRole('list', { name: '국내 시가총액 순위' });
+  expect(list.closest('.market-leaders')).toHaveAttribute('data-region', 'kr');
+  const items = within(list).getAllByRole('listitem');
+  expect(items.map((item) => Number(item.getAttribute('value')))).toEqual(
+    Array.from({ length: 20 }, (_, index) => index + 1),
+  );
+  expect(
+    items.slice(0, 10).every((item) => !item.classList.contains('market-leaders__second-half')),
+  ).toBe(true);
+  expect(
+    items.slice(10).every((item) => item.classList.contains('market-leaders__second-half')),
+  ).toBe(true);
+  expect(items[0]!.style.getPropertyValue('--rank-row')).toBe('1');
+  expect(items[9]!.style.getPropertyValue('--rank-row')).toBe('10');
+  expect(items[10]!.style.getPropertyValue('--rank-row')).toBe('1');
+  expect(items[19]!.style.getPropertyValue('--rank-row')).toBe('10');
+});
+
+it('shows only the requested region without refetching the shared monthly selection', async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  clients.push(client);
+  const content = (selectedRegion: 'kr' | 'us') => (
+    <QueryClientProvider client={client}>
+      <MemoryRouter>
+        <MarketSelection region={selectedRegion} />
+      </MemoryRouter>
+    </QueryClientProvider>
+  );
+  const { rerender } = render(content('kr'));
+  expect(await screen.findByRole('list', { name: '국내 시가총액 순위' })).toBeInTheDocument();
+  expect(screen.queryByRole('region', { name: '미국 상위 20종목' })).not.toBeInTheDocument();
+  rerender(content('us'));
+  expect(await screen.findByRole('list', { name: '미국 시가총액 순위' })).toBeInTheDocument();
+  expect(screen.queryByRole('region', { name: '국내 상위 20종목' })).not.toBeInTheDocument();
+  expect(mocks.selection).toHaveBeenCalledTimes(1);
 });
 
 it('keeps a previous verified list with its actual ranks and makes an unavailable region explicit', async () => {
@@ -134,7 +180,7 @@ it('shows a company rank link only for membership in an actual top-twenty list',
   );
   expect(await screen.findByRole('link', { name: '미국 시총 2위' })).toHaveAttribute(
     'href',
-    '/watchlist#market-leaders-us',
+    '/markets?region=us#market-leaders-us',
   );
   expect(screen.getAllByRole('link')).toHaveLength(1);
   expect(screen.queryByRole('button')).not.toBeInTheDocument();

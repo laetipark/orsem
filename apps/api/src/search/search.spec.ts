@@ -471,7 +471,7 @@ test('실제 TypeORM SQL은 입력을 바인딩하고 원문·권리 제한 데�
       assert.match(query.sql, /BINARY 'COMPLETED'/u);
       assert.match(query.sql, /'NEWS_RSS', 'IR'/u);
       assert.match(query.sql, /source_policy_json/u);
-      assert.match(query.sql, /LIKE \? ESCAPE '!'/u);
+      assert.match(query.sql, /LIKE LOWER\(\?\) ESCAPE '!'/u);
     }
   }
   assert.equal(result.news.length, 1);

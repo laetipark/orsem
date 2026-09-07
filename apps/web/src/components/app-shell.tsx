@@ -13,7 +13,7 @@ import {
   Sun,
 } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Suspense, useEffect, useRef } from 'react';
+import { Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate, useNavigationType } from 'react-router-dom';
 import { disconnectPushOnLogout } from '../lib/web-push';
 import { clearNewsEditDrafts } from '../lib/news-edit-drafts';
@@ -21,6 +21,7 @@ import { api, isFixtureMode } from '../lib/api';
 import { BrandLogo } from './brand-logo';
 import orsemMark from '../assets/orsem-mark.svg';
 import { HeaderSearch } from './search-autocomplete';
+import { StockSidebar } from './stock-sidebar';
 import { useTheme } from '../theme';
 import { Badge, Button, LoadingState, cn } from './ui';
 import type { Session } from '../types';
@@ -32,7 +33,7 @@ const navigation = [
   { to: '/companies', label: '종목', icon: ChartNoAxesCombined },
   { to: '/events', label: '이벤트', icon: FileSearch },
   { to: '/news', label: '뉴스', icon: Newspaper },
-  { to: '/watchlist', label: '관심기업', icon: Star },
+  { to: '/watchlist', label: '관심 종목', icon: Star },
 ];
 const administration = [
   { to: '/reviews', label: '검토함', icon: ShieldCheck },
@@ -50,7 +51,7 @@ const routeTitles: Array<[RegExp, string]> = [
   [/^\/events/, '이벤트 탐색'],
   [/^\/companies$/, '종목 탐색'],
   [/^\/companies\//, '종목 정보'],
-  [/^\/watchlist/, '관심기업'],
+  [/^\/watchlist/, '관심 종목'],
   [/^\/reviews/, '검토함'],
   [/^\/operations/, '수집 운영'],
 ];
@@ -72,6 +73,7 @@ export function ThemeButton() {
 
 export function AppShell({ session }: { session: Session }) {
   useNewsCacheExpiry();
+  const [stockSidebarExpanded, setStockSidebarExpanded] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
   const navigationType = useNavigationType();
@@ -80,6 +82,14 @@ export function AppShell({ session }: { session: Session }) {
   const pathname = location.pathname.replace(/\/+$/, '') || '/';
   const isCompanyDetailPage = /^\/companies\/[^/]+$/.test(pathname);
   const queryClient = useQueryClient();
+  const audienceIdentity = `${session.user?.role ?? ''}:${session.user?.id ?? ''}`;
+  const previousAudience = useRef(audienceIdentity);
+  useLayoutEffect(() => {
+    if (previousAudience.current !== audienceIdentity) {
+      queryClient.removeQueries({ predicate: (query) => query.queryKey[0] !== 'session' });
+      previousAudience.current = audienceIdentity;
+    }
+  }, [audienceIdentity, queryClient]);
   const title = routeTitles.find(([pattern]) => pattern.test(pathname))?.[1] ?? '오르셈';
   const logout = useMutation({
     mutationFn: async () => {
@@ -101,7 +111,7 @@ export function AppShell({ session }: { session: Session }) {
     previousPathname.current = location.pathname;
   }, [location.pathname, navigationType]);
   return (
-    <div className="app-shell">
+    <div className="app-shell" data-stock-sidebar={stockSidebarExpanded ? 'expanded' : 'collapsed'}>
       <a className="skip-link" href="#main-content">
         본문으로 건너뛰기
       </a>
@@ -172,6 +182,7 @@ export function AppShell({ session }: { session: Session }) {
           <Outlet context={session} />
         </Suspense>
       </main>
+      <StockSidebar session={session} onExpandedChange={setStockSidebarExpanded} />
       <footer className="site-footer">
         <div className="site-footer__inner">
           <span className="site-footer__brand">

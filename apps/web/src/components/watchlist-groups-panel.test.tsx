@@ -2,8 +2,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Outlet, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { recordRecentCompany } from '../lib/recent-companies';
 import { ApiError, api } from '../lib/api';
 import type { Session, WatchlistGroup, WatchlistGroupItem, WatchlistGroupPage } from '../types';
+import { mockMediaQuery } from '../test/media-query';
 import {
   movedIds,
   StockSparkline,
@@ -121,7 +123,7 @@ function Location() {
   const location = useLocation();
   return <output aria-label="URL">{location.search}</output>;
 }
-function show(url = '/?region=kr&watchGroup=own') {
+function show(url = '/?region=kr&watchGroup=own', compact = false) {
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[url]}>
@@ -131,7 +133,7 @@ function show(url = '/?region=kr&watchGroup=own') {
               path="/"
               element={
                 <>
-                  <WatchlistGroupsPanel />
+                  <WatchlistGroupsPanel compact={compact} />
                   <Location />
                 </>
               }
@@ -143,6 +145,7 @@ function show(url = '/?region=kr&watchGroup=own') {
   );
 }
 beforeEach(() => {
+  localStorage.clear();
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   vi.spyOn(api, 'watchlistRooms').mockResolvedValue({ items: [] });
   vi.spyOn(api, 'watchlistGroups').mockResolvedValue({
@@ -341,16 +344,32 @@ it('clears cached stock data after access is revoked and does not refetch in a l
   show();
   await screen.findByRole('link', { name: '삼성전자 종목 상세' });
   items.mockRejectedValue(new ApiError(403, 'FORBIDDEN', '권한이 없습니다.'));
-  await client.invalidateQueries({ queryKey: ['watchlist-v2', 'MEMBER:viewer1', 'items'] });
+  await act(async () => {
+    await client.invalidateQueries({ queryKey: ['watchlist-v2', 'MEMBER:viewer1', 'full-items'] });
+  });
   await screen.findByText(/접근 권한이 변경되어 목록을 비웠습니다/);
   expect(screen.queryByRole('link', { name: '삼성전자 종목 상세' })).not.toBeInTheDocument();
   expect(
     client
       .getQueryCache()
       .getAll()
-      .some((q) => q.queryKey[2] === 'items' && q.state.data),
+      .some((q) => q.queryKey[2] === 'full-items' && q.state.data),
   ).toBe(false);
   expect(items).toHaveBeenCalledTimes(2);
+});
+it('recovers after a previously loaded room list loses access and refresh succeeds', async () => {
+  show();
+  await screen.findByRole('link', { name: '삼성전자 종목 상세' });
+  vi.mocked(api.watchlistRooms).mockRejectedValueOnce(
+    new ApiError(403, 'FORBIDDEN', '권한이 없습니다.'),
+  );
+  await act(async () => {
+    await client.invalidateQueries({ queryKey: ['watchlist-v2', 'MEMBER:viewer1', 'rooms'] });
+  });
+  await screen.findByText(/접근 권한이 변경되어 목록을 비웠습니다/);
+  fireEvent.click(screen.getByRole('button', { name: '관심 종목 새로고침' }));
+  expect(await screen.findByRole('link', { name: '삼성전자 종목 상세' })).toBeInTheDocument();
+  expect(screen.queryByText(/접근 권한이 변경되어 목록을 비웠습니다/)).toBeNull();
 });
 it('canceling a group edit form never submits its draft', async () => {
   const save = vi.spyOn(api, 'saveWatchlistGroups').mockResolvedValue();
@@ -426,7 +445,7 @@ it('creates the first group inside management and exposes group and stock editin
 it.each(['grid', 'list'])(
   'keeps the same inert grid height baseline when starting in %s and switching views',
   async (initial) => {
-    const rendered = show(`/?watchGroup=own&watchView=${initial}`);
+    const rendered = show(`/?watchGroup=own&watchView=${initial}`, true);
     await screen.findByRole('link', { name: '삼성전자 종목 상세' });
     const baseline = rendered.container.querySelector('.watch-groups__grid-measure')!;
     expect(baseline).toHaveAttribute('aria-hidden', 'true');
@@ -449,7 +468,7 @@ it.each(['grid', 'list'])(
 );
 
 it('updates the grid baseline from the same current page data while list mode is selected', async () => {
-  const rendered = show('/?watchGroup=own&watchView=list');
+  const rendered = show('/?watchGroup=own&watchView=list', true);
   await screen.findByRole('link', { name: '삼성전자 종목 상세' });
   const changed = {
     ...page(own),
@@ -460,7 +479,10 @@ it('updates the grid baseline from the same current page data while list mode is
     ],
   };
   await act(async () => {
-    client.setQueryData(['watchlist-v2', 'MEMBER:viewer1', 'items', 'personal', 'own', 0], changed);
+    client.setQueryData(
+      ['watchlist-v2', 'MEMBER:viewer1', 'items', 'personal', 'own', 0, 6],
+      changed,
+    );
   });
   await screen.findByRole('link', { name: '두 번째 종목 종목 상세' });
   const baseline = rendered.container.querySelector('.watch-groups__grid-measure')!;
@@ -472,5 +494,373 @@ it('updates the grid baseline from the same current page data while list mode is
     'data-view',
     'list',
   );
+  expect(api.watchlistGroupItems).toHaveBeenCalledOnce();
+});
+
+it.each([
+  [false, 6, 'grid'],
+  [true, 3, 'list'],
+] as const)(
+  'keeps dashboard paging with compact layout %s and %i items per page',
+  async (mobile, limit, view) => {
+    mockMediaQuery(mobile);
+    const group = { ...own, itemCount: 11 };
+    const stocks = Array.from({ length: 11 }, (_, index) => ({
+      ...stock,
+      company: { ...stock.company, id: `stock-${index}`, nameKo: `종목 ${index + 1}` },
+    }));
+    vi.mocked(api.watchlistGroups).mockResolvedValue({
+      items: [group],
+      revision: 0,
+      permissions: { canManageGroups: true, canManageStocks: true, canManageMembers: false },
+    });
+
+    vi.mocked(api.watchlistGroupItems).mockImplementation(
+      async (_id, offset = 0, _signal, pageSize = 21) => ({
+        ...page(group),
+        items: stocks.slice(offset, offset + pageSize),
+        total: stocks.length,
+        nextOffset: offset + pageSize < stocks.length ? offset + pageSize : null,
+      }),
+    );
+    const rendered = show('/?region=kr&watchGroup=own', true);
+    await screen.findByRole('link', { name: '종목 1 종목 상세' });
+    expect(rendered.container.querySelector('.watch-groups__stock-viewport')).toHaveAttribute(
+      'data-view',
+      view,
+    );
+    expect(screen.getAllByRole('link', { name: /종목 상세/ })).toHaveLength(limit);
+    expect(api.watchlistGroupItems).toHaveBeenLastCalledWith(
+      'own',
+      0,
+      expect.any(AbortSignal),
+      limit,
+    );
+    expect(screen.getByRole('button', { name: '이전 관심 종목' })).toBeDisabled();
+    const seen = new Set<string>();
+    for (let i = 0; i < Math.ceil(stocks.length / limit); i++) {
+      await screen.findByRole('link', { name: `종목 ${i * limit + 1} 종목 상세` });
+      screen
+        .getAllByRole('link', { name: /종목 상세/ })
+        .forEach((link) => seen.add(link.getAttribute('aria-label')!));
+      const next = screen.getByRole('button', { name: '다음 관심 종목' });
+      if (i + 1 < Math.ceil(stocks.length / limit)) fireEvent.click(next);
+      else expect(next).toBeDisabled();
+    }
+    expect(seen.size).toBe(11);
+    expect(screen.getByLabelText('URL')).toHaveTextContent('region=kr');
+  },
+);
+
+it('reaches newly added dashboard stocks when the group count cache is older than the items response', async () => {
+  const cachedGroup = { ...own, itemCount: 6 };
+  const stocks = Array.from({ length: 7 }, (_, index) => ({
+    ...stock,
+    company: { ...stock.company, id: `new-${index}`, nameKo: `관측 종목 ${index + 1}` },
+  }));
+  vi.mocked(api.watchlistGroups).mockResolvedValue({
+    items: [cachedGroup],
+    revision: 0,
+    permissions: { canManageGroups: true, canManageStocks: true, canManageMembers: false },
+  });
+  vi.mocked(api.watchlistGroupItems).mockImplementation(
+    async (_id, offset = 0, _signal, limit = 21) => ({
+      ...page({ ...cachedGroup, itemCount: 7 }),
+      items: stocks.slice(offset, offset + limit),
+      total: 7,
+      nextOffset: offset + limit < 7 ? offset + limit : null,
+    }),
+  );
+  show('/?region=kr&watchGroup=own', true);
+  await screen.findByRole('link', { name: '관측 종목 1 종목 상세' });
+  fireEvent.click(screen.getByRole('button', { name: '다음 관심 종목' }));
+  await screen.findByRole('link', { name: '관측 종목 7 종목 상세' });
+  expect(screen.getAllByRole('link', { name: /종목 상세/ })).toHaveLength(1);
+  expect(screen.getByRole('button', { name: '다음 관심 종목' })).toBeDisabled();
+});
+
+it('makes recent browsing the first group tab on the dashboard and uses company news scope', async () => {
+  recordRecentCompany('MEMBER:viewer1', { ...stock.company, canonicalPath: '/companies/005930' });
+  vi.spyOn(api, 'companyQuotes').mockResolvedValue({ asOf: '2026-09-07T00:00:00Z', items: [] });
+  const news = vi.spyOn(api, 'news').mockResolvedValue({ items: [], nextCursor: null });
+  show('/?region=kr', true);
+  const tabs = await screen.findAllByRole('tab');
+  expect(tabs[0]).toHaveTextContent('최근조회');
+  expect(tabs[0]).toHaveAttribute('aria-selected', 'true');
+  expect(await screen.findByRole('link', { name: '삼성전자 종목 상세' })).toHaveAttribute(
+    'href',
+    '/companies/005930',
+  );
+  expect(api.watchlistGroupItems).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('radio', { name: '소식' }));
+  expect(await screen.findByRole('region', { name: '시장 뉴스' })).toBeVisible();
+  await waitFor(() =>
+    expect(news).toHaveBeenCalledWith(
+      { scope: 'company', companyIds: ['samsung'], limit: 20, cursor: null },
+      expect.any(AbortSignal),
+    ),
+  );
+  expect(screen.queryByRole('link', { name: '삼성전자 종목 상세' })).not.toBeInTheDocument();
+  expect(screen.getByLabelText('URL')).toHaveTextContent('region=kr');
+});
+
+it('measures the stock content on direct dashboard news entry and keeps only news interactive', async () => {
+  vi.spyOn(api, 'watchlistGroupNews').mockResolvedValue({
+    group: own,
+    companies: [],
+    companyCount: 1,
+    asOf: '2026-09-07T00:00:00Z',
+    items: [],
+    nextCursor: null,
+  });
+  const rendered = show('/?watchGroup=own&watchContent=news', true);
+  await screen.findByRole('region', { name: '관심 그룹 소식' });
+  await waitFor(() =>
+    expect(api.watchlistGroupItems).toHaveBeenCalledWith('own', 0, expect.any(AbortSignal), 6),
+  );
+  const layer = rendered.container.querySelector('.watch-groups__stock-layer');
+  await waitFor(() => expect(layer?.querySelectorAll('a.watch-group-stock')).toHaveLength(1));
+  expect(layer).toHaveAttribute('inert');
+  expect(layer).toHaveAttribute('aria-hidden', 'true');
+  expect(screen.queryByRole('link', { name: '삼성전자 종목 상세' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('radio', { name: '종목' }));
+  expect(await screen.findByRole('link', { name: '삼성전자 종목 상세' })).toBeVisible();
+  expect(layer).not.toHaveAttribute('inert');
+  expect(rendered.container.querySelector('.watch-groups__news-layer')).toBeNull();
+});
+
+it('switches a group between stocks and news in the same panel and excludes recent on the full page', async () => {
+  const company = {
+    ...stock.company,
+    market: 'KRX' as const,
+    corpCode: null,
+    cik: null,
+    isListed: true,
+    updatedAt: '2026-09-07T00:00:00Z',
+  };
+  const news = vi.spyOn(api, 'watchlistGroupNews').mockResolvedValue({
+    group: own,
+    companies: [company],
+    companyCount: 1,
+    asOf: '2026-09-07T00:00:00Z',
+    items: [],
+    nextCursor: null,
+  });
+  vi.spyOn(api, 'watchlistGroupFilings').mockResolvedValue({
+    group: own,
+    companies: [company],
+    companyCount: 1,
+    asOf: '2026-09-07T00:00:00Z',
+    items: [],
+  });
+  show();
+  await screen.findByRole('link', { name: '삼성전자 종목 상세' });
+  expect(screen.queryByRole('tab', { name: /최근조회/ })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('radio', { name: '소식' }));
+  await screen.findByRole('option', { name: '삼성전자' });
+  expect(news).toHaveBeenCalledWith(
+    'own',
+    { companyId: undefined, limit: 20, cursor: null },
+    expect.any(AbortSignal),
+  );
+  expect(screen.queryByRole('link', { name: '삼성전자 종목 상세' })).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('소식 종목 필터'), { target: { value: 'samsung' } });
+  await waitFor(() =>
+    expect(news).toHaveBeenCalledWith(
+      'own',
+      { companyId: 'samsung', limit: 20, cursor: null },
+      expect.any(AbortSignal),
+    ),
+  );
+  fireEvent.click(screen.getByRole('button', { name: '공시' }));
+  await waitFor(() =>
+    expect(api.watchlistGroupFilings).toHaveBeenCalledWith(
+      'own',
+      'samsung',
+      expect.any(AbortSignal),
+    ),
+  );
+  fireEvent.click(screen.getByRole('radio', { name: '종목' }));
+  expect(await screen.findByRole('link', { name: '삼성전자 종목 상세' })).toBeVisible();
+  expect(screen.getByRole('tab', { name: /반도체/ })).toHaveAttribute('aria-selected', 'true');
+});
+
+it.each(['news', 'filings'] as const)(
+  'keeps the selected group and stocks available when the %s endpoint is missing',
+  async (feed) => {
+    const method = feed === 'news' ? 'watchlistGroupNews' : 'watchlistGroupFilings';
+    vi.spyOn(api, method).mockRejectedValue(
+      new ApiError(404, 'HTTP_ERROR', `Cannot GET /api/v1/watchlist-groups/own/${feed}`),
+    );
+    show(`/?watchGroup=own&watchNewsType=${feed}`);
+    await screen.findByRole('link', { name: '삼성전자 종목 상세' });
+    fireEvent.click(screen.getByRole('radio', { name: '소식' }));
+    await screen.findByText('소식을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.');
+    expect(screen.queryByText(/접근 권한이 변경되어 목록을 비웠습니다/)).toBeNull();
+    expect(screen.getByRole('tab', { name: /반도체/ })).toHaveAttribute('aria-selected', 'true');
+    fireEvent.click(screen.getByRole('radio', { name: '종목' }));
+    expect(await screen.findByRole('link', { name: '삼성전자 종목 상세' })).toBeVisible();
+  },
+);
+
+it.each([
+  new ApiError(403, 'FORBIDDEN', '권한 없음'),
+  new ApiError(404, 'WATCH_GROUP_NOT_FOUND', '접근 가능한 그룹을 찾을 수 없습니다.'),
+])('clears the group news after access is revoked: %s', async (error) => {
+  vi.spyOn(api, 'watchlistGroupNews').mockRejectedValue(error);
+  show('/?watchGroup=own&watchContent=news');
+  await screen.findByText(/접근 권한이 변경되어 목록을 비웠습니다/);
+  expect(screen.queryByRole('region', { name: '관심 그룹 소식' })).not.toBeInTheDocument();
+  expect(api.watchlistGroupNews).toHaveBeenCalledTimes(1);
+});
+
+it('clears mounted group content when the sidebar observes lost access first', async () => {
+  show();
+  await screen.findByRole('link', { name: '삼성전자 종목 상세' });
+  await act(async () => {
+    await client
+      .fetchQuery({
+        queryKey: ['watchlist-v2', 'MEMBER:viewer1', 'sidebar-items', 'personal', 'own', 20],
+        queryFn: async () => {
+          throw new ApiError(403, 'FORBIDDEN', '권한 없음');
+        },
+        retry: false,
+      })
+      .catch(() => undefined);
+  });
+  expect(await screen.findByText(/접근 권한이 변경되어 목록을 비웠습니다/)).toBeVisible();
+  expect(screen.queryByRole('link', { name: '삼성전자 종목 상세' })).not.toBeInTheDocument();
+});
+
+function fullGroupStocks(count: number) {
+  const stocks = Array.from({ length: count }, (_, index) => ({
+    ...stock,
+    company: { ...stock.company, id: `full-${index}`, nameKo: `전체 종목 ${index + 1}` },
+  }));
+  const nextGroup = { ...own, id: 'other', name: '다른 그룹' };
+  vi.mocked(api.watchlistGroups).mockResolvedValue({
+    items: [{ ...own, itemCount: count }, nextGroup],
+    revision: 0,
+    permissions: { canManageGroups: true, canManageStocks: true, canManageMembers: false },
+  });
+  vi.mocked(api.watchlistGroupItems).mockImplementation(
+    async (id, offset = 0, _signal, limit = 21) =>
+      id === 'other'
+        ? {
+            ...page(nextGroup),
+            items: [
+              {
+                ...stock,
+                company: { ...stock.company, id: 'other-company', nameKo: '다른 그룹 종목' },
+              },
+            ],
+          }
+        : {
+            ...page(own),
+            items: stocks.slice(offset, offset + limit),
+            total: count,
+            nextOffset: offset + limit < count ? offset + limit : null,
+          },
+  );
+  return stocks;
+}
+
+function scrollFullList(viewport: HTMLElement, top: number) {
+  Object.defineProperties(viewport, {
+    clientHeight: { configurable: true, value: 400 },
+    scrollHeight: { configurable: true, value: 2000 },
+    scrollTop: { configurable: true, writable: true, value: top },
+  });
+  fireEvent.scroll(viewport);
+}
+
+it('appends full-page stocks with more controls while letting the card grow without inner scroll handling', async () => {
+  fullGroupStocks(45);
+  const rendered = show('/?region=kr&watchGroup=own&watchPage=4&watchView=list');
+  await screen.findByRole('link', { name: '전체 종목 20 종목 상세' });
+  expect(screen.getByRole('heading', { name: '관심 종목' })).toBeVisible();
+  expect(screen.getAllByRole('link', { name: /종목 상세/ })).toHaveLength(20);
+  expect(api.watchlistGroupItems).toHaveBeenCalledOnce();
+  expect(api.watchlistGroupItems).toHaveBeenLastCalledWith('own', 0, expect.any(AbortSignal), 20);
+  expect(screen.queryByRole('button', { name: '다음 관심 종목' })).not.toBeInTheDocument();
+  expect(rendered.container.querySelector('.watch-groups__grid-measure')).toBeNull();
+  const viewport = screen.getByRole('region', { name: '관심 종목 전체 목록' });
+  expect(viewport).toHaveClass('watch-groups__stock-viewport--full');
+  expect(viewport.closest('.observation-card')).toHaveClass('watch-groups--full');
+  expect(viewport).not.toHaveAttribute('tabindex');
+  expect(viewport.querySelector('[inert]')).toBeNull();
+  scrollFullList(viewport, 400);
+  expect(api.watchlistGroupItems).toHaveBeenCalledOnce();
+  scrollFullList(viewport, 1550);
+  expect(api.watchlistGroupItems).toHaveBeenCalledOnce();
+  fireEvent.click(screen.getByRole('button', { name: '종목 더 보기' }));
+  await screen.findByRole('link', { name: '전체 종목 40 종목 상세' });
+  expect(screen.getAllByRole('link', { name: /종목 상세/ })).toHaveLength(40);
+  expect(screen.getByRole('link', { name: '전체 종목 1 종목 상세' })).toBeVisible();
+  expect(viewport.scrollTop).toBe(1550);
+  fireEvent.click(screen.getByRole('button', { name: '종목 더 보기' }));
+  await screen.findByRole('link', { name: '전체 종목 45 종목 상세' });
+  expect(screen.getAllByRole('link', { name: /종목 상세/ })).toHaveLength(45);
+  expect(screen.queryByRole('button', { name: '종목 더 보기' })).not.toBeInTheDocument();
+  expect(api.watchlistGroupItems).toHaveBeenCalledTimes(3);
+  expect(screen.getByLabelText('URL')).toHaveTextContent('region=kr');
+  expect(screen.getByLabelText('URL')).toHaveTextContent('watchPage=4');
+});
+
+it('starts a newly selected group at the top and returns to only the first batch of the previous group', async () => {
+  fullGroupStocks(45);
+  show('/?watchGroup=own&watchView=list');
+  const viewport = await screen.findByRole('region', { name: '관심 종목 전체 목록' });
+  fireEvent.click(screen.getByRole('button', { name: '종목 더 보기' }));
+  await screen.findByRole('link', { name: '전체 종목 40 종목 상세' });
+  fireEvent.click(screen.getByRole('tab', { name: /다른 그룹/ }));
+  await screen.findByRole('link', { name: '다른 그룹 종목 종목 상세' });
+  const otherViewport = screen.getByRole('region', { name: '관심 종목 전체 목록' });
+  expect(otherViewport).not.toBe(viewport);
+  expect(otherViewport.scrollTop).toBe(0);
+  expect(screen.queryByRole('link', { name: '전체 종목 1 종목 상세' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('tab', { name: /반도체/ }));
+  await screen.findByRole('link', { name: '전체 종목 20 종목 상세' });
+  expect(screen.getAllByRole('link', { name: /종목 상세/ })).toHaveLength(20);
+  expect(screen.getByRole('region', { name: '관심 종목 전체 목록' }).scrollTop).toBe(0);
+  expect(screen.queryByRole('link', { name: '다른 그룹 종목 종목 상세' })).not.toBeInTheDocument();
+});
+
+it('keeps already loaded full-page rows visible after an append error and retries the failed offset', async () => {
+  fullGroupStocks(40);
+  const implementation = vi.mocked(api.watchlistGroupItems).getMockImplementation()!;
+  let fail = true;
+  vi.mocked(api.watchlistGroupItems).mockImplementation(async (...args) => {
+    if (args[1] === 20 && fail) throw new Error('Temporary network error');
+    return implementation(...args);
+  });
+  show();
+  await screen.findByRole('link', { name: '전체 종목 20 종목 상세' });
+  fireEvent.click(screen.getByRole('button', { name: '종목 더 보기' }));
+  await screen.findByText('추가 종목을 불러오지 못했습니다.');
+  expect(screen.getAllByRole('link', { name: /종목 상세/ })).toHaveLength(20);
+  fail = false;
+  fireEvent.click(screen.getByRole('button', { name: '다시 시도' }));
+  await screen.findByRole('link', { name: '전체 종목 40 종목 상세' });
+  expect(api.watchlistGroupItems).toHaveBeenLastCalledWith('own', 20, expect.any(AbortSignal), 20);
+  expect(screen.getAllByRole('link', { name: /종목 상세/ })).toHaveLength(40);
+});
+
+it('leaves wheel events on full-page stock content available for native page scrolling', async () => {
+  mockMediaQuery(true);
+  show();
+  const viewport = await screen.findByRole('region', { name: '관심 종목 전체 목록' });
+  expect(viewport).toHaveClass('watch-groups__stock-viewport--full');
+  for (const [top, deltaY] of [
+    [0, -100],
+    [1600, 100],
+  ] as const) {
+    scrollFullList(viewport, top);
+    const wheel = new WheelEvent('wheel', { deltaY, bubbles: true, cancelable: true });
+    act(() => {
+      viewport.dispatchEvent(wheel);
+    });
+    expect(wheel.defaultPrevented).toBe(false);
+  }
   expect(api.watchlistGroupItems).toHaveBeenCalledOnce();
 });

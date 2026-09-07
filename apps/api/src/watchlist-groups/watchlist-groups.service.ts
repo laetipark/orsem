@@ -1,4 +1,10 @@
-import { ConflictException, GoneException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  GoneException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import type { EntityManager } from 'typeorm';
 import {
@@ -71,6 +77,26 @@ export class WatchlistGroupsService {
           canManageStocks: scope.canManageStocks,
           canManageMembers: scope.canManageMembers,
         },
+      };
+    });
+  }
+  newsScope(actor: GroupActor, id: string, companyId?: string) {
+    return this.access.transaction(actor, async (m) => {
+      const { row, scope } = await this.access.group(m, actor, id);
+      // Reading the group feed never requires stock-management permission.
+      const rows: Record<string, unknown>[] = await m.query(
+        `SELECT ${companyFields} FROM watchlist_group_items i JOIN companies c ON c.id=i.company_id WHERE i.group_id=? ORDER BY i.position,i.id LIMIT 200`,
+        [id],
+      );
+      const companies = rows.map(companyView);
+      if (companyId && !companies.some((company) => company.id === companyId))
+        throw new BadRequestException('이 그룹에 없는 종목입니다. 전체 소식을 다시 선택해 주세요.');
+      return {
+        group: this.view(row, scope),
+        companies,
+        selectedCompanies: companyId
+          ? companies.filter((company) => company.id === companyId)
+          : companies,
       };
     });
   }

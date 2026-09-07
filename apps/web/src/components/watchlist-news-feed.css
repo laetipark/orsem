@@ -1,0 +1,36 @@
+.watch-news-feed {
+  min-width: 0;
+  padding: 6px 0;
+}
+.watch-news-feed__filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 36px;
+  max-width: 100%;
+  color: var(--muted);
+  font-size: 12px;
+}
+.watch-news-feed__filter select {
+  flex: 1;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 36px;
+  padding: 5px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+}
+.watch-news-feed .personal-news__tabs button[aria-pressed='true'] {
+  color: var(--teal);
+  border-bottom-color: var(--teal);
+}
+.watch-news-feed__more {
+  margin-top: 12px;
+}
+.watch-news-feed .personal-filings {
+  padding: 0;
+}

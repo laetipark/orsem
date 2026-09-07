@@ -21,6 +21,7 @@ import type {
   QueueMetric,
   ReviewItem,
   ReviewResolution,
+  NewsReviewSelection,
   Session,
   SourceFreshness,
   SourceItem,
@@ -38,6 +39,10 @@ import type {
   NaverNewsStatus,
   WatchlistGroup,
   WatchlistGroupPage,
+  CompanyQuote,
+  WatchlistNewsPage,
+  WatchlistFilings,
+  NewsFeedPage,
 } from '../types';
 
 const configuredBase = import.meta.env.VITE_API_BASE_URL?.trim().replace(/\/$/, '');
@@ -128,6 +133,7 @@ export interface NewsFilters {
   publisher?: string;
   q?: string;
   companyId?: string;
+  companyIds?: readonly string[];
   cursor?: string | null;
   limit?: number;
 }
@@ -180,10 +186,33 @@ export const api = {
       `/watchlist-groups${queryString({ roomId })}`,
       { signal },
     ),
-  watchlistGroupItems: (id: string, offset = 0, signal?: AbortSignal) =>
-    request<WatchlistGroupPage>(
-      `/watchlist-groups/${id}/items${queryString({ offset, limit: 21 })}`,
-      { signal },
+  watchlistGroupItems: (id: string, offset = 0, signal?: AbortSignal, limit = 21) =>
+    request<WatchlistGroupPage>(`/watchlist-groups/${id}/items${queryString({ offset, limit })}`, {
+      signal,
+    }),
+  companyQuotes: (ids: readonly string[], signal?: AbortSignal) =>
+    ids.length === 0
+      ? Promise.resolve<{ asOf: string; items: CompanyQuote[] }>({
+          asOf: new Date().toISOString(),
+          items: [],
+        })
+      : request<{ asOf: string; items: CompanyQuote[] }>(
+          `/companies/quotes${queryString({ ids: ids.join(',') })}`,
+          { signal, cache: 'no-store' },
+        ),
+  watchlistGroupNews: (
+    id: string,
+    filters: { companyId?: string; limit?: number; cursor?: string | null } = {},
+    signal?: AbortSignal,
+  ) =>
+    request<WatchlistNewsPage>(
+      `/watchlist-groups/${encodeURIComponent(id)}/news${queryString({ limit: 20, ...filters })}`,
+      { signal, cache: 'no-store' },
+    ),
+  watchlistGroupFilings: (id: string, companyId?: string, signal?: AbortSignal) =>
+    request<WatchlistFilings>(
+      `/watchlist-groups/${encodeURIComponent(id)}/filings${queryString({ companyId })}`,
+      { signal, cache: 'no-store' },
     ),
   createWatchlistGroup: (name: string, roomId?: string) =>
     request<WatchlistGroup>('/watchlist-groups', {
@@ -331,18 +360,13 @@ export const api = {
       news: SourceItem[];
       providerGroups?: SourceItem[][];
     }>('/dashboard/personal-news', { signal }),
-  news: ({ limit = 20, ...filters }: NewsFilters = {}, signal?: AbortSignal) =>
-    request<
-      CursorPage<SourceItem> & {
-        providerGroups?: SourceItem[][];
-        naver?: {
-          fetchedAt: string | null;
-          status: string;
-          nextRequestAt: string | null;
-          reason?: string | null;
-        } | null;
-      }
-    >(`/news${queryString({ ...filters, limit })}`, { signal, cache: 'no-store' }),
+  news: ({ limit = 20, companyIds, ...filters }: NewsFilters = {}, signal?: AbortSignal) =>
+    companyIds?.length === 0
+      ? Promise.resolve<NewsFeedPage>({ items: [], nextCursor: null })
+      : request<NewsFeedPage>(
+          `/news${queryString({ ...filters, companyIds: companyIds?.join(','), limit })}`,
+          { signal, cache: 'no-store' },
+        ),
   newsDetail: (id: string, signal?: AbortSignal) =>
     request<NewsDetail>(`/news/${encodeURIComponent(id)}`, { signal, cache: 'no-store' }),
   suggestions: (
@@ -417,10 +441,11 @@ export const api = {
     resolution: ReviewResolution['resolution'],
     note: string | null,
     planExecutionMatchId?: string,
+    newsReview?: NewsReviewSelection,
   ) =>
     request<ReviewResolution>(`/reviews/${encodeURIComponent(id)}/resolve`, {
       method: 'POST',
-      body: JSON.stringify({ resolution, note, planExecutionMatchId }),
+      body: JSON.stringify({ resolution, note, planExecutionMatchId, ...newsReview }),
     }),
   operationSources: () => request<CursorPage<SourceFreshness>>('/operations/sources'),
   operationRuns: () => request<CursorPage<OperationRun>>('/operations/runs'),

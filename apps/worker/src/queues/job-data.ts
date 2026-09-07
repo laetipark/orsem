@@ -46,6 +46,9 @@ export const scheduledDiscoveryConnectorSchema = z.enum([
   'NEWS_RSS',
   'GDELT',
   'ALPACA_NEWS',
+  'MARKETAUX',
+  'ALPHAVANTAGE',
+  'FINNHUB',
 ]);
 
 export const discoverLinksJobSchema = z
@@ -116,9 +119,18 @@ export const discoverLinksJobSchema = z
       .sort()
       .join(',')}`;
     if (
-      !['NAVER:P1', 'NAVER:P2', 'SEC:P1,P2', 'IR:', 'NEWS_RSS:', 'GDELT:', 'ALPACA_NEWS:'].includes(
-        signature,
-      )
+      ![
+        'NAVER:P1',
+        'NAVER:P2',
+        'SEC:P1,P2',
+        'IR:',
+        'NEWS_RSS:',
+        'GDELT:',
+        'ALPACA_NEWS:',
+        'MARKETAUX:',
+        'ALPHAVANTAGE:',
+        'FINNHUB:',
+      ].includes(signature)
     ) {
       context.addIssue({
         code: 'custom',

@@ -255,6 +255,26 @@ function NewsCopy({ item }: { item: NewsListItem }) {
       </span>
       <span className="market-news__meta">
         <span className="market-news__publisher">{item.sourceName || '뉴스 출처'}</span>
+        {item.sourceKind ? (
+          <span>
+            {
+              {
+                OFFICIAL_DISCLOSURE: '공식 공시',
+                OFFICIAL_RELEASE: '공식',
+                COMPANY_IR: '기업발표',
+                PRESS_RELEASE: '보도자료',
+                INDEPENDENT_MEDIA: '언론',
+                AGGREGATOR: '집계API',
+                UNKNOWN: '유형 미확인',
+              }[item.sourceKind]
+            }
+          </span>
+        ) : null}
+        {item.officialVerification === 'CONFIRMED' ? (
+          <span>공식 자료 연결 확인</span>
+        ) : item.officialVerification === 'LINKED' ? (
+          <span>공식 관련자료 후보</span>
+        ) : null}
         {item.marketRegion ? <span>{regionLabels[item.marketRegion]}</span> : null}
         {translation ? <span>{translation.editedAt ? '번역 수정본' : '자동 번역'}</span> : null}
         {!translation &&
@@ -277,7 +297,7 @@ function NewsCopy({ item }: { item: NewsListItem }) {
           </>
         )}
         {item.collectedAt ? <span>수집 {formatKst(item.collectedAt)}</span> : null}
-        {(item.sourceCount ?? 1) > 1 ? <span>{item.sourceCount}개 출처에서 확인</span> : null}
+        {(item.providerCount ?? 1) > 1 ? <span>수집 경로 {item.providerCount}개</span> : null}
       </span>
     </span>
   );
@@ -331,6 +351,31 @@ export function MarketNewsList({
                     데이터 제공 GDELT<span className="sr-only"> 새 창에서 보기</span>
                   </a>
                 </div>
+              ) : null}
+              {!headlineOnly &&
+              item.officialReferences?.some(
+                (ref) => ref.status !== 'REJECTED' && safeNewsUrl(ref.url ?? ''),
+              ) ? (
+                <details className="market-news__sources">
+                  <summary>공식 관련 자료</summary>
+                  <ul>
+                    {item.officialReferences
+                      .filter((ref) => ref.status !== 'REJECTED' && safeNewsUrl(ref.url ?? ''))
+                      .map((ref) => (
+                        <li key={`${ref.kind}:${ref.id}`}>
+                          <a
+                            href={safeNewsUrl(ref.url ?? '')!}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            {ref.title ?? '공식 자료'} ·{' '}
+                            {ref.status === 'CONFIRMED' ? '연결 확인' : '관련 후보'}
+                            <ArrowUpRight size={13} aria-hidden="true" />
+                          </a>
+                        </li>
+                      ))}
+                  </ul>
+                </details>
               ) : null}
               {!headlineOnly && hasAdditionalSources ? (
                 <details className="market-news__sources">

@@ -61,8 +61,8 @@ test('an empty personal group never falls back to global P2; both feeds share th
   count = 2;
   await service.personalNews('MEMBER:mine');
   assert.deepEqual(scopes, [
-    { personalActorKey: 'MEMBER:mine', limit: 3 },
-    { personalActorKey: 'MEMBER:mine', scope: 'company', limit: 3 },
+    { audience: 'MEMBER_UI', personalActorKey: 'MEMBER:mine', limit: 3 },
+    { audience: 'MEMBER_UI', personalActorKey: 'MEMBER:mine', scope: 'company', limit: 3 },
   ]);
   const query = { personalActorKey: 'MEMBER:mine' };
   for (const sql of [newsFiltersSql('source', query), representativeNewsSql(query)]) {
@@ -180,15 +180,18 @@ test('raw personal filings use session identity and include unparsed filings thr
   assert.equal(result.items.length, 2);
   assert.equal(result.items[0]!.title, '분석 전 원본');
   assert.equal(result.items[1]!.relatedCompanies.length, 1);
-  assert.equal(result.items[1]!.relatedCompanies[0].id, 'mine');
+  assert.equal(result.items[1]!.relatedCompanies[0]!.id, 'mine');
   const dart = calls.find((call) => call.sql.includes('FROM filings f'))!;
   const sec = calls.find((call) => call.sql.includes('FROM source_items s'))!;
-  assert.deepEqual(dart.params, ['MEMBER:mine']);
-  assert.deepEqual(sec.params, ['MEMBER:mine', 'MEMBER:mine']);
+  const scope = calls.find((call) => call.sql.includes('SELECT DISTINCT c.id'))!;
+  assert.match(scope.sql, /g.room_id IS NULL AND g.owner_key=\?/);
+  assert.deepEqual(scope.params, ['MEMBER:mine']);
+  assert.deepEqual(dart.params, ['mine']);
+  assert.deepEqual(sec.params, ['mine', 'mine']);
   assert.match(sec.sql, /s.company_id IN/);
   assert.match(sec.sql, /news_source_companies/);
   for (const call of [dart, sec]) {
-    assert.match(call.sql, /g.room_id IS NULL AND g.owner_key=\?/);
+    assert.match(call.sql, /company_id IN \(\?\)/);
     assert.doesNotMatch(call.sql, /parse_status|event_id/);
   }
 });
