@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import type { WatchRoom, WatchRoomDetail, WatchRoomMember } from '@orsem/contracts';
 import { api } from '../lib/api';
@@ -8,40 +8,58 @@ import { ChangeError, OrderButtons, useWatchChange } from './watchlist-group-edi
 
 export function RoomDirectoryDialog({
   actor,
+  initialCreate = false,
   onClose,
   onSelect,
 }: {
   actor: string;
+  initialCreate?: boolean;
   onClose: () => void;
   onSelect: (id: string) => void;
 }) {
+  const client = useQueryClient();
   const [offset, setOffset] = useState(0),
     [name, setName] = useState(''),
     [description, setDescription] = useState(''),
-    [create, setCreate] = useState(false),
+    [create, setCreate] = useState(initialCreate),
     change = useWatchChange(actor);
   const query = useQuery({
     queryKey: ['watchlist-v2', actor, 'directory', offset],
     queryFn: ({ signal }) => api.watchlistRoomDirectory(offset, signal),
+    enabled: !initialCreate,
     retry: false,
   });
   return (
-    <WatchlistDialog title="공유방 찾기·만들기" onClose={onClose}>
-      <Button
-        size="sm"
-        variant="secondary"
-        aria-expanded={create}
-        onClick={() => setCreate(!create)}
-      >
-        새 공유방 만들기
-      </Button>
+    <WatchlistDialog
+      title={initialCreate ? '공유방 만들기' : '공유방 찾기·만들기'}
+      onClose={onClose}
+      closeDisabled={change.isPending}
+    >
+      {!initialCreate ? (
+        <Button
+          size="sm"
+          variant="secondary"
+          aria-expanded={create}
+          disabled={change.isPending}
+          onClick={() => setCreate(!create)}
+        >
+          새 공유방 만들기
+        </Button>
+      ) : null}
       {create ? (
         <form
           className="watch-room-form"
           onSubmit={(e) => {
             e.preventDefault();
+            if (change.isPending || !name.trim()) return;
             change.mutate(async () => {
               const room = await api.createWatchlistRoom(name.trim(), description.trim());
+              client.setQueryData<{ items: WatchRoom[] }>(
+                ['watchlist-v2', actor, 'rooms'],
+                (cached) => ({
+                  items: [...(cached?.items ?? []).filter((item) => item.id !== room.id), room],
+                }),
+              );
               onSelect(room.id);
               onClose();
             });
@@ -49,13 +67,20 @@ export function RoomDirectoryDialog({
         >
           <label>
             방 이름
-            <Input value={name} maxLength={80} onChange={(e) => setName(e.target.value)} />
+            <Input
+              value={name}
+              maxLength={80}
+              required
+              disabled={change.isPending}
+              onChange={(e) => setName(e.target.value)}
+            />
           </label>
           <label>
             소개
             <textarea
               value={description}
               maxLength={500}
+              disabled={change.isPending}
               onChange={(e) => setDescription(e.target.value)}
             />
           </label>
@@ -64,67 +89,72 @@ export function RoomDirectoryDialog({
           </Button>
         </form>
       ) : null}
-      <p className="watch-help">참여 승인을 받은 뒤 종목과 참여자 목록을 볼 수 있습니다.</p>
-      {query.isPending ? <LoadingState label="공유방을 불러오는 중입니다." /> : null}
-      <ChangeError error={query.error ?? change.error} />
-      <ul className="watch-room-directory">
-        {query.data?.items.map((room) => (
-          <li key={room.id}>
-            <div>
-              <strong>{room.name}</strong>
-              <small>방장 {room.ownerLabel}</small>
-              {room.description ? <p>{room.description}</p> : null}
-            </div>
-            {room.requestStatus === 'ACTIVE' ? (
-              <Button
-                size="sm"
-                onClick={() => {
-                  onSelect(room.id);
-                  onClose();
-                }}
-              >
-                입장
-              </Button>
-            ) : (
-              <Button
-                size="sm"
-                variant="secondary"
-                disabled={change.isPending}
-                onClick={() =>
-                  change.mutate(() =>
-                    api.roomAction(
-                      room.id,
-                      '/requests',
-                      room.requestStatus === 'PENDING' ? 'DELETE' : 'POST',
-                    ),
-                  )
-                }
-              >
-                {room.requestStatus === 'PENDING' ? '신청 취소' : '참여 신청'}
-              </Button>
-            )}
-          </li>
-        ))}
-      </ul>
-      {query.data && !query.data.items.length ? (
-        <p className="watch-help">표시할 공유방이 없습니다.</p>
+      <ChangeError error={change.error} />
+      {!initialCreate ? (
+        <>
+          <p className="watch-help">참여 승인을 받은 뒤 종목과 참여자 목록을 볼 수 있습니다.</p>
+          {query.isPending ? <LoadingState label="공유방을 불러오는 중입니다." /> : null}
+          <ChangeError error={query.error} />
+          <ul className="watch-room-directory">
+            {query.data?.items.map((room) => (
+              <li key={room.id}>
+                <div>
+                  <strong>{room.name}</strong>
+                  <small>방장 {room.ownerLabel}</small>
+                  {room.description ? <p>{room.description}</p> : null}
+                </div>
+                {room.requestStatus === 'ACTIVE' ? (
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      onSelect(room.id);
+                      onClose();
+                    }}
+                  >
+                    입장
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={change.isPending}
+                    onClick={() =>
+                      change.mutate(() =>
+                        api.roomAction(
+                          room.id,
+                          '/requests',
+                          room.requestStatus === 'PENDING' ? 'DELETE' : 'POST',
+                        ),
+                      )
+                    }
+                  >
+                    {room.requestStatus === 'PENDING' ? '신청 취소' : '참여 신청'}
+                  </Button>
+                )}
+              </li>
+            ))}
+          </ul>
+          {query.data && !query.data.items.length ? (
+            <p className="watch-help">표시할 공유방이 없습니다.</p>
+          ) : null}
+          <footer className="watch-dialog__footer">
+            <Button
+              variant="ghost"
+              disabled={offset === 0}
+              onClick={() => setOffset(Math.max(0, offset - 21))}
+            >
+              이전
+            </Button>
+            <Button
+              variant="ghost"
+              disabled={query.data?.nextOffset == null}
+              onClick={() => setOffset(query.data!.nextOffset!)}
+            >
+              다음
+            </Button>
+          </footer>
+        </>
       ) : null}
-      <footer className="watch-dialog__footer">
-        <Button
-          variant="ghost"
-          disabled={offset === 0}
-          onClick={() => setOffset(Math.max(0, offset - 21))}
-        >
-          이전
-        </Button>
-        <Button
-          variant="ghost"
-          disabled={query.data?.nextOffset == null}
-          onClick={() => setOffset(query.data!.nextOffset!)}
-        >
-          다음
-        </Button>
-      </footer>
     </WatchlistDialog>
   );
 }

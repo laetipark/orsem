@@ -1,4 +1,3 @@
-import { json } from 'express';
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
@@ -6,6 +5,7 @@ import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { APP_CONFIG, type AppConfig } from './config/app-config';
 import { SessionRuntimeService } from './security/session-runtime.service';
+import { registerBodyParsers } from './common/body-parser';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: true });
@@ -16,8 +16,7 @@ async function bootstrap(): Promise<void> {
   app.getHttpAdapter().getInstance().set('trust proxy', 1);
   app.use(helmet({ contentSecurityPolicy: false }));
   app.use(sessions.middleware(store));
-  // The bounded Markdown editor accepts up to 100k characters, including Korean text.
-  app.use('/api/v1/news', json({ limit: '512kb' }));
+  registerBodyParsers(app);
   app.enableCors({
     origin: config.webOrigin,
     credentials: true,

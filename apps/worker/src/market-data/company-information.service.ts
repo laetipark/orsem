@@ -52,12 +52,12 @@ export class CompanyInformationService implements OnApplicationBootstrap, OnAppl
       if (!locked) return;
       const companies: Array<{ id: string; corpCode: string }> =
         await runner.query(`SELECT c.id,c.corp_code corpCode FROM companies c
-        LEFT JOIN (SELECT company_id,MAX(observed_at) collected FROM company_information_snapshots GROUP BY company_id) latest ON latest.company_id=c.id
+        LEFT JOIN company_information_snapshots latest ON latest.id=(SELECT id FROM company_information_snapshots WHERE company_id=c.id AND source='OPENDART' ORDER BY observed_at DESC,id DESC LIMIT 1)
         LEFT JOIN source_checkpoints failure ON failure.connector='COMPANY_INFORMATION_FAILURE' AND failure.stream=c.id
-        WHERE (failure.last_success_at IS NULL OR failure.last_success_at < UTC_TIMESTAMP() - INTERVAL 1 DAY) AND c.corp_code IS NOT NULL AND c.is_listed=1 AND (latest.collected IS NULL OR latest.collected < UTC_TIMESTAMP() - INTERVAL 7 DAY)
-        AND (EXISTS (SELECT 1 FROM source_checkpoints request WHERE request.connector='COMPANY_INFORMATION' AND request.stream=c.id) OR EXISTS (SELECT 1 FROM watchlist_group_items i JOIN watchlist_groups g ON g.id=i.group_id WHERE i.company_id=c.id AND g.room_id IS NULL)
+        WHERE (failure.last_success_at IS NULL OR failure.last_success_at < UTC_TIMESTAMP() - INTERVAL 1 DAY) AND c.corp_code IS NOT NULL AND c.is_listed=1 AND (latest.observed_at IS NULL OR latest.observed_at < UTC_TIMESTAMP() - INTERVAL 7 DAY OR COALESCE(JSON_EXTRACT(latest.raw_json,'$.normalizationVersion'),0)<2)
+        AND (EXISTS (SELECT 1 FROM source_checkpoints request WHERE request.connector='COMPANY_INFORMATION' AND request.stream=c.id) OR EXISTS (SELECT 1 FROM watchlist_group_items i WHERE i.company_id=c.id)
           OR EXISTS (SELECT 1 FROM market_cap_memberships m JOIN market_selection_state st ON st.active_snapshot_id=m.snapshot_id WHERE m.company_id=c.id))
-        ORDER BY latest.collected,c.id LIMIT 4`);
+        ORDER BY latest.observed_at,c.id LIMIT 4`);
       const now = new Date();
       const year = new Date(now.getTime() + 9 * 3600_000).getUTCFullYear();
       for (const company of companies) {
@@ -92,7 +92,7 @@ export class CompanyInformationService implements OnApplicationBootstrap, OnAppl
             typeof previous?.fields === 'string' ? JSON.parse(previous.fields) : previous?.fields;
           if (Array.isArray(stored))
             fields = fields.map((field) =>
-              field.value === null
+              field.value === null && !['eps', 'bps'].includes(field.key)
                 ? (stored.find(
                     (older: { key: string; value: string | null }) =>
                       older.key === field.key && older.value !== null,
@@ -112,7 +112,7 @@ export class CompanyInformationService implements OnApplicationBootstrap, OnAppl
               'https://opendart.fss.or.kr/',
               'OFFICIAL_PUBLIC_DATA',
               JSON.stringify(fields),
-              JSON.stringify({ annual: raw, recent }),
+              JSON.stringify({ normalizationVersion: 2, annual: raw, recent }),
             ],
           );
         } catch (error) {

@@ -137,6 +137,10 @@ export const companyQuotesSchema = z.object({
   items: z.array(z.object({ companyId: z.uuid(), displayPrice: groupDisplayPriceSchema })).max(20),
 });
 export type CompanyQuotes = z.infer<typeof companyQuotesSchema>;
+export const watchlistGroupQuotesSchema = companyQuotesSchema.extend({
+  items: z.array(companyQuotesSchema.shape.items.element).max(200),
+});
+export type WatchlistGroupQuotes = z.infer<typeof watchlistGroupQuotesSchema>;
 export const groupActivitySchema = z.object({
   id: z.uuid(),
   kind: z.enum(['FILING', 'EVENT']),

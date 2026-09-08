@@ -275,7 +275,8 @@ export class OpenDartClient {
       statement = 'OFS';
     }
     const dividends = await read('alotMatter.json', params);
-    return { profile, financials, dividends, statement };
+    const shares = await read('stockTotqySttus.json', params);
+    return { profile, financials, dividends, shares, statement };
   }
 
   private async requestSummary<T>(

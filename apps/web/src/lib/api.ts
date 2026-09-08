@@ -6,6 +6,7 @@ import type {
   WatchRoomDirectory,
   CompanyWatchlistMemberships,
   SaveCompanyWatchlistMemberships,
+  WatchlistGroupQuotes,
 } from '@orsem/contracts';
 import type {
   CompanyDetail,
@@ -189,6 +190,11 @@ export const api = {
   watchlistGroupItems: (id: string, offset = 0, signal?: AbortSignal, limit = 21) =>
     request<WatchlistGroupPage>(`/watchlist-groups/${id}/items${queryString({ offset, limit })}`, {
       signal,
+    }),
+  watchlistGroupQuotes: (id: string, signal?: AbortSignal) =>
+    request<WatchlistGroupQuotes>(`/watchlist-groups/${encodeURIComponent(id)}/quotes`, {
+      signal,
+      cache: 'no-store',
     }),
   companyQuotes: (ids: readonly string[], signal?: AbortSignal) =>
     ids.length === 0

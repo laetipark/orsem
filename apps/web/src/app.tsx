@@ -1,7 +1,8 @@
-import { useQuery } from '@tanstack/react-query';
-import { lazy, Suspense } from 'react';
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { lazy, Suspense, useLayoutEffect, useRef } from 'react';
+import { Navigate, Outlet, Route, Routes } from 'react-router-dom';
 import { api } from './lib/api';
+import { postWatchlistPopoutMessage, watchlistPictureInPictureOwner } from './lib/watchlist-popout';
 import { RequireLoginRedirect } from './components/login-redirect';
 import { AppShell } from './components/app-shell';
 import { ErrorState, LoadingState } from './components/ui';
@@ -29,6 +30,11 @@ const CompanyPage = lazy(() =>
 );
 const WatchlistPage = lazy(() =>
   import('./pages/watchlist-page').then((module) => ({ default: module.WatchlistPage })),
+);
+const WatchlistPopoutPage = lazy(() =>
+  import('./pages/watchlist-popout-page').then((module) => ({
+    default: module.WatchlistPopoutPage,
+  })),
 );
 const ReviewsPage = lazy(() =>
   import('./pages/reviews-page').then((module) => ({ default: module.ReviewsPage })),
@@ -60,6 +66,7 @@ const SourcesPage = lazy(() =>
 );
 
 export function App() {
+  const queryClient = useQueryClient();
   const session = useQuery({
     queryKey: ['session'],
     queryFn: api.session,
@@ -67,6 +74,28 @@ export function App() {
     refetchInterval: 60_000,
     refetchIntervalInBackground: false,
   });
+  const audience = session.data
+    ? `${session.data.authenticated}:${session.data.canAccess}:${session.data.user?.role ?? ''}:${session.data.user?.id ?? ''}`
+    : null;
+  const previousAudience = useRef(audience);
+  const hasAccess = session.data?.authenticated && session.data.canAccess;
+  useLayoutEffect(() => {
+    if (audience === null) return;
+    if (previousAudience.current !== null && previousAudience.current !== audience) {
+      // Standalone authenticated routes need the same account isolation as AppShell.
+      queryClient.removeQueries({ predicate: (query) => query.queryKey[0] !== 'session' });
+    }
+    previousAudience.current = audience;
+    if (!hasAccess) {
+      const owner = watchlistPictureInPictureOwner();
+      if (owner)
+        postWatchlistPopoutMessage(
+          owner,
+          'session-ended',
+          new URLSearchParams(window.location.search),
+        );
+    }
+  }, [audience, hasAccess, queryClient]);
 
   if (session.isPending)
     return (
@@ -111,6 +140,9 @@ export function App() {
       <Routes>
         <Route path="/login" element={<LoginPage session={value} />} />
         <Route path="/admin/login" element={<AdminLoginPage session={value} />} />
+        <Route element={<Outlet context={value} />}>
+          <Route path="watchlist/popout" element={<WatchlistPopoutPage />} />
+        </Route>
         <Route element={<AppShell session={value} />}>
           <Route index element={<DashboardPage />} />
           <Route path="markets" element={<MarketsPage />} />

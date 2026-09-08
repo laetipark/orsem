@@ -92,27 +92,6 @@
     padding-top: 10px;
     overflow-x: auto;
     overscroll-behavior-x: contain;
-    scrollbar-width: thin;
-    scrollbar-color: var(--border-strong) transparent;
-  }
-  .stock-sidebar__groups::-webkit-scrollbar {
-    height: 4px;
-  }
-  .stock-sidebar__groups::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  .stock-sidebar__groups::-webkit-scrollbar-thumb {
-    background: var(--border-strong);
-    border-radius: 999px;
-  }
-  .stock-sidebar__groups::-webkit-scrollbar-thumb:hover {
-    background: var(--teal);
-  }
-  @supports selector(::-webkit-scrollbar) {
-    .stock-sidebar__groups {
-      scrollbar-width: auto;
-      scrollbar-color: auto;
-    }
   }
   .stock-sidebar__groups button {
     flex: none;
@@ -137,7 +116,6 @@
     overflow-y: auto;
     overscroll-behavior-y: auto;
     padding: 8px 10px 24px;
-    scrollbar-width: thin;
   }
   .stock-sidebar__body > p {
     margin: 14px 6px;

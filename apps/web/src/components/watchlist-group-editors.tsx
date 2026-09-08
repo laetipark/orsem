@@ -1,12 +1,14 @@
 import { SearchInput } from './search-input';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { ArrowDown, ArrowUp, GripVertical, Plus, Trash2 } from 'lucide-react';
+import { useEffect, useId, useState } from 'react';
 import type { Company, WatchRoom } from '@orsem/contracts';
 import { api } from '../lib/api';
 import type { CompanySummary, WatchlistGroup } from '../types';
 import { Button, Input, LoadingState } from './ui';
 import { WatchlistDialog, moveEntry } from './watchlist-dialog';
+import { useGroupReorder } from '../lib/use-group-reorder';
+import './stock-editor.css';
 export const watchActorKey = (user: { id: string; role: string } | null | undefined) =>
   user ? `${user.role === 'ADMIN' ? 'ADMIN' : 'MEMBER'}:${user.id}` : '';
 export function useWatchChange(actor: string) {
@@ -225,10 +227,15 @@ function StockEditorForm({
       useState<Array<Pick<CompanySummary, 'id' | 'nameKo' | 'nameEn' | 'ticker' | 'stockCode'>>>(
         items,
       ),
-    [selected, setSelected] = useState<string[]>([]),
     [q, setQ] = useState(''),
     [term, setTerm] = useState(''),
     change = useWatchChange(actor);
+  const instructionId = useId();
+  const reorder = useGroupReorder({
+    ids: draft.map(({ id }) => id),
+    disabled: change.isPending,
+    onReorder: (ids) => setDraft((current) => ids.map((id) => current.find((c) => c.id === id)!)),
+  });
   const search = useQuery({
     queryKey: ['company-group-picker', actor, 'search', term],
     queryFn: () => api.companies(term, 'all'),
@@ -238,7 +245,7 @@ function StockEditorForm({
   return (
     <>
       <form
-        className="watch-inline-form"
+        className="watch-inline-form stock-editor__search"
         onSubmit={(e) => {
           e.preventDefault();
           setTerm(q.trim());
@@ -249,6 +256,7 @@ function StockEditorForm({
           onChange={setQ}
           label="추가할 종목 검색"
           placeholder="기업명·종목코드 검색"
+          disabled={change.isPending}
           filters={{ kind: 'companies' }}
           contextKey={`${actor}:${group.id}`}
           onSelect={(item) => {
@@ -259,13 +267,13 @@ function StockEditorForm({
           }}
           onSubmit={() => setTerm(q.trim())}
         />
-        <Button type="submit" size="sm" disabled={!q.trim()}>
+        <Button type="submit" size="sm" disabled={!q.trim() || change.isPending}>
           검색
         </Button>
       </form>
       <ChangeError error={search.error} />
       {search.data ? (
-        <ul className="watch-search-results">
+        <ul className="watch-search-results stock-editor__results">
           {search.data.items.map((c) => (
             <li key={c.id}>
               <span>
@@ -275,7 +283,9 @@ function StockEditorForm({
               <Button
                 size="sm"
                 variant="ghost"
-                disabled={draft.length >= 200 || draft.some((i) => i.id === c.id)}
+                disabled={
+                  change.isPending || draft.length >= 200 || draft.some((i) => i.id === c.id)
+                }
                 onClick={() => setDraft([...draft, c])}
               >
                 <Plus size={14} />
@@ -287,48 +297,60 @@ function StockEditorForm({
       ) : null}
       <div className="watch-edit-caption">
         <span>{draft.length}/200종목 · 전체 목록 순서</span>
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={!selected.length}
-          onClick={() => {
-            setDraft(draft.filter((c) => !selected.includes(c.id)));
-            setSelected([]);
-          }}
-        >
-          선택 {selected.length}개 제거
-        </Button>
       </div>
-      <ol className="watch-edit-list watch-edit-list--stocks">
-        {draft.map((c, index) => (
-          <li key={c.id}>
-            <input
-              type="checkbox"
-              aria-label={`${c.nameKo} 선택`}
-              checked={selected.includes(c.id)}
-              onChange={(e) =>
-                setSelected(
-                  e.target.checked ? [...selected, c.id] : selected.filter((id) => id !== c.id),
-                )
-              }
-            />
+      <p id={instructionId} className="sr-only">
+        손잡이를 끌어 종목 순서를 바꾸세요. 방향키 또는 Home·End 키로도 이동할 수 있습니다. 순서
+        변경과 삭제는 저장을 누르면 적용됩니다.
+      </p>
+      <ul
+        ref={reorder.listRef}
+        className="watch-edit-list watch-edit-list--stocks stock-editor__list"
+        aria-label="편집할 종목"
+      >
+        {draft.map((c) => (
+          <li
+            key={c.id}
+            data-sort-id={c.id}
+            className={`stock-editor__row${reorder.draggedId === c.id ? ' is-dragging' : ''}${reorder.targetId === c.id && reorder.dropPosition ? ` is-drop-${reorder.dropPosition}` : ''}`}
+          >
+            <button
+              type="button"
+              className="stock-editor__handle"
+              aria-label={`${c.nameKo} 순서 변경`}
+              aria-describedby={instructionId}
+              disabled={draft.length < 2}
+              aria-disabled={change.isPending || draft.length < 2}
+              tabIndex={change.isPending ? -1 : 0}
+              {...reorder.getHandleProps(c.id)}
+            >
+              <GripVertical size={18} />
+            </button>
             <span className="watch-edit-company">
               <strong>{c.nameKo}</strong>
               <small>{c.stockCode ?? c.ticker}</small>
             </span>
-            <OrderButtons
-              name={c.nameKo}
-              index={index}
-              count={draft.length}
-              move={(to) => setDraft(moveEntry(draft, index, to))}
-            />
+            <button
+              type="button"
+              className="stock-editor__delete"
+              aria-label={`${c.nameKo} 삭제`}
+              title="종목 삭제"
+              disabled={change.isPending}
+              onClick={() => setDraft((current) => current.filter((item) => item.id !== c.id))}
+            >
+              <Trash2 size={16} />
+            </button>
+            {reorder.targetId === c.id && reorder.dropPosition ? (
+              <span className="stock-editor__drop-label" aria-hidden="true">
+                {reorder.dropPosition === 'before' ? '위에 놓기' : '아래에 놓기'}
+              </span>
+            ) : null}
           </li>
         ))}
-      </ol>
+      </ul>
       {!draft.length ? <p className="watch-help">검색해서 종목을 추가하세요.</p> : null}
       <ChangeError error={change.error} />
       <footer className="watch-dialog__footer">
-        <Button variant="ghost" onClick={onClose}>
+        <Button variant="ghost" onClick={onClose} disabled={change.isPending}>
           취소
         </Button>
         <Button
@@ -361,15 +383,66 @@ export function CopyGroupDialog({
   rooms: WatchRoom[];
   onClose: () => void;
 }) {
-  const targets = rooms.filter((r) => r.canManageGroups && r.canManageStocks),
-    [roomId, setRoomId] = useState(targets[0]?.id ?? ''),
-    change = useWatchChange(actor);
+  const client = useQueryClient();
+  const [createdRooms, setCreatedRooms] = useState<WatchRoom[]>([]);
+  const [roomId, setRoomId] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [createdRoomName, setCreatedRoomName] = useState<string | null>(null);
+  const change = useWatchChange(actor);
+  // Keep new rooms selectable while the parent refreshes. Once a room appears in
+  // server data, only that data determines its permissions and continued access.
+  useEffect(() => {
+    setCreatedRooms((previous) => {
+      const next = previous.filter((room) => !rooms.some((current) => current.id === room.id));
+      return next.length === previous.length ? previous : next;
+    });
+  }, [rooms]);
+  const targets = [
+    ...rooms,
+    ...createdRooms.filter((room) => !rooms.some((current) => current.id === room.id)),
+  ].filter((room) => room.canManageGroups && room.canManageStocks);
+  const selected = roomId ? targets.find((room) => room.id === roomId) : targets[0];
+  const createRoom = useMutation({
+    mutationFn: (input: { name: string; description: string }) =>
+      api.createWatchlistRoom(input.name, input.description),
+    onSuccess: (room) => {
+      setCreatedRooms((previous) => [...previous.filter((item) => item.id !== room.id), room]);
+      setRoomId(room.id);
+      setCreatedRoomName(room.name);
+      setCreating(false);
+      setName('');
+      setDescription('');
+      change.reset();
+      // Refresh independently: the successful creation is already sufficient to
+      // select this room, even when a directory request is delayed or fails.
+      void client.invalidateQueries({ queryKey: ['watchlist-v2', actor, 'rooms'] });
+      void client.invalidateQueries({ queryKey: ['watchlist-v2', actor, 'directory'] });
+    },
+  });
+  const busy = createRoom.isPending || change.isPending;
   return (
-    <WatchlistDialog title="공유방에 복사" onClose={onClose}>
+    <WatchlistDialog title="공유" onClose={onClose} closeDisabled={busy}>
       <p className="watch-help">
-        개인 그룹은 유지됩니다. 복사한 뒤에는 서로 독립적으로 관리합니다.
+        {group.name} 그룹을 공유방에 복사합니다. 개인 그룹은 유지되며 복사한 뒤에는 서로 독립적으로
+        관리합니다.
       </p>
-      <select aria-label="복사할 공유방" value={roomId} onChange={(e) => setRoomId(e.target.value)}>
+      <select
+        aria-label="복사할 공유방"
+        value={selected?.id ?? ''}
+        disabled={busy || !targets.length}
+        onChange={(e) => {
+          setRoomId(e.target.value);
+          setCreatedRoomName(null);
+          change.reset();
+        }}
+      >
+        {!selected ? (
+          <option value="" disabled>
+            {roomId ? '공유방을 다시 선택해 주세요' : '공유방을 먼저 만들어 주세요'}
+          </option>
+        ) : null}
         {targets.map((r) => (
           <option key={r.id} value={r.id}>
             {r.name}
@@ -377,19 +450,72 @@ export function CopyGroupDialog({
         ))}
       </select>
       {!targets.length ? <p>그룹·종목 관리 권한이 있는 공유방이 없습니다.</p> : null}
+      <Button
+        type="button"
+        size="sm"
+        variant="secondary"
+        aria-expanded={creating}
+        disabled={busy}
+        onClick={() => {
+          setCreating(!creating);
+          createRoom.reset();
+        }}
+      >
+        새 공유방 만들기
+      </Button>
+      {creating ? (
+        <form
+          className="watch-room-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (busy || !name.trim()) return;
+            createRoom.mutate({ name: name.trim(), description: description.trim() });
+          }}
+        >
+          <label>
+            방 이름
+            <Input
+              value={name}
+              maxLength={80}
+              required
+              disabled={busy}
+              onChange={(event) => setName(event.target.value)}
+            />
+          </label>
+          <label>
+            소개
+            <textarea
+              value={description}
+              maxLength={500}
+              disabled={busy}
+              onChange={(event) => setDescription(event.target.value)}
+            />
+          </label>
+          <Button type="submit" disabled={!name.trim() || busy}>
+            {createRoom.isPending ? '만드는 중…' : '만들기'}
+          </Button>
+        </form>
+      ) : null}
+      {createdRoomName && selected?.id === roomId ? (
+        <p className="watch-help" role="status">
+          {createdRoomName} 공유방을 만들었습니다. 복사를 누르면 이 방에 그룹이 추가됩니다.
+        </p>
+      ) : null}
+      <ChangeError error={createRoom.error} />
       <ChangeError error={change.error} />
       <footer className="watch-dialog__footer">
-        <Button variant="ghost" onClick={onClose}>
+        <Button variant="ghost" disabled={busy} onClick={onClose}>
           취소
         </Button>
         <Button
-          disabled={!roomId || change.isPending}
-          onClick={() =>
+          disabled={!selected || busy || creating}
+          onClick={() => {
+            if (!selected || busy || creating) return;
             change.mutate(async () => {
-              await api.copyWatchlistGroup(group.id, roomId, group.revision ?? 0);
+              await api.copyWatchlistGroup(group.id, selected.id, group.revision ?? 0);
               onClose();
-            })
-          }
+            });
+          }}
         >
           복사
         </Button>

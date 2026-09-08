@@ -18,6 +18,16 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     window.localStorage.setItem('orsem-theme', theme);
   }, [theme]);
 
+  useEffect(() => {
+    const changed = (event: StorageEvent) => {
+      if (event.key !== null && event.key !== 'orsem-theme') return;
+      if (event.newValue === 'light' || event.newValue === 'dark') setTheme(event.newValue);
+      else setTheme(initialTheme());
+    };
+    window.addEventListener('storage', changed);
+    return () => window.removeEventListener('storage', changed);
+  }, []);
+
   const value = useMemo(
     () => ({ theme, toggle: () => setTheme((current) => (current === 'dark' ? 'light' : 'dark')) }),
     [theme],

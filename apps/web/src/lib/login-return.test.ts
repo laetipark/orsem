@@ -14,6 +14,9 @@ describe('notification login return', () => {
   it('allows known same-origin screens and rejects external, API and malformed destinations', () => {
     expect(safeLoginReturn(eventPath)).toBe(eventPath);
     expect(safeLoginReturn('/settings/notifications')).toBe('/settings/notifications');
+    expect(safeLoginReturn('/watchlist/popout?watchGroup=recent')).toBe(
+      '/watchlist/popout?watchGroup=recent',
+    );
     for (const value of [
       'https://attacker.example/events',
       '//attacker.example',
@@ -21,6 +24,7 @@ describe('notification login return', () => {
       'javascript:alert(1)',
       '/api/v1/auth/logout',
       '/events/not-a-uuid',
+      '/watchlist/popout/other',
       '/login?returnTo=/events',
     ])
       expect(safeLoginReturn(value)).toBeNull();

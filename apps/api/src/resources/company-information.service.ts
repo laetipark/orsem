@@ -264,7 +264,7 @@ export class CompanyInformationApiService {
         [id],
       ),
     ]);
-    if (company.corpCode)
+    if (company.corpCode || ['NASDAQ', 'NYSE', 'AMEX', 'OTC'].includes(company.market))
       await db
         .getRepository(SourceCheckpointEntity)
         .createQueryBuilder()
@@ -387,17 +387,39 @@ export class CompanyInformationApiService {
         stockRows[0]?.observedAt ? new Date(stockRows[0].observedAt).toISOString() : null,
       );
     const annualEps = fields.find((field) => field.key === 'eps' && field.basis.includes('연간'));
-    const eps = Number(annualEps?.value);
     const close = Number(latest?.close);
+    const ratio = (field: Field | undefined) => {
+      const value = Number(field?.value);
+      return field?.value &&
+        ['KRW', 'USD'].includes(field.unit ?? '') &&
+        field.unit === latest?.currency &&
+        Number.isFinite(value) &&
+        value > 0 &&
+        Number.isFinite(close) &&
+        close > 0 &&
+        Number.isFinite(close / value) &&
+        stock.isCommonShare === true &&
+        stock.securityType === 'STOCK'
+        ? (close / value).toFixed(2)
+        : null;
+    };
     push(
       'per',
       'PER',
-      annualEps?.value && eps > 0 && close > 0 ? (close / eps).toFixed(2) : null,
+      ratio(annualEps),
       '배',
       annualEps?.value ? `${priceBasis} ÷ ${annualEps.basis}` : '검증된 연간 보통주 EPS 확인 대기',
       '공시·시세 계산',
     );
-    push('pbr', 'PBR', null, '배', '보통주 귀속자본·BPS 기준 확인 대기', '공시·시세 계산');
+    const bps = fields.find((field) => field.key === 'bps');
+    push(
+      'pbr',
+      'PBR',
+      ratio(bps),
+      '배',
+      bps?.value ? `${priceBasis} ÷ ${bps.basis}` : '보통주 귀속자본·BPS 기준 확인 대기',
+      '공시·시세 계산',
+    );
     for (const [key, label] of [
       ['ceo', '대표자'],
       ['industry', '업종'],

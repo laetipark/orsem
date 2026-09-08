@@ -103,6 +103,12 @@ export class WatchlistGroupsController {
   @Post(':id/copy') copy(@Req() r: Request, @Param('id') id: string, @Body() b: unknown) {
     return this.groups.copy(groupActor(r), parseWith(z.uuid(), id), parseWith(groupCopySchema, b));
   }
+  @Get(':id/quotes')
+  @RateLimit(90)
+  @Header('Cache-Control', 'private, no-store')
+  async quotes(@Req() r: Request, @Param('id') id: string) {
+    return this.groups.quotes(groupActor(r), parseWith(z.uuid(), id));
+  }
   @Get(':id/items') async items(@Req() r: Request, @Param('id') id: string, @Query() q: unknown) {
     const result = await this.groups.items(
       groupActor(r),

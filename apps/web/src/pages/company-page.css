@@ -305,7 +305,6 @@
   padding: 0 8px;
   border-bottom: 1px solid var(--border);
   overflow-x: auto;
-  scrollbar-width: thin;
 }
 .company-news-tabs button {
   flex: 1;
@@ -338,7 +337,6 @@
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior-y: contain;
-  scrollbar-width: thin;
 }
 .company-news-summary {
   display: flex;

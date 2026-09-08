@@ -26,9 +26,30 @@
 .watch-groups__actions {
   flex-wrap: wrap;
 }
+.watch-groups__quote-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 0;
+  padding: 8px 16px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.watch-groups__quote-status [role='alert'] {
+  width: 100%;
+  color: var(--text);
+}
 .watch-groups__spaces {
   padding: 0 16px 10px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+}
+.watch-groups__spaces > button {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 .watch-groups__spaces > button,
 .watch-groups__spaces > select {
@@ -41,13 +62,22 @@
   min-height: 32px;
   max-width: 100%;
 }
+.watch-groups .watch-groups__spaces > select {
+  flex: 1 1 112px;
+  width: 0;
+  min-width: 112px;
+  max-width: 240px;
+}
+#root .watch-groups.observation-card .watch-groups__spaces > select {
+  font-size: 11px;
+}
 .watch-groups__spaces .is-active {
   background: var(--text);
   color: var(--surface);
 }
 .watch-groups__toolbar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 68px max-content;
+  grid-template-columns: minmax(0, 1fr) max-content;
   align-items: start;
   gap: 0 8px;
   padding: 0 12px;
@@ -83,8 +113,9 @@
   font-size: 10px;
 }
 .watch-groups__views {
-  height: 44px;
-  justify-content: center;
+  min-height: 36px;
+  justify-self: end;
+  gap: 4px;
 }
 .watch-groups__views button,
 .watch-icon-button {
@@ -100,6 +131,13 @@
   color: var(--muted);
   cursor: pointer;
 }
+.watch-groups__views button {
+  gap: 6px;
+  min-height: 36px;
+  padding: 6px 10px;
+  font-size: 12px;
+  white-space: nowrap;
+}
 .watch-groups__views button[aria-pressed='true'],
 .watch-icon-button:hover {
   background: var(--surface-2);
@@ -107,7 +145,7 @@
 }
 .watch-groups__tools {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 220px;
+  grid-template-columns: minmax(0, 1fr);
   min-height: 56px;
   gap: 8px 12px;
   padding: 8px 14px;
@@ -115,10 +153,12 @@
 .watch-groups__management {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
   gap: 8px;
   min-width: 0;
-  min-height: 36px;
+  min-height: 32px;
+  margin-left: auto;
 }
 .watch-groups__news-filter {
   justify-self: end;
@@ -127,15 +167,41 @@
   min-width: 0;
   min-height: 36px;
 }
-.watch-groups__tools .button {
-  min-height: 28px;
-  font-size: 11px;
+.watch-groups__news-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: nowrap;
+  gap: 8px;
+  width: 100%;
+}
+.watch-groups__news-controls .watch-news-feed__filter {
+  flex: 0 1 220px;
+  width: 220px;
+  min-width: 0;
+}
+.watch-groups__news-controls .watch-news-feed__filter > span {
+  flex: none;
+}
+#root .watch-groups__news-controls .personal-news__tabs {
+  flex: none;
+  align-self: center;
+  flex-wrap: nowrap;
+  padding: 0;
+  border: 0;
+}
+#root .watch-groups__news-controls .personal-news__tabs button {
+  padding-inline: 10px;
+  white-space: nowrap;
+}
+.watch-groups__management .button {
+  min-height: 32px;
+  font-size: 12px;
   padding: 4px 7px;
+  white-space: nowrap;
 }
 @container watch-groups (max-width: 540px) {
   .watch-groups__tools {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(36px, auto) 36px;
     padding-inline: 10px;
   }
 }
@@ -676,56 +742,33 @@
   }
 }
 
-/* A compact, persistent choice stays at the right edge while the group strip scrolls. */
+/* One mode button leaves the rest of the row available to the scrolling group tabs. */
 .watch-groups__content-switch {
-  display: flex;
-  flex: none;
-  align-items: center;
-  padding: 3px;
-  justify-self: end;
-  margin-top: 2px;
-  gap: 2px;
-  border: 1px solid var(--border-strong);
-  border-radius: 9px;
-  background: var(--surface-2);
-}
-.watch-groups__content-switch > button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 5px;
-  min-height: 32px;
-  padding: 5px 10px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--muted);
+  justify-self: end;
+  align-self: start;
+  min-height: 36px;
+  margin-block: 4px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  color: var(--teal);
+  background: var(--surface-2);
   font: inherit;
   font-size: 12px;
   font-weight: 650;
   white-space: nowrap;
   cursor: pointer;
 }
-.watch-groups__content-switch > button[aria-checked='true'] {
-  color: var(--teal);
-  background: var(--surface);
-  box-shadow: 0 1px 3px #0002;
-}
-.watch-groups__check {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 15px;
-  height: 15px;
-  border: 1px solid var(--border-strong);
-  border-radius: 4px;
-}
-[aria-checked='true'] > .watch-groups__check {
+.watch-groups__content-switch:hover {
   border-color: var(--teal);
-  color: var(--surface);
-  background: var(--teal);
+  background: var(--surface);
 }
-.watch-groups__content-switch button:focus-visible,
+.watch-groups__content-switch:focus-visible,
+.watch-groups__views button:focus-visible,
 .watch-groups__scroll-arrow:focus-visible {
   outline: 2px solid var(--teal);
   outline-offset: 2px;
@@ -743,28 +786,7 @@
   overflow-x: scroll;
   overflow-y: hidden;
   padding-bottom: 0;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border-strong) transparent;
   scroll-behavior: smooth;
-}
-.watch-groups__tabs::-webkit-scrollbar {
-  height: 4px;
-}
-@supports selector(::-webkit-scrollbar) {
-  .watch-groups__tab-scroll .watch-groups__tabs {
-    scrollbar-width: auto;
-    scrollbar-color: auto;
-  }
-}
-.watch-groups__tabs::-webkit-scrollbar-track {
-  background: transparent;
-}
-.watch-groups__tabs::-webkit-scrollbar-thumb {
-  border-radius: 8px;
-  background: var(--border-strong);
-}
-.watch-groups__tabs::-webkit-scrollbar-thumb:hover {
-  background: var(--muted);
 }
 .watch-groups__scroll-arrow {
   display: inline-flex;
@@ -796,10 +818,9 @@
     display: none;
   }
 }
-.watch-groups__views[hidden] {
-  display: flex;
-  visibility: hidden;
-  pointer-events: none;
+.watch-groups__views[hidden],
+.watch-groups__news-filter[hidden] {
+  display: none;
 }
 .watch-recent__note {
   margin: 8px 0 12px;
@@ -824,42 +845,9 @@
   justify-content: flex-end;
 }
 @container watch-groups (max-width: 620px) {
-  @media (pointer: fine) {
-    .watch-groups__toolbar {
-      grid-template-columns: minmax(0, 1fr) 68px max-content;
-      column-gap: 6px;
-      padding-inline: 8px;
-    }
-    .watch-groups__views {
-      width: 68px;
-      padding: 0;
-    }
-    .watch-groups__views button {
-      min-width: 30px;
-      min-height: 30px;
-      height: 30px;
-    }
-  }
-  @media (hover: none) and (pointer: coarse) {
-    .watch-groups__toolbar {
-      grid-template-columns: minmax(0, 1fr) max-content;
-      row-gap: 0;
-    }
-    .watch-groups__tab-scroll {
-      grid-column: 1 / -1;
-      width: 100%;
-    }
-    .watch-groups__views {
-      grid-column: 1;
-      grid-row: 2;
-      justify-self: end;
-      width: 80px;
-      padding: 0;
-    }
-    .watch-groups__content-switch {
-      grid-column: 2;
-      grid-row: 2;
-    }
+  .watch-groups__toolbar {
+    column-gap: 6px;
+    padding-inline: 8px;
   }
   .watch-groups__stocks--grid {
     grid-template-columns: minmax(0, 1fr);

@@ -124,6 +124,10 @@ npm run test:boot
 
 `deploy/nginx/orsem.laetipark.me.conf`를 검토하고 시스템 Nginx 설정에 복사하거나 심볼릭 링크로 연결한 뒤, `nginx -t`를 실행하고 Nginx를 다시 불러옵니다. 이어 `orsem.laetipark.me`의 유효한 인증서를 준비합니다. 앱과 API는 같은 출처를 사용하므로 브라우저에 광범위한 CORS 허용이 필요하지 않습니다.
 
+관심 종목의 PC 새창·항상 위 기능을 배포할 때는 API와 웹, Nginx 설정을 함께 반영합니다. `/watchlist/popout`의 정확한 경로만 `X-Frame-Options: SAMEORIGIN`과 `Content-Security-Policy: frame-ancestors 'self'`를 반환해야 같은 출처의 PiP iframe이 표시됩니다. 나머지 HTML 경로는 기존 `DENY`를 유지합니다. `curl -I https://orsem.laetipark.me/watchlist/popout`과 `/watchlist`의 응답 헤더를 비교해 확인하세요. 경로 안에서 SPA 파일을 직접 제공하고 보안 헤더를 모두 반복한 것은 Nginx의 [try_files 처리](https://nginx.org/en/docs/http/ngx_http_core_module.html#try_files)와 [add_header 상속 규칙](https://nginx.org/en/docs/http/ngx_http_headers_module.html#add_header)을 따르기 위해서입니다.
+
+새창은 기존 그룹 기능을 유지하며 저장된 시세만 2초마다 확인합니다. 공급자 구독 한도·수집 범위는 바뀌지 않습니다. 항상 위 기능은 HTTPS 또는 localhost의 지원 PC 브라우저에서 제공하며, 고정 창을 연 일반 팝업을 닫으면 고정 창도 닫힙니다. 배포 후에는 일반 팝업을 가린 상태의 고정 창 갱신, 그룹 선택 후 고정 해제, 재로그인 복귀를 확인하세요.
+
 ## 검증
 
 - `/api/v1/health/live`는 MySQL에 접근하지 않고 응답합니다.

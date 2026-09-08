@@ -2,6 +2,7 @@ import { useNewsCacheExpiry } from '../lib/news-cache';
 import {
   Activity,
   Bell,
+  Building2,
   ChartNoAxesCombined,
   FileSearch,
   LayoutDashboard,
@@ -30,7 +31,7 @@ import './app-shell.css';
 const navigation = [
   { to: '/', label: '오늘', icon: LayoutDashboard, end: true },
   { to: '/markets', label: '시장', icon: ChartNoAxesCombined },
-  { to: '/companies', label: '종목', icon: ChartNoAxesCombined },
+  { to: '/companies', label: '종목', icon: Building2 },
   { to: '/events', label: '이벤트', icon: FileSearch },
   { to: '/news', label: '뉴스', icon: Newspaper },
   { to: '/watchlist', label: '관심 종목', icon: Star },

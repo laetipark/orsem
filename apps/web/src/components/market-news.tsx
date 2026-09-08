@@ -163,8 +163,10 @@ export function newsDescription(item: NewsListItem): string {
 
 export function NewsCompanyBadges({
   companies = [],
+  external = false,
 }: {
   companies?: SourceItem['relatedCompanies'];
+  external?: boolean;
 }) {
   const id = useId();
   const [expanded, setExpanded] = useState(false);
@@ -194,6 +196,8 @@ export function NewsCompanyBadges({
     <Link
       key={company.id}
       to={companyPath(company)}
+      target={external ? '_blank' : undefined}
+      rel={external ? 'noopener noreferrer' : undefined}
       title={`${company.nameKo || company.nameEn} · ${company.stockCode || company.ticker || company.market}`}
     >
       {company.nameKo || company.nameEn || company.ticker || company.stockCode}
@@ -306,9 +310,11 @@ function NewsCopy({ item }: { item: NewsListItem }) {
 export function MarketNewsList({
   items,
   headlineOnly = false,
+  externalCompanies = false,
 }: {
   items: NewsListItem[];
   headlineOnly?: boolean;
+  externalCompanies?: boolean;
 }) {
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
@@ -343,7 +349,7 @@ export function MarketNewsList({
                     <span className="sr-only">안전한 원문 링크가 없습니다.</span>
                   </div>
                 )}
-                <NewsCompanyBadges companies={item.relatedCompanies} />
+                <NewsCompanyBadges companies={item.relatedCompanies} external={externalCompanies} />
               </div>
               {item.source === 'GDELT' ? (
                 <div className="market-news__credit">

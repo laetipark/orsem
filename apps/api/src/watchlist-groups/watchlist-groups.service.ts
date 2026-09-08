@@ -14,6 +14,7 @@ import {
   type SaveCompanyWatchlistMemberships,
   type WatchlistGroup,
   type WatchlistGroupItems,
+  type WatchlistGroupQuotes,
 } from '@orsem/contracts';
 import {
   WatchlistAccessService,
@@ -371,6 +372,16 @@ export class WatchlistGroupsService {
       await this.access.audit(m, actor, 'GROUP_COPIED', scope.roomId, newId, { sourceGroupId: id });
       const copied = await this.access.group(m, actor, newId);
       return this.view(copied.row, scope);
+    });
+  }
+  async quotes(actor: GroupActor, id: string): Promise<WatchlistGroupQuotes> {
+    return this.access.transaction(actor, async (m) => {
+      await this.access.group(m, actor, id);
+      const rows: Record<string, unknown>[] = await m.query(
+        `SELECT ${companyFields} FROM watchlist_group_items i JOIN companies c ON c.id=i.company_id WHERE i.group_id=? ORDER BY i.position,i.id LIMIT 200`,
+        [id],
+      );
+      return this.observations.prices(rows.map(companyView));
     });
   }
   async items(

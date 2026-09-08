@@ -5,6 +5,7 @@ import { companyPath } from '../lib/company-path';
 import { formatDate, formatKst, formatMoney, formatPercent } from '../lib/format';
 import type { RecentCompany } from '../lib/recent-companies';
 import { recentCompanyPrice } from '../lib/recent-company-quotes';
+import { staleWatchlistPrice, type useWatchlistQuotes } from '../lib/use-watchlist-quotes';
 import { CompanyAvatar } from './company-avatar';
 import { Button, EmptyState } from './ui';
 
@@ -14,12 +15,14 @@ export function RecentStocks({
   view,
   visible,
   pageSize,
+  floatingQuotes,
 }: {
   actor: string;
   companies: readonly RecentCompany[];
   view: 'grid' | 'list';
   visible: boolean;
   pageSize: number;
+  floatingQuotes?: ReturnType<typeof useWatchlistQuotes>;
 }) {
   const location = useLocation();
   const [params, setParams] = useSearchParams();
@@ -27,8 +30,8 @@ export function RecentStocks({
   const query = useQuery({
     queryKey: ['company-quotes', actor, ids],
     queryFn: ({ signal }) => api.companyQuotes(ids, signal),
-    enabled: Boolean(actor) && visible && ids.length > 0,
-    refetchInterval: visible && ids.length > 0 ? 60_000 : false,
+    enabled: !floatingQuotes && Boolean(actor) && visible && ids.length > 0,
+    refetchInterval: !floatingQuotes && visible && ids.length > 0 ? 60_000 : false,
     refetchIntervalInBackground: false,
     staleTime: 30_000,
     retry: false,
@@ -58,7 +61,7 @@ export function RecentStocks({
   return (
     <>
       <p className="watch-recent__note">이 브라우저에서 최근 조회한 20종목 · 최신순</p>
-      {query.isError ? (
+      {query.isError && !floatingQuotes ? (
         <p className="watch-recent__note" role="alert">
           시세를 갱신하지 못했습니다.{' '}
           <button className="text-link" onClick={() => void query.refetch()}>
@@ -68,15 +71,29 @@ export function RecentStocks({
       ) : null}
       <div className={`watch-groups__stocks watch-groups__stocks--${view} watch-recent`}>
         {companies.slice(offset, offset + pageSize).map((company) => {
-          const price =
-            (!query.isError
-              ? query.data?.items.find((item) => item.companyId === company.id)?.displayPrice
-              : undefined) ?? recentCompanyPrice(undefined, company.market, query.isError);
+          const price = floatingQuotes
+            ? staleWatchlistPrice(
+                floatingQuotes.data?.items.find((item) => item.companyId === company.id)
+                  ?.displayPrice ??
+                  recentCompanyPrice(undefined, company.market, floatingQuotes.isError),
+                floatingQuotes.isError,
+                floatingQuotes.data
+                  ? {
+                      asOf: floatingQuotes.data.asOf,
+                      elapsedMs: floatingQuotes.elapsedSinceFetchMs,
+                    }
+                  : undefined,
+              )
+            : ((!query.isError
+                ? query.data?.items.find((item) => item.companyId === company.id)?.displayPrice
+                : undefined) ?? recentCompanyPrice(undefined, company.market, query.isError));
           return (
             <Link
               key={company.id}
               className="watch-group-stock watch-recent__stock"
               to={companyPath(company)}
+              target={floatingQuotes ? '_blank' : undefined}
+              rel={floatingQuotes ? 'noopener noreferrer' : undefined}
               state={{ watchlistReturn: location.pathname + location.search }}
               aria-label={`${company.nameKo} 종목 상세`}
             >
@@ -100,7 +117,7 @@ export function RecentStocks({
                       LIVE: '실시간',
                       STALE: '최근 체결',
                       CLOSE: '종가',
-                      NONE: query.isPending ? '시세 조회 중' : '시세 대기',
+                      NONE: (floatingQuotes ?? query).isPending ? '시세 조회 중' : '시세 대기',
                     }[price.basis]
                   }
                 </span>

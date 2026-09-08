@@ -18,6 +18,4 @@
   overflow-y: auto;
   overscroll-behavior-y: auto;
   scrollbar-gutter: stable;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border-strong) transparent;
 }

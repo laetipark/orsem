@@ -6,6 +6,8 @@ import {
   watchlistGroupNewsQuerySchema,
   watchlistGroupFilingsQuerySchema,
   companyQuotesQuerySchema,
+  companyQuotesSchema,
+  watchlistGroupQuotesSchema,
 } from './index';
 
 const ids = Array.from(
@@ -40,6 +42,33 @@ test('general quote batches share the public twenty-UUID cap and reject unknown 
     { ids: ids[0], scope: 'all' },
   ])
     assert.equal(companyQuotesQuerySchema.safeParse(input).success, false);
+});
+
+test('authorized group quote responses support 200 companies without expanding general quotes', () => {
+  const response = (count: number) => ({
+    asOf: '2026-09-08T00:00:00.000Z',
+    items: ids.slice(0, count).map((companyId) => ({
+      companyId,
+      displayPrice: {
+        price: null,
+        currency: 'KRW',
+        status: 'WAITING',
+        basis: 'NONE',
+        source: null,
+        sessionDate: null,
+        providerAt: null,
+        referenceClose: null,
+        referenceDate: null,
+        change: null,
+        changePercent: null,
+      },
+    })),
+  });
+  assert.equal(watchlistGroupQuotesSchema.safeParse(response(0)).success, true);
+  assert.equal(watchlistGroupQuotesSchema.safeParse(response(200)).success, true);
+  assert.equal(watchlistGroupQuotesSchema.safeParse(response(201)).success, false);
+  assert.equal(companyQuotesSchema.safeParse(response(20)).success, true);
+  assert.equal(companyQuotesSchema.safeParse(response(21)).success, false);
 });
 
 test('group feed inputs cannot supply their own company set or actor identity', () => {

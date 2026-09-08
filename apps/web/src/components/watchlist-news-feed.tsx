@@ -19,6 +19,8 @@ export function WatchlistNewsFeed({
   enabled,
   onAccessLost,
   filterHost,
+  inlineTabs = false,
+  externalCompanies = false,
 }: {
   actor: string;
   groupId?: string;
@@ -27,6 +29,8 @@ export function WatchlistNewsFeed({
   enabled: boolean;
   onAccessLost: () => void;
   filterHost: HTMLElement | null;
+  inlineTabs?: boolean;
+  externalCompanies?: boolean;
 }) {
   const [params, setParams] = useSearchParams();
   const recent = recentCompanies !== undefined;
@@ -97,49 +101,53 @@ export function WatchlistNewsFeed({
       { replace: true },
     );
   const items = news.data ? newsItems(news.data.pages) : [];
+  const tabs = !recent ? (
+    <div
+      className="personal-news__tabs watch-news-feed__tabs"
+      role="group"
+      aria-label="관심 그룹 소식 종류"
+    >
+      <button type="button" aria-pressed={tab === 'news'} onClick={() => update('watchNewsType')}>
+        뉴스
+      </button>
+      <button
+        type="button"
+        aria-pressed={tab === 'filings'}
+        onClick={() => update('watchNewsType', 'filings')}
+      >
+        공시
+      </button>
+    </div>
+  ) : null;
   return (
     <section className="watch-news-feed" aria-label={recent ? '시장 뉴스' : '관심 그룹 소식'}>
       {filterHost
         ? createPortal(
-            <label className="watch-news-feed__filter">
-              <span>종목</span>
-              <select
-                aria-label="소식 종목 필터"
-                value={companyId ?? ''}
-                onChange={(event) => update('watchCompany', event.target.value)}
-              >
-                <option value="">전체 종목</option>
-                {companyId && !companies.some((c) => c.id === companyId) ? (
-                  <option value={companyId}>선택한 종목</option>
-                ) : null}
-                {companies.map((company) => (
-                  <option key={company.id} value={company.id}>
-                    {company.nameKo}
-                  </option>
-                ))}
-              </select>
-            </label>,
+            <>
+              {inlineTabs ? tabs : null}
+              <label className="watch-news-feed__filter">
+                <span>종목</span>
+                <select
+                  aria-label="소식 종목 필터"
+                  value={companyId ?? ''}
+                  onChange={(event) => update('watchCompany', event.target.value)}
+                >
+                  <option value="">전체</option>
+                  {companyId && !companies.some((c) => c.id === companyId) ? (
+                    <option value={companyId}>선택한 종목</option>
+                  ) : null}
+                  {companies.map((company) => (
+                    <option key={company.id} value={company.id}>
+                      {company.nameKo}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </>,
             filterHost,
           )
         : null}
-      {!recent ? (
-        <div className="personal-news__tabs" role="group" aria-label="관심 그룹 소식 종류">
-          <button
-            type="button"
-            aria-pressed={tab === 'news'}
-            onClick={() => update('watchNewsType')}
-          >
-            뉴스
-          </button>
-          <button
-            type="button"
-            aria-pressed={tab === 'filings'}
-            onClick={() => update('watchNewsType', 'filings')}
-          >
-            공시
-          </button>
-        </div>
-      ) : null}
+      {!inlineTabs || !filterHost ? tabs : null}
       {recent && !ids.length ? (
         <EmptyState
           title="최근 조회한 종목이 없습니다"
@@ -155,7 +163,7 @@ export function WatchlistNewsFeed({
       ) : tab === 'news' ? (
         <>
           {items.length ? (
-            <MarketNewsList items={items} headlineOnly />
+            <MarketNewsList items={items} headlineOnly externalCompanies={externalCompanies} />
           ) : (
             <EmptyState
               title="아직 연결된 뉴스가 없습니다"

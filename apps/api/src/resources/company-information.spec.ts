@@ -115,3 +115,134 @@ test('Korean ETF numeric and alphanumeric codes round-trip without borrowing iss
   }
   assert.equal(await api.resolveId('005930'), rows[0]!.id);
 });
+
+function fundamentalsService(options: {
+  market?: string;
+  eps?: string | null;
+  epsBasis?: string;
+  bps?: string | null;
+  unit?: string;
+  price?: string;
+  currency?: string;
+  common?: boolean;
+  missingStockMetadata?: boolean;
+}) {
+  let requested = false;
+  const insert = {
+    insert() {
+      return this;
+    },
+    values(value: unknown) {
+      requested = Boolean(value);
+      return this;
+    },
+    orIgnore() {
+      return this;
+    },
+    async execute() {},
+  };
+  const field = (key: string, value: string | null | undefined, basis: string) => ({
+    key,
+    label: key.toUpperCase(),
+    value: value ?? null,
+    unit: options.unit ?? 'KRW',
+    basis,
+    source: '공식 공시',
+    sourceUrl: 'https://opendart.fss.or.kr/',
+    observedAt: '2026-09-07T00:00:00Z',
+  });
+  const db = {
+    getRepository: () => ({ createQueryBuilder: () => insert }),
+    query: async (sql: string) => {
+      if (sql.startsWith('SELECT id,corp_code'))
+        return [
+          {
+            id: rows[0]!.id,
+            corpCode: options.market ? null : '00126380',
+            cik: null,
+            market: options.market ?? 'KOSPI',
+          },
+        ];
+      if (sql.includes('FROM company_information_snapshots'))
+        return [
+          {
+            fields: [
+              field('eps', options.eps, options.epsBasis ?? '2025년 연간 · 보통주 기본 EPS'),
+              field('bps', options.bps, '2026년 반기 · 동일 기준일 보통주 자본 ÷ 유통주식수'),
+            ],
+          },
+        ];
+      if (sql.startsWith('WITH sessions'))
+        return options.price
+          ? [
+              {
+                close: options.price,
+                currency: options.currency ?? 'KRW',
+                sessionDate: '2026-09-04',
+                observedAt: '2026-09-04T07:00:00Z',
+                barAt: '2026-09-04T06:30:00Z',
+              },
+            ]
+          : [];
+      if (sql.includes("connector='TOSS'") && options.missingStockMetadata) return [];
+      if (sql.includes("connector='TOSS'"))
+        return [
+          {
+            metadata: {
+              rawPayload: { securityType: 'STOCK', isCommonShare: options.common ?? true },
+            },
+          },
+        ];
+      return [];
+    },
+  };
+  return {
+    api: new CompanyInformationApiService(
+      { requireDataSource: () => db } as never,
+      loadAppConfig({ NODE_ENV: 'test', FIXTURE_MODE: 'false' }),
+      new FixtureStoreService(),
+    ),
+    requested: () => requested,
+  };
+}
+
+test('calculates PER and PBR from confirmed per-share values in the same currency and retains their basis', async () => {
+  const { api } = fundamentalsService({ eps: '6605', bps: '10000', price: '100000' });
+  const result = await api.company(rows[0]!.id);
+  assert.equal(result.fields.find((f) => f.key === 'per')?.value, '15.14');
+  assert.equal(result.fields.find((f) => f.key === 'pbr')?.value, '10.00');
+  assert.match(result.fields.find((f) => f.key === 'pbr')!.basis, /2026년 반기/);
+});
+
+test('does not calculate valuation ratios with mismatched currencies, preferred shares, missing prices or invalid denominators', async () => {
+  for (const options of [
+    { eps: '10', bps: '20', unit: 'USD', price: '1000', currency: 'KRW' },
+    { eps: '10', bps: '20', price: '1000', common: false },
+    { eps: '10', bps: '20', price: '1000', missingStockMetadata: true },
+    { eps: '10', bps: '20' },
+    { eps: '-10', bps: '0', price: '1000' },
+    { eps: 'NaN', bps: 'Infinity', price: '1000' },
+  ]) {
+    const { api } = fundamentalsService(options);
+    const result = await api.company(rows[0]!.id);
+    assert.equal(result.fields.find((f) => f.key === 'per')?.value, null);
+    assert.equal(result.fields.find((f) => f.key === 'pbr')?.value, null);
+  }
+  const { api } = fundamentalsService({ eps: '10', epsBasis: '2026년 1분기', price: '1000' });
+  assert.equal((await api.company(rows[0]!.id)).fields.find((f) => f.key === 'per')?.value, null);
+});
+
+test('queues a US company-information request even while issuer mapping is still pending', async () => {
+  const service = fundamentalsService({
+    market: 'NASDAQ',
+    eps: '5',
+    bps: '20',
+    price: '100',
+    unit: 'USD',
+    currency: 'USD',
+  });
+  const result = await service.api.company(rows[0]!.id);
+  assert.equal(service.requested(), true);
+  assert.equal(result.fields.find((f) => f.key === 'per')?.value, '20.00');
+  assert.equal(result.fields.find((f) => f.key === 'pbr')?.value, '5.00');
+});

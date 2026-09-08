@@ -1,0 +1,149 @@
+.group-manager__create .button {
+  flex: none;
+}
+.group-manager__list {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 14px 0;
+  padding: 0;
+}
+.group-manager__row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.group-manager__row.is-dragging {
+  opacity: 0.55;
+}
+.group-manager__row.is-drop-before::before,
+.group-manager__row.is-drop-after::after {
+  content: '';
+  position: absolute;
+  z-index: 1;
+  left: -1px;
+  right: -1px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--teal);
+  box-shadow: 0 0 0 1px var(--surface);
+  pointer-events: none;
+}
+.group-manager__row.is-drop-before::before {
+  top: -6px;
+}
+.group-manager__row.is-drop-after::after {
+  bottom: -6px;
+}
+.group-manager__row.is-deleting {
+  border-color: var(--red);
+}
+.group-manager__main {
+  min-width: 0;
+}
+.group-manager__name,
+.group-manager__actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.group-manager__name strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+}
+.group-manager__main > small,
+.group-manager__actions > small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.group-manager__actions .button {
+  flex: none;
+  white-space: nowrap;
+  padding-inline: 8px;
+}
+.group-manager__handle,
+.group-manager__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 30px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.group-manager__handle {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.group-manager__handle:active {
+  cursor: grabbing;
+}
+.group-manager__handle:disabled,
+.group-manager__handle[aria-disabled='true'],
+.group-manager__icon:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+.group-manager__handle:not(:disabled):not([aria-disabled='true']):hover,
+.group-manager__icon:not(:disabled):hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.group-manager__delete:not(:disabled):hover {
+  background: var(--red-soft);
+  color: var(--red);
+}
+.group-manager__handle:focus-visible,
+.group-manager__icon:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+.group-manager__rename {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+  gap: 4px;
+}
+.group-manager__rename .input {
+  min-width: 0;
+  width: 100%;
+}
+.group-manager__confirmation {
+  grid-column: 1 / -1;
+  padding: 10px;
+  border-radius: 7px;
+  background: var(--red-soft);
+}
+.group-manager__confirmation p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 480px) {
+  .group-manager__row {
+    padding: 8px 6px;
+    gap: 5px;
+  }
+  .group-manager__actions .button {
+    padding-inline: 6px;
+    font-size: 12px;
+  }
+}

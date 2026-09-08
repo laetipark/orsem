@@ -1,0 +1,52 @@
+.watchlist-popout {
+  width: 100%;
+  min-width: 0;
+  min-height: 100dvh;
+  padding: clamp(0.5rem, 2vw, 1rem);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.watchlist-popout > .watch-groups {
+  flex: 1;
+  min-width: 0;
+}
+.watchlist-popout__icon {
+  flex: 0 0 auto;
+  padding: 0.4rem;
+}
+.watchlist-popout__actions,
+.watchlist-popout__pinned > header,
+.watchlist-popout__footer > div {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.watchlist-popout__pinned {
+  padding: 1rem;
+}
+.watchlist-popout__pinned > header {
+  justify-content: space-between;
+}
+.watchlist-popout__pinned h1 {
+  margin: 0;
+  font-size: 1rem;
+}
+.watchlist-popout__pinned p,
+.watchlist-popout__note,
+.watchlist-popout__footer {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+.watchlist-popout__footer {
+  margin-top: auto;
+  min-width: 0;
+}
+.watchlist-popout__footer > div {
+  justify-content: space-between;
+  margin-bottom: 0.6rem;
+}
+.watchlist-popout__footer .disclaimer {
+  margin: 0;
+}

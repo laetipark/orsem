@@ -60,6 +60,30 @@
 
 * {
   box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+@supports selector(::-webkit-scrollbar) {
+  /* Non-auto standard properties override WebKit sizing in Chromium. */
+  * {
+    scrollbar-width: auto;
+    scrollbar-color: auto;
+  }
+  *::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+  *::-webkit-scrollbar-track,
+  *::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: var(--border-strong);
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: var(--teal);
+  }
 }
 html {
   background: var(--bg);

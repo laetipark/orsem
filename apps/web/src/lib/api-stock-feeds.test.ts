@@ -47,6 +47,18 @@ it('requests arbitrary recently viewed companies through the general quote endpo
   expect(fetchMock).not.toHaveBeenCalled();
 });
 
+it('requests one scoped group quote batch with credentials, no cache and cancellation', async () => {
+  const signal = new AbortController().signal;
+  await api.watchlistGroupQuotes('group/id', signal);
+  expect(fetchMock).toHaveBeenCalledOnce();
+  expect(fetchMock.mock.calls[0]![0]).toBe('/api/v1/watchlist-groups/group%2Fid/quotes');
+  expect(fetchMock.mock.calls[0]![1]).toMatchObject({
+    signal,
+    cache: 'no-store',
+    credentials: 'include',
+  });
+});
+
 it('keeps group and optional company filters on both news and filings requests', async () => {
   await api.watchlistGroupNews('group/id', { companyId: 'one', cursor: 'next' });
   await api.watchlistGroupFilings('group/id', 'one');

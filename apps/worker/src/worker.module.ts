@@ -1,4 +1,5 @@
 import { CompanyInformationService } from './market-data/company-information.service';
+import { SecCompanyInformationService } from './market-data/sec-company-information.service';
 import { MarketSelectionService } from './market-data/market-selection.service';
 import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
@@ -102,6 +103,7 @@ function redisConnection(redisUrl: string): Record<string, unknown> {
     MarketDataIngestionService,
     MarketSelectionService,
     CompanyInformationService,
+    SecCompanyInformationService,
     TossMarketClient,
     TossMarketDataService,
     TossStockInfoService,

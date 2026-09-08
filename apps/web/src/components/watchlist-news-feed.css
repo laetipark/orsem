@@ -24,7 +24,8 @@
   color: var(--text);
   font: inherit;
 }
-.watch-news-feed .personal-news__tabs button[aria-pressed='true'] {
+#root .watch-news-feed__tabs button[aria-pressed='true'] {
+  background: var(--teal-soft);
   color: var(--teal);
   border-bottom-color: var(--teal);
 }
