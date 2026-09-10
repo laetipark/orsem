@@ -4,20 +4,18 @@
 
 Python 3.12 워커와 관리 CLI의 전환 상태는 [현재 배포 상태](DEPLOYMENT.md#python-워커-전환-상태)를 확인합니다. PM2는 `/home/laeti/orsem-data/worker/current/bin/python -m orsem_worker`를 직접 실행합니다. API·웹·Discord는 기존 TypeScript 프로세스를 유지합니다.
 
-개발용 명령은 저장소 루트에서 `python3 scripts/worker.py start`, `lint`, `typecheck`, `test`로 실행합니다. 실행기는 `ORSEM_WORKER_PYTHON`, 루트 `.venv/bin/python`, 워커 내부 `.venv/bin/python`, 호출한 Python 순서로 실행 환경을 선택합니다. 운영 환경으로 관리 명령을 실행하려면 `ORSEM_WORKER_PYTHON=/home/laeti/orsem-data/worker/current/bin/python`을 명시합니다.
+개발·격리 후보의 설치와 검사 명령은 [Python 워커 안내](PYTHON_WORKER.md#실행-환경)를 따릅니다. 운영 관리 명령은 설치된 wheel을 직접 실행합니다. `scripts/worker.py`와 파서 스크립트는 저장소 소스를 불러오는 개발용 진입점이므로 운영 Python 경로만 지정해 배포본이라고 간주하지 않습니다.
 
 ```bash
-python3 scripts/worker.py cli collect-sec --status
-python3 scripts/worker.py cli backfill-news-relevance --dry-run
-python3 scripts/worker.py cli sync-korean-etfs --dry-run
-python3 scripts/worker.py cli preview-market-leaders
+export ORSEM_REPO_ROOT=/home/laeti/orsem
+/home/laeti/orsem-data/worker/current/bin/python -I -B -m orsem_worker.cli collect-sec --status
 ```
 
 `collect-sec --status`는 저장된 상태를 조회합니다. ETF·시장 후보 조회는 공급자 요청을 포함하며, `--apply`가 있는 명령은 지정한 DB 자료를 변경합니다. 실제 SEC 수집·검증과 파서 감사·staging·백업 명령의 범위는 [Python 운영 CLI](PYTHON_WORKER.md#운영-cli)를 참고합니다. 비밀 값은 기존 외부 환경 파일로 주입하고 감사 산출물·원문은 저장소 밖에 보관합니다.
 
-배포 전에는 `python3 scripts/verify-in-isolation.py`로 검사·빌드를 격리합니다. 운영 `dist` 또는 `worker/current` 환경에 검사 산출물을 덮어쓰지 않습니다. 재시작 전 큐의 기존 정지 상태를 기록하고 활성 작업이 끝나는지 확인합니다. 워커 종료 유예는 11분이며, 체크포인트·DB outbox·일반 큐 작업을 지워 재시도를 초기화하지 않습니다.
+배포 전에는 `python3 scripts/verify-in-isolation.py`로 검사·빌드를 격리합니다. 운영 `dist` 또는 `worker/current` 환경에 검사 산출물을 덮어쓰지 않습니다. 재시작 전 큐의 기존 정지 상태를 기록하고 활성 작업이 끝나는지 확인합니다. 워커는 모든 큐 수신과 주기 작업을 중지한 뒤 최대 10분 동안 실행 중인 작업을 기다리며 PM2 종료 유예는 11분입니다. 체크포인트·DB outbox·일반 큐 작업을 지워 재시도를 초기화하지 않습니다. worker만 복구하는 절차와 외부 보존 경로는 [전환과 복구](PYTHON_WORKER.md#전환과-복구)를 따릅니다.
 
-종목별 알림 선택은 개인 계정의 설정입니다. Python 워커는 알림 후보 생성과 실제 Web Push 전송 직전에 종목별 설정, 전체 알림 활성화, 주제·공시 유형, 계정 권한을 함께 확인합니다. 관심 그룹 편집과 종목별 알림 설정은 독립적으로 유지합니다.
+종목별 알림 선택은 개인 계정의 설정입니다. 개별 설정이 없으면 월간 시총 선정 종목 범위를 상속합니다. 종목별 ON/OFF는 이 종목 범위만 바꾸며, 전체 알림 활성화·주제·공시 유형·계정 권한은 계속 적용합니다. Python 워커는 알림 후보 생성과 실제 Web Push 전송 직전에 이를 다시 확인합니다. 개인·공유방 관심 그룹 편집과 별개이며 종목 알림을 켜도 수집 범위를 자동으로 확대하지 않습니다.
 
 ## 조건부 뉴스 확장 운영 (2026-09-07)
 
@@ -172,7 +170,7 @@ API 키가 없으면 해당 커넥터만 비활성화되어 `UNCONFIGURED`로 �
 
 ## 환경 변경 절차
 
-환경 값만 변경할 때는 전체 빌드나 DB 마이그레이션을 실행하지 않습니다. 현재 선택 배포본에 미배포 번역 편집 기능을 섞지 않도록 [배포 범위](DEPLOYMENT-2026-09-06-WATCHLIST-NEWS.md)를 먼저 대조합니다.
+환경 값만 변경할 때는 전체 빌드나 DB 마이그레이션을 실행하지 않습니다. [현재 배포 명세](DEPLOYMENT.md)를 먼저 대조해 작업 중인 소스를 운영 실행 파일과 혼동하지 않습니다. 날짜별 기록은 당시 상태를 확인하는 자료입니다.
 
 1. 공용 저장소 루트 `.env`, 설정된 외부 자격 증명 파일, 주입된 프로세스 환경 중 해당 항목을 수정합니다. 비밀 파일 권한은 `0600`으로 유지하고 서로 다른 작업 공간별 `.env`를 만들지 않습니다. 기존 셸·PM2 변수는 `.env`보다 우선합니다. [배포 문서](DEPLOYMENT.md)를 참고하세요. 비밀 값을 PM2 설정, 셸 이력, 스크린샷, 티켓에 넣으면 안 됩니다.
 2. 인프라 URL, 저장 경로, 커넥터 자격 증명, SEC 식별 정보를 변경하면 `npm run doctor`를 실행합니다.
@@ -183,7 +181,9 @@ API 키가 없으면 해당 커넥터만 비활성화되어 `UNCONFIGURED`로 �
 
 이 MVP에서 `APP_MODE`, `PUBLIC_MARKET_DATA_API`, `PUBLIC_ARTICLE_BODY`는 운영 정책 표시 값이며 실행 시점의 권한 통제 수단이 아닙니다. 실제 통제는 인증된 브라우저 경로, 범위가 제한된 봇 토큰, 문서 경로 이탈 방지, 각 레코드의 `RightsMode`로 이루어집니다. 정책 표시 값은 제한적인 상태로 유지합니다.
 
-## SEC·뉴스 복구 운영 (2026-09-06)
+## SEC·뉴스 복구 운영
+
+현재 실행 명령과 접근 제한 판정은 [SEC 공시 수집 운영](SEC_COLLECTION.md), 커서 복구는 [SEC 누락 복구](SEC_GAP_RECOVERY.md)를 따릅니다. 아래 정책의 도입 당시 검증은 [2026-09-06 결과 기록](SEC_NEWS_IMPLEMENTATION_RESULT_2026-09-06.md)에 보존합니다.
 
 - `SEC_BACKFILL_MAX_REQUESTS=4`, `SEC_FORM4_ENABLED=true`. SEC Submissions recent와 history는 동일 DB 공유 속도 제한·403/429 cooldown을 사용한다. 실제 연락 가능한 SEC_USER_AGENT를 유지한다.
 - `GDELT_OVERLAP_MINUTES=10`, `GDELT_MAX_SPLIT_DEPTH=4`. 승인 도메인+코드 정책이 비어 있으면 요청하지 않는다. 현재 승인 레지스트리는 비어 있다.
@@ -192,4 +192,4 @@ API 키가 없으면 해당 커넥터만 비활성화되어 `UNCONFIGURED`로 �
 - XML 실패는 SourceItem ownershipStatus/ownershipRetryAt, 성공은 parserVersion/rawSha256와 별도 EventCluster에서 확인한다. 접수 기록의 완료와 XML 해석 완료는 다르다.
 - DB 추가 테이블/마이그레이션 없이 기존 JSON/체크포인트를 재사용한다. 이 변경과 무관한 작업 트리 마이그레이션을 함께 실행하지 않는다.
 
-배포 전: 격리 복사본의 전체 검사 → 현재 운영 산출물·DB 백업 → 이번 변경만 포함한 API/worker 산출물 준비 → 수집 중단 상태에서 배포 → SEC CIK 하나의 200/접수/ownership 확인 → 승인된 publisher만 소량 검증 순서다. 실제 403/429가 남으면 외부 연결 복구로 보고하지 않는다. 롤백은 새 수집을 끄고 이전 산출물로 복원하며 기존 SourceItem/EventCluster/체크포인트는 보존한다. 현재 작업 중인 관심방·번역 편집 변경을 포함한 전체 작업 트리를 그대로 운영에 배포하지 않는다.
+실제 403/429가 남으면 외부 연결 복구로 보고하지 않습니다. 새 코드의 테스트 통과, HTTP 접근 성공, 공시 접수 저장, ownership 해석 완료를 구분합니다. 재배포는 검증한 wheel과 해당 시도의 명세를 사용하고 기존 SourceItem·EventCluster·체크포인트를 보존합니다. worker만 변경하는 경우 API·웹을 함께 재배포하지 않습니다.

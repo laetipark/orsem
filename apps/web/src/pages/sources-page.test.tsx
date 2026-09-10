@@ -99,10 +99,7 @@ describe('shared data sources page', () => {
     expect(api.sourceFreshness).not.toHaveBeenCalled();
     expect(footer.queryByText('커넥터 신선도')).not.toBeInTheDocument();
     expect(footer.queryByRole('link', { name: 'Logos provided by Logo.dev' })).toBeNull();
-    expect(footer.getByRole('link', { name: '로고 출처·이용 안내' })).toHaveAttribute(
-      'href',
-      '/logo-sources',
-    );
+    expect(footer.queryByRole('link', { name: '로고 출처·이용 안내' })).not.toBeInTheDocument();
 
     fireEvent.click(footer.getByRole('link', { name: '데이터 출처·신선도' }));
     expect(await screen.findByText('NAVER 뉴스검색')).toBeInTheDocument();
@@ -133,10 +130,10 @@ describe('shared data sources page', () => {
       expect(screen.getByText('기록 없음')).toBeInTheDocument();
       expect(screen.getByText('—')).toBeInTheDocument();
       expect(
-        within(screen.getByRole('contentinfo')).getByRole('link', {
+        within(screen.getByRole('contentinfo')).queryByRole('link', {
           name: '로고 출처·이용 안내',
         }),
-      ).toHaveAttribute('href', '/logo-sources');
+      ).not.toBeInTheDocument();
       if (role === 'ADMIN') {
         expect(screen.getByRole('link', { name: '운영 상세 보기' })).toHaveAttribute(
           'href',
@@ -161,10 +158,10 @@ describe('shared data sources page', () => {
     expect(screen.getByText('NAVER 뉴스검색')).toBeInTheDocument();
     expect(screen.queryByText('internal connector configuration')).not.toBeInTheDocument();
     expect(
-      within(screen.getByRole('contentinfo')).getByRole('link', {
+      within(screen.getByRole('contentinfo')).queryByRole('link', {
         name: '로고 출처·이용 안내',
       }),
-    ).toBeInTheDocument();
+    ).not.toBeInTheDocument();
   });
 
   it('groups connectors by purpose and preserves deterministic name order after refresh', async () => {

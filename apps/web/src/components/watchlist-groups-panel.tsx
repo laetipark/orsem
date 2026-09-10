@@ -18,6 +18,7 @@ import { useCallback, useEffect, useId, useState, type ReactNode } from 'react';
 import { Link, useLocation, useOutletContext, useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api';
 import { watchlistAccessDenied } from '../lib/watchlist-access';
+import { watchlistGroupsQuery, watchlistRoomsQuery } from '../lib/watchlist-query';
 import { formatDate, formatMoney, formatPercent } from '../lib/format';
 import { useVisiblePanel } from '../lib/use-visible-panel';
 import { useMouseDragScroll } from '../lib/use-mouse-drag-scroll';
@@ -180,12 +181,9 @@ export function WatchlistGroupsPanel({
     'directory' | 'createRoom' | 'room' | 'groups' | 'copy' | null
   >(null);
   const rooms = useQuery({
-    queryKey: ['watchlist-v2', actor, 'rooms'],
-    queryFn: ({ signal }) => api.watchlistRooms(signal),
+    ...watchlistRoomsQuery(actor),
     enabled: !!actor && !!session?.canAccess && visible,
     refetchInterval: visible ? 60000 : false,
-    refetchIntervalInBackground: false,
-    retry: false,
   });
   const room = rooms.data?.items.find((r) => r.id === roomId),
     scopeReady =
@@ -194,12 +192,9 @@ export function WatchlistGroupsPanel({
       blockedScope !== scopeKey &&
       (!roomId || Boolean(room && !rooms.isError));
   const groups = useQuery({
-    queryKey: ['watchlist-v2', actor, 'groups', roomId ?? 'personal'],
-    queryFn: ({ signal }) => api.watchlistGroups(signal, roomId),
+    ...watchlistGroupsQuery(actor, roomId),
     enabled: !!actor && visible && scopeReady,
     refetchInterval: visible ? 60000 : false,
-    refetchIntervalInBackground: false,
-    retry: false,
   });
   const selected = recentSelected
     ? undefined

@@ -147,6 +147,7 @@ function MarketRegion({ region, code }: { region?: Region; code: 'kr' | 'us' }) 
                   </span>
                   <CompanyAvatar
                     company={{
+                      id: item.id,
                       nameKo: item.nameKo,
                       stockCode: item.stockCode ?? null,
                       ticker: item.ticker ?? null,

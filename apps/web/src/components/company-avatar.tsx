@@ -1,14 +1,9 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { memo, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { CompanySummary } from '../types';
 import { useCompanyLogo, logoResourceKey } from '../lib/use-company-logo';
 import { api } from '../lib/api';
 import type { LogoCandidate } from '../lib/company-branding';
-import {
-  logoFailureRevision,
-  logoRecentlyFailed,
-  recordLogoFailure,
-  subscribeLogoFailures,
-} from '../lib/logo-failures';
+import { logoRecentlyFailed, recordLogoFailure, subscribeLogoFailures } from '../lib/logo-failures';
 import { cn } from './ui';
 import './company-avatar.css';
 
@@ -17,44 +12,49 @@ type Props = {
   className?: string;
 };
 
-export function CompanyAvatar(props: Props) {
-  // Changing security resets load attempts. Ordinary price/name updates do not.
-  return <CompanyLogoImage key={logoResourceKey(props.company)} {...props} />;
-}
+export const CompanyAvatar = memo(
+  function CompanyAvatar(props: Props) {
+    // Changing security resets load attempts. Ordinary price/name updates do not.
+    return <CompanyLogoImage key={logoResourceKey(props.company)} {...props} />;
+  },
+  (previous, next) =>
+    previous.className === next.className &&
+    previous.company.id === next.company.id &&
+    previous.company.market === next.company.market &&
+    previous.company.stockCode === next.company.stockCode &&
+    previous.company.ticker === next.company.ticker &&
+    previous.company.nameKo === next.company.nameKo,
+);
 
 function CompanyLogoImage({ company, className }: Props) {
   const { ref, candidates, companyId, visible } = useCompanyLogo(company);
-  useSyncExternalStore(subscribeLogoFailures, logoFailureRevision);
   const attempts = useRef(0);
   const permits = useRef(new Map<string, Promise<{ allowed: boolean }>>());
   const issued = useRef(new Set<string>());
   const skipped = useRef(new Set<string>());
+  const selectedCandidates = useRef<LogoCandidate[] | null>(null);
   const [active, setActive] = useState<LogoCandidate | null>(null);
   const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
-  const activeFailed = !!active && logoRecentlyFailed(active.url);
-  const activeCurrent =
-    !!active &&
-    candidates.some(
-      (candidate) =>
-        candidate.url === active.url &&
-        candidate.logoRole === active.logoRole &&
-        candidate.reviewStatus === active.reviewStatus,
-    );
+  const activeFailed = useSyncExternalStore(subscribeLogoFailures, () =>
+    Boolean(active && loadedUrl !== active.url && logoRecentlyFailed(active.url)),
+  );
+  const activeCurrent = active && candidates.find((candidate) => candidate.url === active.url);
   const activePreferred =
     activeCurrent &&
-    !candidates
-      .slice(
-        0,
-        candidates.findIndex((candidate) => candidate.url === active?.url),
-      )
-      .some(
-        (candidate) =>
-          !skipped.current.has(candidate.url) &&
-          !logoRecentlyFailed(candidate.url) &&
-          (!candidate.provider ||
-            (!issued.current.has(candidate.url) &&
-              (permits.current.has(candidate.url) || attempts.current < 2))),
-      );
+    ((loadedUrl === active.url && selectedCandidates.current === candidates) ||
+      !candidates
+        .slice(
+          0,
+          candidates.findIndex((candidate) => candidate.url === active?.url),
+        )
+        .some(
+          (candidate) =>
+            !skipped.current.has(candidate.url) &&
+            !logoRecentlyFailed(candidate.url) &&
+            (!candidate.provider ||
+              (!issued.current.has(candidate.url) &&
+                (permits.current.has(candidate.url) || attempts.current < 2))),
+        ));
   useEffect(() => {
     if (!visible || (active && activePreferred && !activeFailed)) return;
     let cancelled = false;
@@ -84,6 +84,7 @@ function CompanyLogoImage({ company, className }: Props) {
         }
         if (!cancelled) {
           if (candidate.provider) issued.current.add(candidate.url);
+          selectedCandidates.current = candidates;
           setActive(candidate);
         }
         return;
@@ -96,7 +97,7 @@ function CompanyLogoImage({ company, className }: Props) {
   }, [candidates, companyId, visible, active, activePreferred, activeFailed]);
   const showImage = active && activeCurrent && !activeFailed;
   useEffect(() => {
-    if (!showImage || loadedUrl === active.url) return;
+    if (!visible || !showImage || loadedUrl === active.url) return;
     // A stalled image also falls back; the HTTP cause remains unknown.
     const timer = setTimeout(() => {
       skipped.current.add(active.url);
@@ -104,7 +105,7 @@ function CompanyLogoImage({ company, className }: Props) {
       setActive(null);
     }, 20_000);
     return () => clearTimeout(timer);
-  }, [showImage, active, loadedUrl]);
+  }, [visible, showImage, active, loadedUrl]);
   const letters =
     Array.from((company.ticker || company.nameKo).replace(/[^\p{L}\p{N}]/gu, ''))
       .slice(0, 2)
@@ -114,11 +115,11 @@ function CompanyLogoImage({ company, className }: Props) {
       ref={ref}
       className={cn('company-avatar', showImage && 'company-avatar--image', className)}
       aria-hidden="true"
-      data-logo-role={showImage ? active.logoRole : 'fallback'}
-      data-review-status={showImage ? active.reviewStatus : undefined}
+      data-logo-role={showImage ? activeCurrent.logoRole : 'fallback'}
+      data-review-status={showImage ? activeCurrent.reviewStatus : undefined}
       data-load-state={showImage ? (loadedUrl === active.url ? 'loaded' : 'loading') : 'fallback'}
       title={
-        showImage && active.logoRole === 'issuer'
+        showImage && activeCurrent.logoRole === 'issuer'
           ? '운용사 로고 · 상품명과 종목코드를 함께 확인하세요'
           : undefined
       }
@@ -138,10 +139,11 @@ function CompanyLogoImage({ company, className }: Props) {
             onError={() => {
               skipped.current.add(active.url);
               recordLogoFailure(active.url);
+              setLoadedUrl(null);
               setActive(null);
             }}
           />
-          {active.logoRole === 'issuer' ? (
+          {activeCurrent.logoRole === 'issuer' ? (
             <span className="company-avatar__issuer">운용</span>
           ) : null}
         </>

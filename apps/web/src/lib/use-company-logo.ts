@@ -9,11 +9,13 @@ export type LogoIdentity = Pick<CompanySummary, 'stockCode' | 'ticker' | 'market
 };
 type Entry = {
   response?: CompanyLogoResponse;
+  candidateSignature?: string;
   expires: number;
   listeners: Set<() => void>;
   flight?: Promise<void>;
 };
 const entries = new Map<string, Entry>();
+export const LOGO_VISIBLE_DELAY_MS = 150;
 
 export function logoResourceKey(company: LogoIdentity) {
   if (
@@ -52,10 +54,18 @@ async function refresh(key: string, entry: Entry) {
         !(exchange === 'KRX' && ['KOSPI', 'KOSDAQ'].includes(metadata.exchange)))
     )
       throw new Error('Invalid logo identity');
-    entry.response = data.data;
+    // Review timestamps can become valid even when the metadata payload is unchanged.
+    const candidateSignature = JSON.stringify(buildLogoCandidates(data.data));
+    entry.response =
+      JSON.stringify(data.data) === JSON.stringify(previousResponse) &&
+      candidateSignature === entry.candidateSignature
+        ? previousResponse
+        : data.data;
+    entry.candidateSignature = candidateSignature;
     entry.expires = Date.now() + 300_000;
   } catch {
     entry.response = undefined;
+    entry.candidateSignature = undefined;
     entry.expires = Date.now() + 60_000;
   } finally {
     entry.flight = undefined;
@@ -71,15 +81,36 @@ export function useCompanyLogo(company: LogoIdentity) {
   const [visible, setVisible] = useState(typeof IntersectionObserver === 'undefined');
   const [foreground, setForeground] = useState(document.visibilityState !== 'hidden');
   useEffect(() => {
+    let visibilityTimer: ReturnType<typeof setTimeout> | undefined;
+    let intersecting = typeof IntersectionObserver === 'undefined';
+    const updateVisibility = () => {
+      clearTimeout(visibilityTimer);
+      visibilityTimer = undefined;
+      if (!intersecting || document.visibilityState === 'hidden') {
+        setVisible(false);
+      } else if (typeof IntersectionObserver === 'undefined') {
+        setVisible(true);
+      } else {
+        // Skip logos that only flash through the viewport during fast scrolling.
+        visibilityTimer = setTimeout(() => setVisible(true), LOGO_VISIBLE_DELAY_MS);
+      }
+    };
     const observer =
       typeof IntersectionObserver === 'undefined'
         ? null
-        : new IntersectionObserver((rows) => setVisible(rows.some((row) => row.isIntersecting)));
+        : new IntersectionObserver((rows) => {
+            intersecting = rows.some((row) => row.isIntersecting);
+            updateVisibility();
+          });
     if (ref.current) observer?.observe(ref.current);
-    const update = () => setForeground(document.visibilityState !== 'hidden');
+    const update = () => {
+      setForeground(document.visibilityState !== 'hidden');
+      updateVisibility();
+    };
     document.addEventListener('visibilitychange', update);
     return () => {
       observer?.disconnect();
+      clearTimeout(visibilityTimer);
       document.removeEventListener('visibilitychange', update);
     };
   }, []);

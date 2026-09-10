@@ -5,7 +5,7 @@
 ## 기존 구조와 변경 경계
 
 - Node.js 24 / npm workspaces / TypeScript strict 구조다. 웹은 React 19 + Vite 7, 테스트는 Vitest + Testing Library + jsdom이다. Next.js 또는 이미지 최적화 서버가 아니다.
-- API는 NestJS / Express, DB는 TypeORM / MySQL이며 마이그레이션을 사용한다. `synchronize: false`를 유지한다. API와 contracts 테스트는 TypeScript 컴파일 후 Node 내장 test runner를 실행한다. Python worker와 기존 TypeScript worker 코드는 함께 존재한다.
+- API는 NestJS / Express, DB는 TypeORM / MySQL이며 마이그레이션을 사용한다. `synchronize: false`를 유지한다. API와 contracts 테스트는 TypeScript 컴파일 후 Node 내장 test runner를 실행한다. 로고 기능은 워커에 이미지 수집 작업을 등록하지 않는다.
 - 종목 식별자는 기존 `companies.id` UUID다. `market + stockCode`, `market + ticker`에 별도 유일성이 있다. `stock_code`는 문자열 `CHAR(6)`, `ticker`는 문자열 `VARCHAR(32)`, OpenDART `corp_code`는 별도의 `CHAR(8)`이다. 로고 공유를 이유로 종목 ID, 보통주·우선주, 주식 클래스, 가격 또는 보유 데이터의 식별자를 합치지 않는다.
 - 종목 목록·상세·관심종목·최근 종목 등은 공통 `apps/web/src/components/company-avatar.tsx`를 사용한다. 기존 `brand-logo.tsx`는 서비스 자체 ORSEM 로고다.
 - Vite는 저장소 루트 `.env`를 읽는다. `VITE_*`는 빌드 시 브라우저에 노출되므로 비밀 키를 넣지 않는다. API/worker는 런타임 설정 검증과 서버 `.env`를 사용한다. PM2의 기존 환경이 남을 수 있어 `ecosystem.config.cjs`의 `fileBackedEnvironment` 목록을 통한 설정 전달을 확인한다. 키 값은 문서나 로그에 출력하지 않는다.
@@ -26,7 +26,7 @@ https://img.logo.dev/ticker/{providerTicker}?token={publishableKey}&size=128&for
 https://img.logo.dev/{verifiedDomain}?token={publishableKey}&size=128&format=webp&fallback=404
 ```
 
-[출처 표시 문서](https://www.logo.dev/docs/platform/attribution)는 무료 상업적 이용 시 화면에 보이는 링크를 요구한다. 로고가 보이는 앱 화면에 `Logos provided by Logo.dev` 링크를 표시하고 로그인 없이 접근할 수 있는 공개 안내 페이지에도 표시한다. 링크에는 `noreferrer`를 붙이지 않으며 production URL을 공급자 대시보드에서 검증해야 한다. 앱에 코드가 존재하는 것과 대시보드에서 승인된 것은 구분한다.
+[출처 표시 문서](https://www.logo.dev/docs/platform/attribution)는 무료 상업적 이용 시 화면에 보이는 링크를 요구한다. 로그인 기반 앱은 공개 안내 페이지에 출처를 둘 수 있으므로 `/logo-sources` 본문에 `Logos provided by Logo.dev` 링크를 표시한다. 링크에는 `noreferrer`를 붙이지 않으며 production URL을 공급자 대시보드에서 검증해야 한다. 앱에 코드가 존재하는 것과 대시보드에서 승인된 것은 구분한다.
 
 [자체 호스팅 문서](https://www.logo.dev/docs/platform/self-hosting)는 Pro/Enterprise/별도 계약에 자체 저장 권한을 부여한다. 무료 기능에는 외부 이미지 일괄 다운로드, 자체 스토리지 저장, 이미지 프록시 또는 CDN 재호스팅을 넣지 않는다. 브라우저가 공급자 응답에 따라 수행하는 기본 캐시는 방해하지 않는다.
 
@@ -62,7 +62,7 @@ ETF 로고는 상품(`fund`)과 운용사(`issuer`)를 구분한다. 운용사 �
 
 [기업개황 공식 문서](https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS001&apiId=2019002)의 `company.json`은 8자리 문자열 `corp_code`와 서버용 `crtfc_key`를 받으며 `hm_url` 홈페이지를 반환한다. 이 API는 로고 API가 아니다. 6자리 주식 코드를 `corp_code`에 넣지 않는다.
 
-기존 매핑은 `companies.corp_code`다. 기존 Python `apps/worker/python/orsem_worker/disclosures/client.py`의 `company_information`과 TypeScript `apps/worker/src/opendart/opendart.client.ts`의 기업정보 조회가 이미 `company.json`을 호출한다. `company_information_snapshots.raw_json.annual.profile.hm_url`을 재사용하여 **후보**로 제시할 수 있다. 종목코드/고유번호 일치, URL 정규화, 기업 홈페이지 여부를 검수한 후에만 `officialDomain`으로 승인한다. 홈페이지 문자열을 얻었다는 사실만으로 승인하지 않는다. ETF에는 일반 상장회사 경로를 자동 적용하지 않는다. 이 기능을 위해 전 종목 수집을 새로 실행하지 않는다. 기존 `OPENDART_API_KEY`를 브라우저에 노출하지 않는다.
+기존 매핑은 `companies.corp_code`다. 기존 Python `apps/worker/python/orsem_worker/disclosures/client.py`의 `company_information`이 이미 `company.json`을 호출한다. `company_information_snapshots.raw_json.annual.profile.hm_url`을 재사용하여 **후보**로 제시할 수 있다. 종목코드/고유번호 일치, URL 정규화, 기업 홈페이지 여부를 검수한 후에만 `officialDomain`으로 승인한다. 홈페이지 문자열을 얻었다는 사실만으로 승인하지 않는다. ETF에는 일반 상장회사 경로를 자동 적용하지 않는다. 이 기능을 위해 전 종목 수집을 새로 실행하지 않는다. 기존 `OPENDART_API_KEY`를 브라우저에 노출하지 않는다.
 
 ## 무료 운영 원칙과 실패 해석
 
@@ -104,7 +104,7 @@ ETF 로고는 상품(`fund`)과 운용사(`issuer`)를 구분한다. 운용사 �
 
 **Redis 예산 키와 영속성을 유지한다.** Redis를 초기화하거나 서로 다른 Redis를 사용하는 배포에서 같은 공개 키를 공유하면 상한을 보장할 수 없다. 같은 키의 타 앱 트래픽도 이 예약 수에 들어오지 않으므로 전용 키를 사용하거나 그 사용량만큼 내부 한도를 낮춘다. 공개 키를 직접 사용하는 외부 남용은 애플리케이션 permit으로 막을 수 없으므로 공급자 대시보드의 origin 제한 및 총사용량 확인도 필요하다. 무료 한도 소진을 결제 설정 변경으로 해결하지 않는다.
 
-공개 출처 페이지는 `/logo-sources`이며 앱 공통 footer와 관심종목 popout은 이 안내 페이지로 연결한다. Logo.dev 직접 출처 링크는 공개 안내 본문에 두며 `noreferrer` 없이 origin 수준 Referer를 전달한다. 공식 문서의 로그인 기반 앱에 대한 공개 안내 페이지 배치 조건을 따른다. 공개 페이지는 로컬 파일의 API credits를 함께 표시한다. 운영 계정에서 공개 production URL 승인은 별도로 확인해야 한다.
+공개 출처 페이지는 `/logo-sources`이며 `/sources` 본문의 로고 안내에서 연결한다. footer와 관심종목 popout의 안내 링크는 제거했다. Logo.dev 직접 출처 링크는 공개 안내 본문에 두며 `noreferrer` 없이 origin 수준 Referer를 전달한다. 공식 문서의 로그인 기반 앱에 대한 공개 안내 페이지 배치 조건을 따른다. 공개 페이지는 로컬 파일의 API credits를 함께 표시한다. 운영 계정에서 공개 production URL 승인은 별도로 확인해야 한다. 후속 화면·로더 변경은 2026-09-11 01:58:01 KST에 운영 반영했으며 아래 검증 기록에서 적용 범위와 검수 한계를 구분한다.
 
 ## 재현 가능한 검증
 
@@ -119,73 +119,55 @@ npm run typecheck
 
 로고 테스트는 목 메타데이터와 `/logos/` 테스트 경로, 모의 load/error 이벤트를 사용한다. jsdom 테스트는 실제 이미지 바이트를 디코딩한 증거가 아니다. 국내 앞자리 0·영숫자·거래소 접미사, 보통주/우선주 및 미국 클래스별 종목 식별, ETF 역할, 키 없음·정보 없음, 순차 실패·최대 2개 외부 후보·실패 기록, 관리자 권한/경로 검증, 무료 예산, 접근성/다크모드, 브라우저 직접 이미지 요청을 확인한다. 실제 키가 설정되어도 이 테스트를 외부 로고 일괄 수집으로 바꾸지 않는다.
 
+## 로더·캐시와 반복 로딩 억제
+
+메타데이터는 최대 512개를 5분간 공유하며 실패 시 60초 후 다시 조회할 수 있다. 이벤트·시총 목록에서도 기존 회사 UUID를 전달해 같은 종목의 목록·상세 조회가 같은 캐시를 사용한다. 시장·거래소·문자열 코드의 일치는 별도로 검증한다. 동일 내용의 메타데이터 갱신은 기존 응답 참조를 유지한다. 시간 경계에서 후보를 다시 계산하더라도 후보 구성이 같으면 기존 후보 참조를 유지하여 표시 중인 로고를 불필요하게 다시 로딩하지 않는다.
+
+브라우저가 제공하는 IntersectionObserver로 **150ms 연속 노출**을 확인한 뒤 조회한다. 빠르게 지나간 항목, 화면 밖 항목, 숨긴 탭은 새 로고 조회를 시작하지 않는다. 이미 시작한 이미지 요청을 취소하기 위해 DOM을 반복 제거하지 않으며, 숨겨진 동안에는 20초 로딩 중단 판정 타이머도 멈춘다. 이미 표시된 이미지가 다시 보일 때는 같은 DOM을 유지한다. IntersectionObserver가 없는 환경은 기존 지연 로딩과 화면 가시성 검사를 사용한다.
+
+이미지 실패 기록은 최대 1,024개·60초의 메모리 정보다. 해당 URL이 아직 로드되지 않은 아바타만 실패 변경에 반응한다. 다른 아바타에서 같은 URL이 실패해도 이미 로드된 이미지를 제거하지 않는다. 정상 표시된 대체 후보는 짧은 실패 기록이 만료됐다는 이유로 다시 교체하지 않는다. 관리자가 후보를 변경·거절하면 새 메타데이터를 따른다. URL이 같고 검수 상태·역할만 바뀌면 DOM을 유지하면서 표시 정보를 갱신한다.
+
+이미지별 최대 2회 외부 후보·순차 요청·서버 permit은 유지한다. 서로 다른 아바타의 permit을 공유하거나 이미지 파일을 자체 캐시에 저장하지 않는다. 브라우저 기본 캐시 외의 이미지 바이트 캐시는 추가하지 않았으며, 새 아바타 마운트에서 모든 요청이 사라지는 것을 보장하지 않는다.
+
+구현 파일은 `components/company-avatar.tsx`, `lib/use-company-logo.ts`, `lib/logo-failures.ts`, `lib/company-branding.ts`다. 호출 지점의 UUID 전달은 `components/event-row.tsx`, `components/market-selection.tsx`에 반영했다. `components/watchlist-groups-panel.css`는 내 종목·관심종목·팝아웃·같은 구조의 최근조회 로고 padding을 0으로 지정한다. 상세 화면의 고정 크기·padding 0과 모든 이미지의 `object-fit: contain`을 유지한다.
+
 ## 실제 이미지 확인 범위와 남은 검수
 
-최초 구현·공식 문서 확인 시점에는 외부 키가 없었고 로고 이미지 요청을 보내지 않았다. 이후 키 설정 및 소수 종목 확인 결과는 아래의 활성화 후속 기록에 구분해 남긴다. 테스트의 로컬 경로와 목 응답은 실제 이미지 표시나 외부 공급자의 커버리지 증거가 아니다. 상용 기업·ETF 로컬 파일은 이번 변경에 포함하지 않았다. 개별 이용 조건과 기업 매핑 검수 후 관리자 API로 등록해야 한다.
+2026-09-11 KST의 운영 Chrome 표본 확인이다. 실제 표시와 DB의 수동 기업 매핑 검수는 별개이며 아래 표본의 검수 상태는 `unreviewed`다. 로컬 기업·ETF 파일은 아직 등록하지 않았다.
 
-- 국내 개별주: KOSPI/KOSDAQ 거래소 근거, 영숫자/앞자리 0 보존, 보통주·우선주 개별 ID, 회사와 도메인 일치, 실제 로고 모양 검수가 남는다.
-- 미국 개별주: 거래소와 주식 클래스별 공급자 매핑을 검수한다. 특히 BRK.B의 공급자 표기/응답, GOOG·GOOGL의 별도 종목 유지, 동일 로고 공유 여부를 구분한다.
-- ETF: 국가별 상품 메타데이터, 상품 자체 로고와 운용사 로고 역할, issuerId 및 출처, 실제 이미지가 지수나 편입기업 로고가 아닌지를 검수한다.
-- 운영: 무료 플랜/카드 없음/초과 과금 비활성, 대시보드 한도, 공개 production 출처 URL 승인, 작은 표본의 브라우저 직접 표시, CSP와 Referer 전달을 확인한다.
+| 종목               | 실제 확인                                                                                                                       |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| 애플 `AAPL`        | `img.logo.dev/ticker/AAPL` 직접 이미지 128px 디코딩 및 다크 테마의 애플 모양 확인. origin Referer, 장식 이미지 접근성 속성 확인 |
+| 삼성전자 `005930`  | 거래소 보완 후 `/ticker/005930.KS` 로딩과 다크 테마 상세 화면의 삼성 로고 확인. 종목명·가격·차트 정상 표시                      |
+| KODEX 200 `069500` | 자체 아이콘과 상품명·코드 표시. ETF 식별 정보는 있으나 검수된 상품/운용사 매핑과 issuerId가 없어 외부 후보를 생성하지 않음      |
 
-## 변경 파일과 실행 결과 (2026-09-11)
+삼성전자의 `companies.market=KRX`는 동일 종목 TOSS `STOCK_INFO`의 내부 ID·코드·원본 코드·KRW·ACTIVE·자산 유형을 검증해 KOSPI로 보완했다. 로고 메타데이터만 보완하며 기존 회사 행·가격·보유 데이터는 변경하지 않는다.
 
-- 웹 공통 로더: `components/company-avatar.tsx`, `company-avatar.css`, `lib/company-branding.ts`, `lib/use-company-logo.ts`, `lib/logo-failures.ts`, `lib/api.ts`. 메타데이터는 최대 512개를 5분간 공유하고, 재마운트·가시성/포커스 변경 시 만료를 확인한다. 메타데이터 조회 실패는 60초 후 다시 시도할 수 있다. 이미지 실패는 최대 1,024개의 60초 기록만 남기며, 20초 이상 멈춘 이미지도 다음 후보로 전환한다.
-- 신원·관리·예산: `packages/contracts/src/company-logos.ts`, `apps/api/src/resources/company-logo.service.ts`, `config/app-config.ts`, `security/security.ts`, `security/session-runtime.service.ts`. 기존 company UUID·시장·코드와 가격/보유 데이터는 합치지 않는다. `STOCK_INFO` 및 `KR_ETF_IDENTITY`의 동일 종목 출처가 자산 유형을 제공하며, 모르면 `unknown`으로 남겨 자동 티커 조회를 생략한다. 검수 거절이나 손상된 매핑은 자동 조회로 되돌아가지 않는다.
-- 화면 연결: `components/logo-attribution.tsx`, `components/app-shell.tsx`, `pages/logo-sources-page.tsx`, `pages/sources-page.tsx`, `pages/watchlist-popout-page.tsx`, `app.tsx`, 관련 CSS. 기존 목록·관심종목·종목 상세·시장 목록·최근 종목의 CompanyAvatar를 재사용했다. 상세 페이지 로고는 기존 크기·padding 0을 유지하면서 `object-fit: contain`으로 잘림을 방지했다. 이 저장소에는 포트폴리오/보유 화면이 없으므로 새 보유 기능을 만들지 않았다.
-- 운영: `.env.example`, `ecosystem.config.cjs`, `deploy/nginx/orsem.laetipark.me.conf`, Python `market/__init__.py`와 `tests/test_market.py`. 기존 로고 이미지 수집의 정기 실행을 제거하고, 종목 정보/시세 스케줄은 유지한다. Nginx 변경은 이미지 허용 호스트와 popout 정책만 다룬다.
-- 검증 파일: `company-branding.test.ts`, `company-avatar.test.tsx`, `event-row.test.tsx`, `logo-sources-page.test.tsx`, 공개 라우트/출처/popout 테스트, `company-logo.spec.ts`, `company-logo-budget.spec.ts`, `test/logo-fixtures.ts`.
+- 국내 개별주: KOSDAQ 실물 로고의 기업 일치, 개별 보통주·우선주 매핑, 회사·공식 도메인 일치 검수가 남는다.
+- 미국 개별주: BRK.B 등 특수 표기와 주식 클래스별 공급자 응답을 검수해야 한다. GOOG·GOOGL의 별도 식별은 자동 테스트로 확인했으며 실물 커버리지 확인과 다르다.
+- ETF: 상품·운용사 메타데이터, issuerId·역할·출처 및 실물 이미지 검수가 필요하다. 기초지수·편입기업 이미지로 대신하지 않는다.
+- 운영: Brandfetch 실제 이미지 응답, 무료 계정·과금 설정·대시보드 한도·production 출처 URL 승인 및 Nginx 운영 반영은 이 표본으로 확인하지 않았다.
 
-공개 안내 페이지를 로컬 개발 서버의 실제 브라우저에서 확인했다. 다크 테마 안내 및 Logo.dev 출처 링크는 보였고, 아직 배포되지 않은 운영 API의 로컬 credits 조회 실패도 페이지를 막지 않았다. 로고 렌더러의 밝은/어두운 모드와 장식 이미지 접근성은 자동 테스트에서 확인했으며, 공급자의 실물 로고를 두 테마에서 검수한 것은 아니다.
+전체 종목 커버리지, 실제 HTTP 오류 원인, 파일 재배포 권한을 목 테스트나 URL 생성만으로 확인했다고 해석하지 않는다.
 
-최초 구현 검증 단계에서는 서비스 재시작·운영 API/웹 배포를 수행하지 않았다. 초기 shared contracts/database 빌드 후 동일 저장소의 배포 작업과 조율했으며, 이후 API/웹 프로덕션 빌드는 `/tmp/orsem-stock-logos-check-20260911` 사본에서 검증했다. 공급자 계정·유료 구독·카드·자동 충전 설정은 만들거나 변경하지 않았다.
+## 검증 및 운영 반영 기록
 
-실행 결과:
+2026-09-11 초기 전체 검증은 웹 **596/596**, API **356/356**(skip 0), contracts **31/31**, Python market **70/70**이었다. 격리 API·웹 빌드도 통과했다. API 테스트의 로컬 포트 제한은 허용된 격리 실행에서 해결했고, Redis 예산 테스트는 별도의 임시 Redis를 사용한 뒤 종료했다. 초기 전체 결과는 이후 변경까지 포함한 최신 통합 검증 결과를 대신하지 않는다.
 
-| 검증                                            | 결과                                                                                               |
-| ----------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| 격리 `npm test -w @orsem/web`                   | 76개 파일, **596/596 통과**                                                                        |
-| 격리 `npm test -w @orsem/api`                   | **356/356 통과**, skip 0                                                                           |
-| 격리 `npm test -w @orsem/contracts`             | **31/31 통과**                                                                                     |
-| Python `test_market.py`                         | **70/70 통과**; `/tmp/orsem-python-migration-20260910/pyenv/bin/python` 사용                       |
-| 로고 전용 브라우저 목 테스트                    | 후보/식별 16개 + 이미지 로더 11개, **27/27 통과** (웹 전체에 포함)                                 |
-| 로고 전용 API                                   | 메타데이터/권한/거절 12개 + 실제 Redis 예산 1개 통과 (API 전체에 포함)                             |
-| 격리 `build:packages`, API/Web production build | 성공                                                                                               |
-| 변경 범위 ESLint, Prettier, `git diff --check`  | 통과                                                                                               |
-| Nginx 설정                                      | 원본 구문 확인, 임시 사본의 listen만 18127로 바꾼 독립 검사 성공; 운영 설정 reload는 수행하지 않음 |
+후속 거래소 보완은 웹 로고 **32/32**, API 로고 **15/15**, 격리 API·웹 빌드 통과 후 운영 반영했다. 공개 키 형식·PM2 로고 설정 6개 일치와 health live/ready HTTP 200을 확인했다. 공급자 플래그는 활성화하고 각각 500,000의 내부 상한을 유지했으며 계정·카드·구독·자동 충전 설정은 변경하지 않았다. API 파일 교체 원본은 `/tmp/orsem-logo-release-uBpD6T`에 보관했다.
 
-API 최초 샌드박스 실행은 테스트용 로컬 포트 열기 제한으로 실패했으며, 허용된 격리 실행에서 전체 통과했다. Redis 테스트는 운영 Redis를 사용하지 않고 port 0·임시 Unix socket·영속성 비활성 서버에서 실행했으며 종료했다. 웹 최초 전체 검사에서 관심방 생성 후 라우터 갱신을 기다리지 않는 기존 assertion의 비동기 순서 문제가 드러나 해당 URL assertion만 `waitFor`로 보완하고 전체 통과를 확인했다.
+이후 로고 padding 0 및 footer의 영문 직접 링크 제거는 출처·공개 라우트·팝아웃 **29/29**와 격리 웹 빌드 통과 후 웹만 반영했다. 이 배포의 index 백업은 `/tmp/orsem-logo-footer-release-y2rlx8_i`다.
 
-검증 로그는 `/tmp/orsem-logo-web-final.log`, `/tmp/orsem-logo-api-final-permitted.log`, `/tmp/orsem-logo-web-build.log`, `/tmp/orsem-logo-api-build.log`에 보관했다. 운영 배포 작업에 현재 소스와 위 결과를 전달했으며 해당 작업의 배포 성공 여부는 이 보고에 포함하지 않는다.
+**후속 변경은 2026-09-11 01:58:01 KST에 통합 배포를 완료했다.** 로고 범위는 모든 footer의 내부 로고 안내 링크 제거, `/logo-sources` 반응형, 반복 로딩 억제 및 기존 UUID 공유다. 앞선 집중 검사에서 로더/후보 **38/38**, 이벤트/시총 목록 **16/16**이 통과했고, 마지막 시간 경계의 후보 참조 유지 수정 이후 웹 전체 **614/614**(77개 파일), TypeScript·ESLint·빌드를 통과했다. 전체 프로젝트의 격리 `npm run check`와 빌드도 통과했다.
 
-## 키 설정 및 활성화 후속 기록 (2026-09-11 KST)
+실제 브라우저의 fixture 화면에서 `/logo-sources`를 280·320·375·420·768·1280px로 확인했다. 가로 넘침은 없었고 Logo.dev 본문 출처 링크를 유지하며 footer의 로고 출처 링크는 0개였다. 이 검증은 화면 배치와 출처 링크 확인이며 위의 실제 이미지 표본이나 기업·상품 매핑 검수 범위를 늘리지 않는다.
 
-사용자가 `.env`에 추가한 Logo.dev publishable key와 Brandfetch Logo API Client ID의 형식을 값 노출 없이 확인했다. 공급자 활성화 플래그 두 개를 `true`로 변경하고 각 500,000 요청의 내부 상한과 기존 키·다른 설정은 보존했다. API만 재시작한 뒤 PM2의 로고 환경변수 6개 일치와 `health/live`, `health/ready`의 HTTP 200을 확인했다. 키 형식 확인은 공급자 계정의 무료 플랜·과금 설정·대시보드 한도 확인을 대신하지 않으며, 이 후속 작업에서도 계정·결제 설정은 변경하지 않았다.
+통합 배포는 웹 78개와 API `news-content` 산출물 3개를 포함하며 기존 웹 자산을 보존했다. API만 기존 환경으로 재시작했고 Python worker·DB·큐는 변경하지 않았다. 로고 API·외부 이미지 다운로드 경로의 추가 변경은 없다. 백업, 최종 index 해시, 최초 시도의 자동 복구와 재배포 결과는 [화면·로고 후속 배포 기록](DEPLOYMENT.md#2026-09-11-화면로고-후속-정리-배포)을 따른다.
 
-실제 서비스의 로그인된 Chrome에서 소수 종목만 확인했다.
+앞선 집중 로더 검증 로그는 `/tmp/orsem-logo-loading-test.log`, `/tmp/orsem-logo-loading-types.log`다. 초기 전체 결과는 `/tmp/orsem-logo-web-final.log`, `/tmp/orsem-logo-api-final-permitted.log`에, 거래소 보완 결과는 `/tmp/orsem-logo-activation-*-test.log`, `/tmp/orsem-logo-activation-*-build.log`에 보관했다. 이 임시 로그의 초기 수치를 최신 통합 결과 대신 사용하지 않는다.
 
-| 종목               | 관측 결과                                                                                                                                                                      | 검수 상태                                                                                               |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
-| 애플 `AAPL`        | `img.logo.dev/ticker/AAPL` 직접 이미지가 128px로 디코딩됐으며 다크 테마 화면에서 애플 모양 확인. `referrerPolicy=origin`, 장식 이미지 `alt=""` 및 부모 `aria-hidden=true` 확인 | 실제 표시 표본 확인. DB의 매핑 검수 상태는 `unreviewed` 유지                                            |
-| 삼성전자 `005930`  | 최초 확인 시 자체 텍스트 아이콘 표시. 거래소 보완 배포 후 `/ticker/005930.KS` 이미지 로드 및 다크 테마 상세 화면의 삼성 로고 표시 확인. 종목명·가격·차트 사용 가능             | 실제 표시 표본 확인. DB의 매핑 검수 상태는 `unreviewed` 유지                                            |
-| KODEX 200 `069500` | 자체 아이콘과 상품명·코드 표시                                                                                                                                                 | 동일 종목의 ETF 메타데이터는 있으나 검수된 상품/운용사 매핑과 issuerId가 없어 외부 후보를 생성하지 않음 |
+## 이전 코드 정리와 배포 자산 보존
 
-삼성전자는 기존 `companies.market=KRX`와 동일 종목 TOSS `STOCK_INFO.rawPayload.market=KOSPI`를 확인했다. `company-logo.service.ts`는 내부 ID·종목코드·원본 코드·KRW·ACTIVE·자산 유형을 검증한 경우에만 KRX의 거래소를 KOSPI/KOSDAQ로 보완하도록 수정했다. 명시된 거래소, 기존 company ID, 가격·보유 데이터는 변경하지 않는다. 웹 `use-company-logo.ts`는 동일 국가·ID·코드 검증을 유지하면서 KRX 응답의 KOSPI/KOSDAQ 세분화를 허용한다. 서로 충돌하는 명시 거래소는 계속 거부한다.
+이전 Python 로고 수집 원본·전용 테스트와 build·egg-info·옛 로고 pyc 생성물을 제거했다. 워커 담당의 fresh wheel 검사는 소스 파일 66개의 SHA 일치와 옛 로고 모듈·pycache 포함 0개를 확인했다. 이전 공급자 조사 문서도 제거했으며 현재 로고 어댑터·권리 검수와 재발 방지 테스트, 뉴스용 Finnhub 설정은 유지한다.
 
-추가 검증은 웹 로고 테스트 **32/32**, API 로고 테스트 **15/15**, 격리 API·웹 프로덕션 빌드 통과다. API는 `node --test --test-isolation=none apps/api/.test-dist/resources/company-logo.spec.js`로 개별 테스트 15개 실행을 확인했다. 로그는 `/tmp/orsem-logo-activation-web-test.log`, `/tmp/orsem-logo-activation-api-test.log`, `/tmp/orsem-logo-activation-api-build.log`, `/tmp/orsem-logo-activation-web-build.log`에 있다.
-
-거래소 보완의 운영 파일 교체는 최초 자동 승인 검토에서 보류됐고, 사용자가 **운영 배포 승인**으로 명시적으로 승인한 뒤 완료했다. API의 `company-logo.service` 컴파일 산출물 3개만 교체·재시작하고 readiness HTTP 200을 확인한 뒤, 웹의 새 해시 자산을 추가하고 index를 원자적으로 교체했다. 기존 웹 자산은 유지했고 워커·DB는 변경하지 않았다. 교체 원본과 SHA-256 기록은 `/tmp/orsem-logo-release-uBpD6T`에 보관했다.
-
-Brandfetch 실제 이미지, KOSDAQ 실물 로고의 기업 일치, 특수 미국 티커, ETF 상품/운용사 로고, 공급자별 계정 대시보드 조건은 아직 확인하지 않았다. 이 표본을 전체 종목 커버리지로 확대 해석하지 않는다. Nginx 운영 설정 변경도 이 후속 작업에서 수행하지 않았다.
-
-## Footer·로고 여백·이전 소스 정리 (2026-09-11 KST)
-
-사용자 요청에 따라 앱 공통 footer와 관심 종목 새창의 Logo.dev 직접 링크를 제거하고 `/logo-sources` 링크 하나로 통합했다. 공개 안내 페이지의 footer도 제거했다. Logo.dev 직접 출처 링크는 해당 페이지 본문에 남아 있으며, 공식 문서가 허용하는 로그인 기반 앱의 공개 안내 페이지 배치를 따른다. 공개 안내는 인증 API 장애와 관계없이 접근할 수 있고 직접 링크는 origin Referer를 전달한다.
-
-홈 내 종목·관심 종목 카드/목록·새창 및 같은 구조의 최근조회에서 `.watch-group-stock__company .company-avatar img`의 padding을 0으로 변경했다. 고정 크기와 `object-fit: contain`, 상세 화면의 기존 padding 0을 유지한다.
-
-미사용 Python 로고 수집 원본과 전용 테스트는 이미 제거된 상태였다. 워커 담당 작업에서 잔존 build·egg-info·옛 로고 pyc 생성물을 정리했으며, 오래된 공급자 조사 문서 `LOGO_API_AUDIT_2026-09-11.md`도 저장소에서 제거했다. 현재 로고 어댑터·검수 정보와 재발 방지 테스트, 뉴스용 Finnhub 설정은 유지한다.
-
-출처·공개 라우트·팝아웃 관련 기존 테스트 **29/29**, 격리 웹 프로덕션 빌드 및 변경 TSX의 ESLint가 통과했다. 웹 새 해시 자산과 index만 배포했고 API·워커 프로세스는 재시작하지 않았다. 이전 index 백업은 `/tmp/orsem-logo-footer-release-y2rlx8_i`, 테스트·빌드 로그는 `/tmp/orsem-logo-links-web-test.log`, `/tmp/orsem-logo-links-web-build.log`에 있다. 운영 관심 종목 화면에서 로고와 내부 안내 링크 표시, footer의 영문 제공자 링크 제거를 확인했다.
-
-이전 웹 배포의 해시 파일 4개에도 구 로고 공급자 코드가 남아 있었다. 현재 index의 자산 참조에서 빠졌다는 이유로 일시 제거했으나, 배포 담당 작업에서 열린 탭·검증된 롤백 및 최근 30일 발행 자산 보존 범위를 확인해 원본을 복원했다. 백업과 복원 파일의 SHA-256 일치 기록은 `/tmp/orsem-old-logo-assets-1pv8zsgd/restored-sha256.json`에 있다. 현재 소스의 옛 로고 제거와 최신 배포는 유지하며, 현재 index의 참조 여부만으로 이전 배포 자산을 삭제하지 않는다. 운영 공개 안내 페이지도 확인했으며 Logo.dev 링크는 본문에 한 번만 있고 footer에는 없다.
+현재 index에서 참조하지 않는다는 이유만으로 과거 웹 해시 자산을 삭제하지 않는다. 운영에서 사용했던 롤백·열린 탭 및 최근 30일 발행 자산은 보존한다. 일시 제거했던 파일 4개는 원본과 SHA-256 일치를 확인해 복원했으며 기록은 `/tmp/orsem-old-logo-assets-1pv8zsgd/restored-sha256.json`에 있다. 옛 소스 제거와 운영 롤백 산출물 보존은 구분한다.

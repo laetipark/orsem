@@ -100,18 +100,7 @@ it('renders the full floating card with attribution and a disabled unsupported p
     screen.getByText('이 브라우저에서는 항상 위 고정을 지원하지 않습니다.'),
   ).toBeInTheDocument();
   expect(screen.queryByRole('link', { name: 'Logos provided by Logo.dev' })).toBeNull();
-  expect(screen.getByRole('link', { name: '로고 출처·이용 안내' })).toHaveAttribute(
-    'target',
-    '_blank',
-  );
-  expect(screen.getByRole('link', { name: '로고 출처·이용 안내' })).toHaveAttribute(
-    'rel',
-    'noopener',
-  );
-  expect(screen.getByRole('link', { name: '로고 출처·이용 안내' })).toHaveAttribute(
-    'href',
-    '/logo-sources',
-  );
+  expect(screen.queryByRole('link', { name: '로고 출처·이용 안내' })).not.toBeInTheDocument();
   expect(screen.getByText(/어떤 항목도 자동 매수·매도 추천/)).toBeInTheDocument();
 });
 

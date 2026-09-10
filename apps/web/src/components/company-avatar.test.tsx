@@ -2,7 +2,8 @@ import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CompanyAvatar } from './company-avatar';
 import { api } from '../lib/api';
-import { clearCompanyLogoMetadataCache } from '../lib/use-company-logo';
+import { clearCompanyLogoMetadataCache, LOGO_VISIBLE_DELAY_MS } from '../lib/use-company-logo';
+import { buildLogoCandidates } from '../lib/company-branding';
 import { clearLogoFailures, LOGO_FAILURE_TTL_MS, recordLogoFailure } from '../lib/logo-failures';
 import { localLogo, logoCompany, logoResponse, reviewedMapping } from '../test/logo-fixtures';
 import { ThemeProvider } from '../theme';
@@ -20,7 +21,206 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+function controlViewport() {
+  let callback!: IntersectionObserverCallback;
+  class Observer {
+    constructor(cb: IntersectionObserverCallback) {
+      callback = cb;
+    }
+    observe() {}
+    disconnect() {}
+  }
+  vi.stubGlobal('IntersectionObserver', Observer);
+  return (isIntersecting: boolean) =>
+    callback([{ isIntersecting }] as IntersectionObserverEntry[], {} as IntersectionObserver);
+}
+
+function setPageVisible(visible: boolean) {
+  Object.defineProperty(document, 'visibilityState', {
+    configurable: true,
+    value: visible ? 'visible' : 'hidden',
+  });
+  document.dispatchEvent(new Event('visibilitychange'));
+}
+
 describe('company logo loading resilience', () => {
+  it('skips fast-scrolled logos and retains a loaded image across viewport changes', async () => {
+    vi.useFakeTimers();
+    const viewport = controlViewport();
+    const view = render(<CompanyAvatar company={logoCompany} />);
+    await act(async () => {
+      viewport(true);
+      await vi.advanceTimersByTimeAsync(LOGO_VISIBLE_DELAY_MS - 1);
+      viewport(false);
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(api.companyLogo).not.toHaveBeenCalled();
+    expect(api.companyLogoPermit).not.toHaveBeenCalled();
+    expect(view.container.querySelector('img')).toBeNull();
+    await act(async () => {
+      viewport(true);
+      await vi.advanceTimersByTimeAsync(LOGO_VISIBLE_DELAY_MS);
+    });
+    const img = view.container.querySelector('img')!;
+    expect(img).not.toBeNull();
+    fireEvent.load(img);
+    await act(async () => {
+      viewport(false);
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+    await act(async () => {
+      viewport(true);
+      await vi.advanceTimersByTimeAsync(LOGO_VISIBLE_DELAY_MS);
+    });
+    expect(view.container.querySelector('img')).toBe(img);
+    expect(api.companyLogo).toHaveBeenCalledTimes(1);
+    expect(api.companyLogoPermit).toHaveBeenCalledTimes(1);
+  });
+  it('does not insert an external image when its permit resolves outside the viewport', async () => {
+    vi.useFakeTimers();
+    const viewport = controlViewport();
+    let permit!: (value: { allowed: boolean }) => void;
+    vi.mocked(api.companyLogoPermit).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          permit = resolve;
+        }),
+    );
+    const view = render(<CompanyAvatar company={logoCompany} />);
+    await act(async () => {
+      viewport(true);
+      await vi.advanceTimersByTimeAsync(LOGO_VISIBLE_DELAY_MS);
+    });
+    act(() => viewport(false));
+    await act(async () => permit({ allowed: true }));
+    expect(view.container.querySelector('img')).toBeNull();
+    await act(async () => {
+      viewport(true);
+      await vi.advanceTimersByTimeAsync(LOGO_VISIBLE_DELAY_MS);
+    });
+    expect(view.container.querySelector('img')).not.toBeNull();
+    expect(api.companyLogoPermit).toHaveBeenCalledTimes(1);
+  });
+  it('pauses stalled-image fallback while the image is outside the viewport', async () => {
+    vi.useFakeTimers();
+    const viewport = controlViewport();
+    const view = render(<CompanyAvatar company={logoCompany} />);
+    await act(async () => {
+      viewport(true);
+      await vi.advanceTimersByTimeAsync(LOGO_VISIBLE_DELAY_MS);
+    });
+    const img = view.container.querySelector('img');
+    act(() => viewport(false));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+    expect(view.container.querySelector('img')).toBe(img);
+    expect(api.companyLogoPermit).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      viewport(true);
+      await vi.advanceTimersByTimeAsync(LOGO_VISIBLE_DELAY_MS);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20_000);
+    });
+    expect(view.container.querySelector('img')?.src).toContain('brandfetch');
+    expect(api.companyLogoPermit).toHaveBeenCalledTimes(2);
+  });
+  it('keeps a successfully loaded logo when another instance of that URL fails', async () => {
+    const view = render(
+      <>
+        <CompanyAvatar company={logoCompany} />
+        <CompanyAvatar company={logoCompany} />
+      </>,
+    );
+    await waitFor(() => expect(view.container.querySelectorAll('img')).toHaveLength(2));
+    const [first, second] = view.container.querySelectorAll('img');
+    fireEvent.load(first!);
+    fireEvent.error(second!);
+    await waitFor(() =>
+      expect(view.container.querySelectorAll('img')[1]?.src).toContain('brandfetch'),
+    );
+    expect(view.container.querySelectorAll('img')[0]).toBe(first);
+    expect(first?.src).toContain('logo.dev');
+    expect(first?.parentElement).toHaveAttribute('data-load-state', 'loaded');
+    expect(api.companyLogoPermit).toHaveBeenCalledTimes(3);
+  });
+  it('does not retry an earlier failed candidate after a working fallback has loaded', async () => {
+    let now = Date.now();
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    recordLogoFailure(buildLogoCandidates(logoResponse())[0]!.url);
+    const view = render(<CompanyAvatar company={logoCompany} />);
+    await waitFor(() => expect(view.container.querySelector('img')?.src).toContain('brandfetch'));
+    const img = view.container.querySelector('img')!;
+    fireEvent.load(img);
+    now += LOGO_FAILURE_TTL_MS + 1;
+    act(() => setPageVisible(false));
+    act(() => setPageVisible(true));
+    await act(async () => undefined);
+    expect(view.container.querySelector('img')).toBe(img);
+    expect(api.companyLogoPermit).toHaveBeenCalledTimes(1);
+  });
+  it('updates review information without reinserting the same loaded image URL', async () => {
+    let now = Date.now();
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const view = render(<CompanyAvatar company={logoCompany} />);
+    await waitFor(() => expect(view.container.querySelector('img')).not.toBeNull());
+    const img = view.container.querySelector('img')!;
+    fireEvent.load(img);
+    const reviewed = logoResponse();
+    reviewed.metadata.providers.logoDev.ticker = reviewedMapping('AAPL');
+    vi.mocked(api.companyLogo).mockResolvedValue(reviewed);
+    now += 300_001;
+    act(() => setPageVisible(false));
+    act(() => setPageVisible(true));
+    await waitFor(() =>
+      expect(img.parentElement).toHaveAttribute('data-review-status', 'reviewed'),
+    );
+    expect(view.container.querySelector('img')).toBe(img);
+    expect(api.companyLogo).toHaveBeenCalledTimes(2);
+    expect(api.companyLogoPermit).toHaveBeenCalledTimes(1);
+  });
+  it('selects a reviewed local logo when its timestamp becomes valid before metadata refresh', async () => {
+    let now = Date.now();
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const response = logoResponse();
+    response.metadata.localLogo = {
+      ...localLogo(),
+      reviewedAt: new Date(now + 30_000).toISOString(),
+    };
+    vi.mocked(api.companyLogo).mockImplementation(async () => structuredClone(response));
+    const view = render(<CompanyAvatar company={logoCompany} />);
+    await waitFor(() => expect(view.container.querySelector('img')?.src).toContain('logo.dev'));
+    fireEvent.load(view.container.querySelector('img')!);
+
+    now += 300_001;
+    act(() => setPageVisible(false));
+    act(() => setPageVisible(true));
+
+    await waitFor(() =>
+      expect(view.container.querySelector('img')).toHaveAttribute('src', '/logos/test-only.svg'),
+    );
+    expect(api.companyLogo).toHaveBeenCalledTimes(2);
+    expect(api.companyLogoPermit).toHaveBeenCalledTimes(1);
+  });
+  it('retains the loaded image DOM when refreshed metadata has the same valid candidates', async () => {
+    let now = Date.now();
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    vi.mocked(api.companyLogo).mockImplementation(async () => logoResponse());
+    const view = render(<CompanyAvatar company={logoCompany} />);
+    await waitFor(() => expect(view.container.querySelector('img')).not.toBeNull());
+    const img = view.container.querySelector('img')!;
+    fireEvent.load(img);
+
+    now += 300_001;
+    act(() => setPageVisible(false));
+    act(() => setPageVisible(true));
+
+    await waitFor(() => expect(api.companyLogo).toHaveBeenCalledTimes(2));
+    expect(view.container.querySelector('img')).toBe(img);
+    expect(img.parentElement).toHaveAttribute('data-load-state', 'loaded');
+    expect(api.companyLogoPermit).toHaveBeenCalledTimes(1);
+  });
   it('falls back from stalled images within a bounded time without asserting an HTTP status', async () => {
     vi.useFakeTimers();
     const view = render(<CompanyAvatar company={logoCompany} />);

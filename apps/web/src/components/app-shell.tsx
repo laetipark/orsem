@@ -207,9 +207,6 @@ export function AppShell({ session }: { session: Session }) {
               출처
             </span>
           </NavLink>
-          <NavLink to="/logo-sources" className="site-footer__logo-credit">
-            로고 출처·이용 안내
-          </NavLink>
           {isAdmin ? (
             <nav aria-label="관리 메뉴">
               {administration.map(({ to, label, icon: Icon }) => (

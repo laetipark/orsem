@@ -25,6 +25,32 @@ afterEach(() => {
 });
 
 describe('public local logo credits', () => {
+  it('preserves long source details and the public attribution and header destinations', async () => {
+    const filename = `/logos/${'reviewed-fund-'.repeat(12)}.svg`;
+    const sourceUrl = `https://commons.wikimedia.org/wiki/File:${'Long_source_title_'.repeat(20)}.svg`;
+    const attribution = `저작자 ${sourceUrl}`;
+    vi.spyOn(api, 'companyLogoCredits').mockResolvedValue({
+      items: [
+        { path: filename, source: 'wikimedia', sourceUrl, license: 'CC BY-SA 4.0', attribution },
+      ],
+    });
+    show();
+    const credits = within(await screen.findByRole('list', { name: '로컬 로고 출처 목록' }));
+    expect(credits.getByText(filename)).toBeVisible();
+    expect(credits.getByText(attribution)).toBeVisible();
+    expect(credits.getByRole('link', { name: '원본 출처 (Wikimedia Commons)' })).toHaveAttribute(
+      'href',
+      sourceUrl,
+    );
+    const header = within(screen.getByRole('banner', { name: '오르셈 안내' }));
+    expect(header.getByRole('link', { name: '오르셈 홈' })).toHaveAttribute('href', '/');
+    expect(header.getByRole('link', { name: '오르셈 로그인' })).toHaveAttribute('href', '/login');
+    const provider = screen.getByRole('link', { name: 'Logos provided by Logo.dev' });
+    expect(provider).toHaveAttribute('href', 'https://logo.dev');
+    expect(provider).toHaveAttribute('referrerpolicy', 'origin');
+    expect(provider).toHaveAttribute('rel', 'noopener');
+  });
+
   it('shows each registered asset source, license and literal attribution without loading images', async () => {
     vi.spyOn(api, 'companyLogoCredits').mockResolvedValue({
       items: [

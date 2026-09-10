@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { watchlistAccessDenied } from '../lib/watchlist-access';
+import { watchlistGroupsQuery, watchlistRoomsQuery } from '../lib/watchlist-query';
 import { companyPath } from '../lib/company-path';
 import { formatDate, formatMoney, formatPercent } from '../lib/format';
 import { recentCompanyPrice } from '../lib/recent-company-quotes';
@@ -107,22 +108,16 @@ function SidebarWorkspace({
     [actor, client],
   );
   const rooms = useQuery({
-    queryKey: ['watchlist-v2', actor, 'rooms'],
-    queryFn: ({ signal }) => api.watchlistRooms(signal),
+    ...watchlistRoomsQuery(actor),
     enabled: interestsActive,
     refetchInterval: interestsActive ? 60_000 : false,
-    refetchIntervalInBackground: false,
-    retry: false,
   });
   const room = rooms.data?.items.find((item) => item.id === roomId);
   const scopeReady = !blocked && (!roomId || Boolean(room && !rooms.isError));
   const groups = useQuery({
-    queryKey: ['watchlist-v2', actor, 'groups', scope],
-    queryFn: ({ signal }) => api.watchlistGroups(signal, roomId || undefined),
+    ...watchlistGroupsQuery(actor, roomId || undefined),
     enabled: interestsActive && scopeReady,
     refetchInterval: interestsActive && scopeReady ? 60_000 : false,
-    refetchIntervalInBackground: false,
-    retry: false,
   });
   const selected = groups.data?.items.find((item) => item.id === groupId) ?? groups.data?.items[0];
   const stocks = useInfiniteQuery({

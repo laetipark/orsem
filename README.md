@@ -2,7 +2,7 @@
 
 Orsem은 한국의 지분 공시, 공식 공시 문서, 시장 가격, 출처가 있는 뉴스를 확인하는 개인용 관측 시스템입니다. API는 NestJS, 화면은 React, 수집·파싱 워커는 Python 3.12로 구성합니다. D001 대량보유 보고, D002 임원·주요주주의 실제 소유변동, D003 의결권 위임 권유, D004 공개매수, D005 향후 거래계획은 서로 다른 이벤트 유형으로 저장하고 검토합니다.
 
-Python 워커는 운영 전환 후 관측 중입니다. 실행 환경과 검증·운영 명령은 [Python 워커 안내](docs/PYTHON_WORKER.md), 현재 전환 상태와 이전 기록은 [배포 문서](docs/DEPLOYMENT.md)에서 확인합니다.
+Python 워커는 운영 전환과 31분 안정성 관측을 완료했으며, 기존 TypeScript 워커·파서 소스는 검증된 외부 복구 환경을 보존한 뒤 정리했습니다. 실행 환경과 검증·운영 명령은 [Python 워커 안내](docs/PYTHON_WORKER.md), 현재 배포 상태는 [배포 문서](docs/DEPLOYMENT.md)에서 확인합니다. [문서 목록](docs/README.md)은 현행 가이드와 날짜별 감사·배포 기록을 구분합니다.
 
 이 시스템은 관측을 목적으로 합니다. 보유 수량 증가를 자동으로 장내매수로 판단하지 않으며, 어떤 이벤트도 자동 매수·매도 추천이나 주문으로 연결하지 않습니다.
 
@@ -55,7 +55,7 @@ OpenDART 재검증과 UTC 이관, 현재 검토 수치 및 CSV 내보내기는 [
 
 기업 페이지가 보이는 동안 선택한 차트와 현재가를 2초마다 조회합니다. 분봉 화면은 이벤트 수익률에 필요한 일봉 데이터도 갱신합니다. worker가 토스 공식 봉과 실시간 시세를 수집하며, 시각과 신선도 상태를 통해 수신 시점을 확인할 수 있습니다.
 
-[아키텍처](docs/ARCHITECTURE.md), [API](docs/API.md), [사이트 콘텐츠용 뉴스 수집](docs/NEWS_COLLECTION.md), [소스 어댑터](docs/SOURCES.md), [데이터 이용 권리](docs/RIGHTS.md), [보안](docs/SECURITY.md), [카카오 로그인 설정](docs/KAKAO_LOGIN.md), [서비스별 자격 증명 관리](docs/CREDENTIALS.md), [테스트](docs/TESTING.md), [운영](docs/OPERATIONS.md), [배포](docs/DEPLOYMENT.md) 문서를 참고하세요.
+분야별 설정·계약·운영 절차는 [문서 목록](docs/README.md)에서 찾을 수 있습니다.
 
 ## 화면과 통합 검색
 

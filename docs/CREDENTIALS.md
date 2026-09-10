@@ -38,7 +38,7 @@
 | Redis                       | `runtime.env`의 `REDIS_URL`; 공개 설정 `REDIS_PREFIX`                                                        | API·worker. 세션·큐·토스 토큰 캐시를 보관하므로 접근 및 백업 권한 제한. `REDIS_CREDENTIALS_FILE`은 지원하지 않음  |
 | Orsem 세션·관리자 TOTP      | `runtime.env`의 `SESSION_SECRET`, `TOTP_ENCRYPTION_KEY`                                                      | API·관리자 생성 CLI. 서로 독립적으로 생성하고 백업. 관리자 로그인 비밀번호는 이 파일에 상시 보관하지 않음         |
 | 선택적 AI 분류기            | `runtime.env`의 `AI_API_KEY`, 일반 설정 `AI_BASE_URL`, `AI_MODEL`, `AI_ENABLED`                              | API·worker. 인증 없는 로컬 Ollama의 `ollama` 값은 호환용 자리표시자이며 비밀 키가 아님                            |
-| 선택적 뉴스 한국어 번역     | `runtime.env`의 `NEWS_TRANSLATION_ENABLED`, `OLLAMA_URL`, `NEWS_TRANSLATION_MODEL`, 처리 상한·제한 시간      | worker 전용 로컬 Ollama, 외부 API 키 불필요. [번역 설정](NEWS_TRANSLATION.md#설정) 참고                           |
+| 선택적 뉴스 한국어 번역     | `runtime.env`의 `NEWS_TRANSLATION_ENABLED`, `OLLAMA_URL`, `NEWS_TRANSLATION_MODEL`, 처리 상한·제한 시간      | worker 전용 로컬 Ollama, 외부 API 키 불필요. [번역 설정](NEWS_TRANSLATION.md#설정과-재시도) 참고                  |
 | 사이트 뉴스 피드            | 비밀 파일 없음; `NEWS_RSS_FEEDS`, 검토된 Samsung `IR_FEED_URLS`                                              | 코드의 정확한 콘텐츠 프로필과 일치하는 URL만 지원. `GDELT_ENABLED=false` 유지                                     |
 | KIS·한국투자증권            | 현재 커넥터·자격 증명 변수 없음                                                                              | 키를 배치해도 연결되지 않음                                                                                       |
 | KRX 가격                    | 현재 키 설정 없음                                                                                            | 이전 가격 수집은 종료됨. 토스의 국내 시세에 나오는 KRX 표시는 별도 KRX 키가 필요하다는 뜻이 아님                  |

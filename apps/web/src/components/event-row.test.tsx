@@ -4,8 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../lib/api';
 import { clearCompanyLogoMetadataCache } from '../lib/use-company-logo';
 import { clearLogoFailures } from '../lib/logo-failures';
-import { logoResponse, reviewedMapping } from '../test/logo-fixtures';
+import { logoCompany, logoCompanyId, logoResponse, reviewedMapping } from '../test/logo-fixtures';
 import type { EventSummary } from '../types';
+import { CompanyAvatar } from './company-avatar';
 import {
   EventCompactRow,
   EventCompanyIdentity,
@@ -38,7 +39,9 @@ describe('이벤트의 기업 식별과 로고', () => {
       response.metadata.providers.logoDev.ticker = reviewedMapping(providerTicker);
       vi.mocked(api.companyLogo).mockResolvedValue(response);
       const { container } = render(
-        <EventCompanyIdentity event={{ companyName, stockCode, ticker, market }} />,
+        <EventCompanyIdentity
+          event={{ companyId: logoCompanyId, companyName, stockCode, ticker, market }}
+        />,
       );
       await waitFor(() =>
         expect(container.querySelector('img')).toHaveAttribute(
@@ -46,10 +49,7 @@ describe('이벤트의 기업 식별과 로고', () => {
           `https://img.logo.dev/ticker/${providerTicker}?token=pk_test_only&size=128&format=webp&fallback=404`,
         ),
       );
-      expect(api.companyLogo).toHaveBeenCalledWith(
-        `${market}:${stockCode ?? ticker}`,
-        expect.any(AbortSignal),
-      );
+      expect(api.companyLogo).toHaveBeenCalledWith(logoCompanyId, expect.any(AbortSignal));
       expect(api.companyLogoPermit).toHaveBeenCalledWith(
         response.metadata.companyId,
         'logoDev',
@@ -70,8 +70,12 @@ describe('이벤트의 기업 식별과 로고', () => {
     { companyName: '삼성전자', stockCode: '005930', market: 'OTHER' },
     { companyName: '다른 기업', stockCode: null, ticker: 'MSFT', market: 'NASDAQ' },
   ])('확인된 식별자가 없으면 기업명으로 로고를 추정하지 않는다: $companyName', async (event) => {
-    const { container } = render(<EventCompanyIdentity event={event} />);
-    await act(async () => undefined);
+    const { container } = render(
+      <EventCompanyIdentity event={{ companyId: logoCompanyId, ...event }} />,
+    );
+    if (event.market === 'NASDAQ' && event.ticker)
+      await waitFor(() => expect(api.companyLogo).toHaveBeenCalled());
+    else await act(async () => undefined);
     expect(container.querySelector('img')).toBeNull();
     expect(api.companyLogoPermit).not.toHaveBeenCalled();
     expect(screen.getByText(event.companyName)).toBeVisible();
@@ -85,7 +89,13 @@ describe('이벤트의 기업 식별과 로고', () => {
     vi.mocked(api.companyLogo).mockResolvedValue(response);
     const { container } = render(
       <EventCompanyIdentity
-        event={{ companyName: '엔비디아', stockCode: null, ticker: 'NVDA', market: 'NASDAQ' }}
+        event={{
+          companyId: logoCompanyId,
+          companyName: '엔비디아',
+          stockCode: null,
+          ticker: 'NVDA',
+          market: 'NASDAQ',
+        }}
       />,
     );
     await waitFor(() =>
@@ -102,6 +112,29 @@ describe('이벤트의 기업 식별과 로고', () => {
     expect(screen.getByText('NVDA')).toBeVisible();
     expect(container.querySelector('.company-avatar')).toHaveTextContent('NV');
     expect(container.querySelector('.company-avatar')).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('이벤트와 종목 아바타가 같은 회사 ID의 로고 메타데이터를 공유한다', async () => {
+    const { container } = render(
+      <>
+        <EventCompanyIdentity
+          event={{
+            companyId: logoCompanyId,
+            companyName: logoCompany.nameKo,
+            stockCode: logoCompany.stockCode,
+            ticker: logoCompany.ticker,
+            market: logoCompany.market,
+          }}
+        />
+        <CompanyAvatar company={logoCompany} />
+      </>,
+    );
+    await waitFor(() => expect(container.querySelectorAll('img')).toHaveLength(2));
+    expect(api.companyLogo).toHaveBeenCalledTimes(1);
+    expect(api.companyLogo).toHaveBeenCalledWith(logoCompanyId, expect.any(AbortSignal));
+    // Each physical image still reserves its own request; only metadata is shared.
+    expect(api.companyLogoPermit).toHaveBeenCalledTimes(2);
+    expect(screen.getByText(logoCompany.ticker)).toBeVisible();
   });
 });
 

@@ -41,15 +41,6 @@ const originalMetadataSchema = newsContentOriginalSchema.omit({ blocks: true });
 const sourceIdSchema = newsArticleContentDetailSchema.shape.sourceItemId;
 const contentStates = new Set<string>(Object.values(NewsContentState));
 
-function jsonValue(value: unknown): unknown {
-  if (typeof value !== 'string') return value;
-  try {
-    return JSON.parse(value);
-  } catch {
-    return null;
-  }
-}
-
 const contentRights = new Set<RightsMode>([
   RightsMode.OFFICIAL_PUBLIC_DATA,
   RightsMode.PRIVATE_DISPLAY_ONLY,
@@ -60,7 +51,7 @@ function contentPolicyAllows(
   requireAi = false,
   sourceRightsMode?: RightsMode,
 ): boolean {
-  const value = jsonValue(content.rightsPolicyJson);
+  const value = storedJson(content.rightsPolicyJson);
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const policy = value as Record<string, unknown>;
   return (
@@ -98,7 +89,7 @@ function readTranslation(
     !contentPolicyAllows(content, true, sourceRightsMode)
   )
     return null;
-  const value = jsonValue(content.translationJson);
+  const value = storedJson(content.translationJson);
   const parsed = storedTranslationMetadataSchema.safeParse(value);
   if (
     !parsed.success ||
@@ -185,7 +176,7 @@ function readNewsContent(
     !content.fetchedAt
   )
     return null;
-  const blocks = readBlocks(jsonValue(content.blocksJson), materialize);
+  const blocks = readBlocks(storedJson(content.blocksJson), materialize);
   if (!blocks) return null;
   if (content.manualTranslationJson != null) {
     const manual = manualContentSchema.safeParse(storedJson(content.manualTranslationJson));

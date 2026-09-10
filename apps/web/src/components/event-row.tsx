@@ -18,13 +18,14 @@ import './event-cards.css';
 export function EventCompanyIdentity({
   event,
 }: {
-  event: Pick<EventSummary, 'companyName' | 'stockCode' | 'ticker' | 'market'>;
+  event: Pick<EventSummary, 'companyId' | 'companyName' | 'stockCode' | 'ticker' | 'market'>;
 }) {
   return (
     <span className="event-company">
       <CompanyAvatar
         className="event-company__avatar"
         company={{
+          id: event.companyId,
           nameKo: event.companyName,
           stockCode: event.stockCode,
           ticker: event.ticker ?? null,

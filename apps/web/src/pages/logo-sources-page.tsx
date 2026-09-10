@@ -15,11 +15,13 @@ export function LogoSourcesPage() {
   });
   return (
     <div className="logo-sources-public">
-      <header className="logo-sources-public__header">
-        <Link to="/" aria-label="오르셈 홈">
+      <header className="logo-sources-public__header" aria-label="오르셈 안내">
+        <Link to="/" className="logo-sources-public__brand" aria-label="오르셈 홈">
           <BrandLogo />
         </Link>
-        <Link to="/login">오르셈 로그인</Link>
+        <Link to="/login" className="logo-sources-public__login">
+          오르셈 로그인
+        </Link>
       </header>
       <main className="page-stack sources-page" id="main-content">
         <div className="page-lead">

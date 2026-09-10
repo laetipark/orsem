@@ -46,7 +46,7 @@ NAVER는 공식 기사와 함께 원문 링크로 표시하며, 정기·종목�
 
 2026-09-10 확인한 [Logo.dev 가격표](https://www.logo.dev/pricing)는 무료 월 500,000 요청, [Brandfetch 가격표](https://brandfetch.com/developers/pricing)는 표의 월 1,000,000과 FAQ의 월 500,000이 불일치합니다. Brandfetch는 대시보드 확인 전 월 500,000 이하를 내부 상한으로 적용하고, 캐시 안내의 불일치도 더 제한적인 직접 브라우저 표시 조건을 따릅니다. 유료 구독·카드·자동 충전·초과 과금을 활성화하지 않습니다.
 
-Logo.dev의 무료 상업용 [출처 표시 조건](https://www.logo.dev/docs/platform/attribution)은 로그인 기반 앱의 공개 안내 페이지 배치를 허용합니다. 앱 footer는 `/logo-sources`로 연결하고, 해당 공개 페이지 본문에 Logo.dev 직접 출처 링크를 제공합니다. Simple Icons와 Wikimedia Commons는 파일별 이용 조건·기업 매핑을 검수한 항목만 로컬 소스로 등록할 수 있습니다. URL 생성, 이미지 로드, 올바른 기업/상품 로고 검수는 별개로 기록합니다. 공급자 조건, 매핑, ETF 역할, OpenDART 홈페이지 후보 재사용, 실패 처리, 실제 표시 확인 표본과 남은 검수는 [종목 로고 운영 문서](STOCK_LOGOS.md)를 참고하세요.
+Logo.dev의 무료 상업용 [출처 표시 조건](https://www.logo.dev/docs/platform/attribution)은 로그인 기반 앱의 공개 안내 페이지 배치를 허용합니다. `/sources` 본문에서 `/logo-sources`로 연결하며 footer의 로고 출처 링크는 제거했습니다. `/logo-sources` 공개 페이지 본문에 Logo.dev 직접 출처 링크를 제공합니다. Simple Icons와 Wikimedia Commons는 파일별 이용 조건·기업 매핑을 검수한 항목만 로컬 소스로 등록할 수 있습니다. URL 생성, 이미지 로드, 올바른 기업/상품 로고 검수는 별개로 기록합니다. 공급자 조건, 매핑, ETF 역할, OpenDART 홈페이지 후보 재사용, 실패 처리, 실제 표시 확인 표본과 남은 검수는 [종목 로고 운영 문서](STOCK_LOGOS.md)를 참고하세요.
 
 ## 공식 링크 규칙
 
@@ -69,7 +69,7 @@ GDELT는 정확한 publisher 정책 승인 전 비활성이다. 단순 무료 �
 
 ## 2026-09-07 확장 전 repository audit
 
-README, AGENTS, SOURCES, NEWS_COLLECTION, NEWS_PROVIDER_COMPARISON, RIGHTS, ARCHITECTURE, DATA_MODEL, API, OPERATIONS, `.env.example`을 worker·API·database·contracts 코드와 대조한 뒤 확장을 시작했습니다. 아래 상태는 코드 수정 전 기준이며 실제 운영 환경변수의 활성 상태를 뜻하지 않습니다. 문서의 과거 본문 수집 설명과 실제 metadata 수집 경로의 차이도 정리했습니다.
+README, AGENTS, SOURCES, NEWS_COLLECTION, NEWS_PROVIDER_COMPARISON, RIGHTS, ARCHITECTURE, DATA_MODEL, API, OPERATIONS, `.env.example`을 worker·API·database·contracts 코드와 대조한 뒤 확장을 시작했습니다. 아래 상태와 TypeScript 경로는 2026-09-07 코드 수정 전 기준이며 현재 구현 경로나 운영 환경변수의 활성 상태를 뜻하지 않습니다. 현재 Python 코드 위치는 [워커 구조](PYTHON_WORKER.md#코드와-저장-계약)를 참고합니다. 문서의 과거 본문 수집 설명과 실제 metadata 수집 경로의 차이도 정리했습니다.
 
 | Provider·기능                                       | 확장 전 상태                          | 실제 코드 위치                                                               | 주요 문서                           | enabled 기본값·조건                             | 기존 권리 상태                         | 이번 변경                                                 |
 | --------------------------------------------------- | ------------------------------------- | ---------------------------------------------------------------------------- | ----------------------------------- | ----------------------------------------------- | -------------------------------------- | --------------------------------------------------------- |

@@ -41,7 +41,7 @@ NAVER 뉴스는 정기 대상 순환 또는 종목 뉴스 열람 시 자동 조�
 - `packages/contracts`: 실행 시점에 검증하는 소스·API·큐 계약.
 - `packages/database`: TypeORM 엔티티, 데이터 소스, 마이그레이션. 스키마 자동 동기화는 비활성화합니다.
 - `apps/worker/python/orsem_worker/disclosures`: 한도가 적용된 ZIP/XML 정규화, D001–D005 추출기, 원문 검토·조회용 데이터 반영, SEC ownership 파서.
-- `scripts/worker.py`와 `scripts/*parser*.py`: Python 실행·검증·운영 감사 명령. 전환 관측이 끝날 때까지 기존 TypeScript 구현은 복구 비교 대상으로 남습니다.
+- `scripts/worker.py`와 `scripts/*parser*.py`: 저장소 소스의 실행·검증·감사 진입점. 운영 CLI는 설치된 wheel의 `orsem_worker.cli`를 직접 실행합니다. 외부 TypeScript 복구 환경과 전환 상태는 [Python 워커 안내](PYTHON_WORKER.md#전환과-복구)에서 구분합니다.
 - `integrations/messengerbot-r`: 로컬 전송 기록을 갖춘 Android API2 브리지.
 
 ## 코드 책임 분리
@@ -52,6 +52,8 @@ NAVER 뉴스는 정기 대상 순환 또는 종목 뉴스 열람 시 자동 조�
 - 웹의 시장 조회, 그룹 분류, 시각 표시, 카드와 가격 표시를 별도 모듈로 관리합니다. 화면 배치는 컴포넌트와 CSS가 맡고, 수집 시각·자료 기준 시각의 의미는 `lib/market-time.ts`에서 공유합니다. 표시용 한글 명칭은 `lib/domain-labels.ts`를 사용하며 API 코드와 원본 인용문은 변경하지 않습니다.
 
 Node.js 24/npm workspace는 API·웹·Discord·공통 TypeScript 계약을 유지합니다. Python 워커는 JavaScript 실행 브리지 없이 `python -m orsem_worker`로 실행합니다. 기존 BullMQ 큐 이름·접두사·작업 데이터·재시도 계약과 DB 식별자를 공유하므로 언어 전환 시 일반 큐 작업이나 수집 자료를 초기화하지 않습니다. Python 패키지는 wheel과 잠긴 의존성으로 배포합니다.
+
+정기 작업의 다음 회차는 처리 시작 시 producer ID로 중복을 방지하며 등록합니다. 종료 시에는 모든 큐 수신을 먼저 차단하고 주기 작업을 취소한 뒤 실행 중인 작업의 잠금 갱신과 DB·HTTP 연결을 유지하며 처리를 기다립니다. MySQL advisory lock은 같은 연결의 쓰기 트랜잭션이 커밋 또는 롤백된 뒤 해제하여 다음 수집기가 이전 체크포인트를 읽는 구간을 만들지 않습니다.
 
 운영 산출물과 겹치는 작업 공간에서는 `python3 scripts/verify-in-isolation.py`로 `npm run check`와 `npm run build`를 격리 실행합니다. Python 검증은 Ruff·mypy·pytest를 사용합니다. 실행 환경과 관리 명령은 [Python 워커 안내](PYTHON_WORKER.md)를 참고하세요.
 
@@ -91,7 +93,7 @@ REST와 WebSocket은 서버의 OAuth 토큰 하나를 공유하며, 갱신은 �
 
 ## 기존 수집 경로의 조건부 뉴스 확장
 
-Marketaux·Alpha Vantage·Finnhub는 기존 `LinkDiscoveryAdapter`와 `DiscoveryCandidate`를 확장한다. 별도 가격 adapter, company master, queue, 뉴스 DB를 만들지 않는다. BullMQ 수집 → 권리·무료 entitlement 검사 → 기존 DB 예산 예약 → 공급자 metadata 정규화 → 기존 회사 연결/뉴스 중복 제거 → source_items/news_items 저장 → 공식 자료 후보 연결 순서를 따른다. RSS는 같은 경로의 정확한 URL 프로필만 확장한다.
+Marketaux·Alpha Vantage·Finnhub는 Python `connectors/providers.py`의 공급자와 공통 발견 후보 계약을 사용합니다. BullMQ 수집 → 권리·무료 entitlement 검사 → 기존 DB 예산 예약 → 공급자 metadata 정규화 → 기존 회사 연결/뉴스 중복 제거 → source_items/news_items 저장 → 공식 자료 후보 연결 순서를 따릅니다. RSS는 같은 경로의 정확한 URL 프로필을 사용합니다.
 
 일반 뉴스에는 본문 수집 단계가 없다. 공급자별 장애를 provenance와 함께 기록하며 다른 서비스로 묵시적으로 대체하지 않는다. 재시작 cursor와 overlap은 기존 checkpoint 구조를 사용한다. 회사·원출처·시간이 맞는 정규화 제목과 canonical URL로 기사를 묶되 발견 경로와 독립 원출처 수를 분리한다.
 

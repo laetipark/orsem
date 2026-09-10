@@ -1,13 +1,27 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
 import { api } from '../lib/api';
+import { clearCompanyLogoMetadataCache } from '../lib/use-company-logo';
+import { clearLogoFailures } from '../lib/logo-failures';
+import { logoCompany, logoResponse } from '../test/logo-fixtures';
+import { CompanyAvatar } from './company-avatar';
 import { MarketSelection, MarketSelectionMembership, marketCapLabel } from './market-selection';
 
-const mocks = vi.hoisted(() => ({ selection: vi.fn() }));
-vi.mock('../lib/api', () => ({ api: { marketSelection: mocks.selection } }));
+const mocks = vi.hoisted(() => ({
+  selection: vi.fn(),
+  companyLogo: vi.fn(),
+  companyLogoPermit: vi.fn(),
+}));
+vi.mock('../lib/api', () => ({
+  api: {
+    marketSelection: mocks.selection,
+    companyLogo: mocks.companyLogo,
+    companyLogoPermit: mocks.companyLogoPermit,
+  },
+}));
 type Selection = Awaited<ReturnType<typeof api.marketSelection>>;
 type Region = Selection['regions'][number];
 
@@ -50,6 +64,10 @@ function show(content: ReactNode = <MarketSelection />) {
   );
 }
 beforeEach(() => {
+  clearCompanyLogoMetadataCache();
+  clearLogoFailures();
+  mocks.companyLogo.mockReset().mockResolvedValue(logoResponse());
+  mocks.companyLogoPermit.mockReset().mockResolvedValue({ allowed: true });
   mocks.selection.mockReset();
   mocks.selection.mockResolvedValue({
     asOf: '2026-09-07T00:00:00.000Z',
@@ -134,6 +152,25 @@ it('shows only the requested region without refetching the shared monthly select
   expect(await screen.findByRole('list', { name: '미국 시가총액 순위' })).toBeInTheDocument();
   expect(screen.queryByRole('region', { name: '국내 상위 20종목' })).not.toBeInTheDocument();
   expect(mocks.selection).toHaveBeenCalledTimes(1);
+});
+
+it('shares company logo metadata between market leaders and the same company avatar by internal ID', async () => {
+  const item = { ...region('us').items[0]!, ...logoCompany };
+  mocks.selection.mockResolvedValue({
+    asOf: '2026-09-07T00:00:00.000Z',
+    regions: [region('us', { items: [item] })],
+  } satisfies Selection);
+  const { container } = show(
+    <>
+      <MarketSelection region="us" />
+      <CompanyAvatar company={logoCompany} />
+    </>,
+  );
+  await waitFor(() => expect(container.querySelectorAll('img')).toHaveLength(2));
+  expect(mocks.companyLogo).toHaveBeenCalledTimes(1);
+  expect(mocks.companyLogo).toHaveBeenCalledWith(logoCompany.id, expect.any(AbortSignal));
+  expect(mocks.companyLogoPermit).toHaveBeenCalledTimes(2);
+  expect(screen.getByText(`NASDAQ · ${logoCompany.ticker}`)).toBeVisible();
 });
 
 it('keeps a previous verified list with its actual ranks and makes an unavailable region explicit', async () => {

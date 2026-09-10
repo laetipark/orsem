@@ -1,6 +1,6 @@
 # SEC 공시 수집 운영
 
-이 문서는 SEC 기업 식별자(CIK) 연결과 최근 공시 접수 수집의 현재 구현을 설명한다. 전체 미국 상장종목의 CIK 연결과 실제 공시 수집 범위는 서로 다르다. 공시 수집은 관심기업 중심이며, 과거 전체 공시를 내려받는 작업이 아니다.
+이 문서는 Python 워커의 SEC 기업 식별자(CIK) 연결과 공시 접수 수집을 설명한다. 전체 미국 상장종목의 CIK 연결과 실제 공시 수집 범위는 서로 다르다. 공시 수집은 관심기업 중심이며, 과거 전체 공시를 내려받는 작업이 아니다. 날짜가 붙은 실행 기록은 당시 결과이며 현재 상태는 운영 CLI와 [배포 문서](DEPLOYMENT.md)로 확인한다.
 
 ## 공식 출처와 정기 작업
 
@@ -18,7 +18,7 @@
 
 ## CIK 연결과 보존 규칙
 
-`SecCikSyncService.sync({ companyIds? })`는 공식 마스터를 한 번 가져와 대상 기업에 적용한다. `companyIds`를 생략하면 현재 등록된 미국 상장기업이 대상이다.
+`market.masters.SecCikMaster.sync()`는 공식 마스터를 한 번 가져와 대상 기업에 적용한다. payload의 `companyIds`를 생략하면 현재 등록된 미국 상장기업이 대상이다.
 
 - 거래소와 티커가 정확히 일치하는 행을 우선한다. 거래소까지 일치할 때에만 티커의 점과 하이픈을 동등하게 취급한다. 주식 종류 접미사는 제거하지 않는다.
 - 후보가 서로 다른 CIK를 가리키면 모호한 연결로 건너뛴다. 기존 CIK 또는 기존 적용 이력과 충돌하면 덮어쓰지 않는다.
@@ -39,7 +39,7 @@
 
 공식 마스터에 직접 접근하지 못할 때 확보한 검색 캐시 추출물은 직접 HTTP 응답과 구분한다. 자동 정기 작업의 출처는 계속 공식 마스터 URL이며, 캐시 가져오기는 별도 명시적 작업이다.
 
-현재 추출물은 BE·MSFT·NVDA의 완전한 행 3개만 포함한다. 전체 마스터가 아니며 캐시 나이는 알 수 없다. 이 3개 기업의 운영 CIK 연결은 완료되었지만, 실시간 submissions 교차 검증과 실제 공시 수집은 아직 완료되지 않았다.
+2026-09-05 초기 연결에 사용한 추출물은 BE·MSFT·NVDA의 완전한 행 3개만 포함했다. 전체 마스터가 아니며 캐시 나이는 알 수 없었다. 당시 3개 기업의 운영 CIK 연결은 완료했으나 실시간 submissions 교차 검증과 실제 공시 수집은 미완료였다. 이 기록을 현재 수집 상태로 사용하지 않는다.
 
 | 티커 | 거래소 | 캐시에 기록된 CIK |
 | ---- | ------ | ----------------- |
@@ -47,9 +47,9 @@
 | MSFT | Nasdaq | `0000789019`      |
 | NVDA | Nasdaq | `0001045810`      |
 
-추출물은 저장소 밖에서 관리한다. 현재 작업 파일은 `/tmp/orsem-sec-cached-master.json`이며, 해당 파일의 존재가 운영 DB 반영을 뜻하지 않는다. 취득 메타데이터는 `method: SEARCH_CACHE_EXTRACT`, `coverage: SELECTED_ROWS_ONLY`, `cacheAge: UNKNOWN`, `sourceLastModified: null`, `liveIssuerValidation: NOT_COMPLETED`를 보존한다. `extractedAt`은 캐시 생성 시각이 아닌 추출 시각이다. SHA-256도 HTTP 원문이 아닌 추출 JSON 기준이다.
+추출물은 저장소 밖에서 관리한다. 당시 작업 파일은 `/tmp/orsem-sec-cached-master.json`이며 현재 파일의 존재나 운영 반영 상태를 보장하지 않는다. 취득 메타데이터는 `method: SEARCH_CACHE_EXTRACT`, `coverage: SELECTED_ROWS_ONLY`, `cacheAge: UNKNOWN`, `sourceLastModified: null`, `liveIssuerValidation: NOT_COMPLETED`를 보존한다. `extractedAt`은 캐시 생성 시각이 아닌 추출 시각이다. SHA-256도 HTTP 원문이 아닌 추출 JSON 기준이다.
 
-명시적 진입점은 `SecCikSyncService.syncFromSearchCache(cache, { companyIds })`다. 비어 있지 않은 기업 ID 목록을 요구하며, 캐시가 선택한 모든 대상에 모호함 없이 대응하지 않으면 적용을 거절한다. 부분 캐시에 없는 다른 기업을 미매칭으로 기록하지 않는다. 이 메서드는 네트워크 요청을 하지 않고, 원본 HTTP 응답을 흉내 내는 방식으로 가져오지 않는다. 직접 취득한 응답은 별도로 `DIRECT_HTTP / HTTP_RESPONSE_TEXT`로 기록한다.
+명시적 Python 진입점은 `SecCikMaster.sync({"companyIds": [...]}, cache=cache)`다. 비어 있지 않은 기업 ID 목록을 요구하며, 캐시가 선택한 모든 대상에 모호함 없이 대응하지 않으면 적용을 거절한다. 부분 캐시에 없는 다른 기업을 미매칭으로 기록하지 않는다. 이 메서드는 네트워크 요청을 하지 않고, 원본 HTTP 응답을 흉내 내는 방식으로 가져오지 않는다. 직접 취득한 응답은 별도로 `DIRECT_HTTP / HTTP_RESPONSE_TEXT`로 기록한다.
 
 ## 공시 이벤트와 알림
 
@@ -75,14 +75,12 @@ SEC 상태는 실제 수집 결과를 사용한다. 이전의 단일 기업 상�
 
 ## 운영 명령
 
-저장소 루트에서 Node.js 24와 현재 환경의 `.env`를 사용한다. 먼저 마이그레이션과 최신 API/worker 빌드·배포가 완료되어 있어야 한다. 수집 명령은 기존 worker 큐로 작업을 보내므로 worker와 Redis가 실행 중이어야 한다. CLI 자체는 전체 Nest 애플리케이션을 부트스트랩하지 않는다.
+운영에서는 설치된 Python worker wheel과 기존 외부 환경 설정을 사용한다. 수집 명령은 기존 worker 큐로 작업을 보내므로 Python worker와 Redis, 대응하는 스키마·JobScheduler가 준비되어 있어야 한다. CLI 자체는 정기 워커나 스케줄러를 시작하지 않는다.
 
 ```sh
-node --env-file=.env scripts/collect-sec.cjs --status
-node --env-file=.env scripts/collect-sec.cjs
-node --env-file=.env scripts/collect-sec.cjs --verify
-node --env-file=.env scripts/collect-sec.cjs --collect-only
-node --env-file=.env scripts/collect-sec.cjs --collect-only --verify
+export ORSEM_REPO_ROOT=/home/laeti/orsem
+/home/laeti/orsem-data/worker/current/bin/python -I -B -m orsem_worker.cli collect-sec --status
+/home/laeti/orsem-data/worker/current/bin/python -I -B -m orsem_worker.cli collect-sec --verify
 ```
 
 | 옵션             | 동작                                                                                       |
@@ -92,6 +90,8 @@ node --env-file=.env scripts/collect-sec.cjs --collect-only --verify
 | `--verify`       | 수집을 한 번 더 실행해 기존 최초 관측 시각과 알림 억제 불변식을 확인한다.                  |
 | `--collect-only` | CIK 마스터 연결을 생략하고 이미 연결된 대상만 수집한다. 캐시를 자동으로 가져오지는 않는다. |
 
+`--collect-only --verify`를 함께 사용할 수 있다. 개발·격리 후보는 `python3 scripts/worker.py cli collect-sec ...`로 실행한다. 이 wrapper는 저장소 소스를 사용하며 운영 wheel 실행과 구분한다. [전체 Python CLI 안내](PYTHON_WORKER.md#운영-cli)를 참고한다.
+
 수동 명령의 공시 범위는 현재 상장된 미국 기업 중 P1·P2 관심기업, 활성 IR 등록기업, 최근 24시간 이내 TOSS `PRICE_BARS` 성공 체크포인트가 있는 기업의 합집합이다. 이 중 CIK가 있는 기업만 최대 100개씩 순차 `BACKFILL`한다. 전체 등록기업을 대상으로 공시를 일괄 수집하지 않는다.
 
 CLI는 실행 전 두 SEC 정기 작업이 각각 한 개씩 등록되어 있는지 검사한다. 제출 작업은 자동 재시도 없이 실행하며, 최대 10분 기다리고 15초 간격으로 진행 상태를 출력한다. DB 직접 연결은 읽기 전용이고 변경은 기존 worker 작업으로 수행한다. 종료 시 자신이 만든 종료 상태의 작업을 정리하고 DB·큐 연결을 닫는다.
@@ -100,7 +100,7 @@ CLI는 실행 전 두 SEC 정기 작업이 각각 한 개씩 등록되어 있는
 
 `--verify`의 성공 조건은 기존 `firstObservedAt` 변경 0건과 SEC push delivery 증가 0건이다. 실제로 새 공시가 게시될 수 있으므로 재수집 중 항목 증가 자체를 실패로 간주하지 않는다. 실제 수집 결과가 `HEALTHY`가 아니거나 공시·이벤트가 모두 준비되지 않으면 CLI는 실패를 보고한다. 동시 정기 작업이 실행되는 환경에서는 알림 수 변화 등 집계의 출처도 함께 확인한다.
 
-## 이번 실행 기록 — 2026-09-05 00:06 KST
+## 과거 실행 기록 — 2026-09-05 00:06 KST
 
 기업번호 연결과 수집 기능 배포는 완료했으나 SEC 서버의 요청 거부로 실제 공시 수집은 미완료다. 아래 수치는 마지막 수집 시도 후 `--status`로 운영 DB를 확인한 결과다.
 
@@ -123,9 +123,10 @@ CLI는 실행 전 두 SEC 정기 작업이 각각 한 개씩 등록되어 있는
 
 ## 구현 위치
 
-- `apps/worker/src/market-data/sec-ticker-master.client.ts`, `sec-cik-sync.service.ts`: 공식 마스터·캐시 검증과 CIK 연결.
-- `apps/worker/src/connectors/connector-adapters.ts`, `news-discovery.service.ts`, `sec-event-projection.ts`: submissions 수집, 기준선·알림 억제, 접수 이벤트 연결.
-- `apps/worker/src/connectors/sec-access-policy.ts`, `connector-health.service.ts`: 공유 대기 정책과 실제 수집 기반 상태.
-- `apps/worker/src/scheduling/schedule-definitions.ts`, `queues/job-data.ts`: 실행 주기와 명시적 수집 범위 검증.
+- `apps/worker/python/orsem_worker/market/masters.py`: 공식 마스터·캐시 검증과 CIK 연결.
+- `apps/worker/python/orsem_worker/connectors/discovery.py`, `providers.py`, `projections.py`: submissions 수집, 기준선·알림 억제, 접수 이벤트 연결.
+- `apps/worker/python/orsem_worker/connectors/sec_access.py`, `health.py`: 공유 대기 정책과 실제 수집 기반 상태.
+- `apps/worker/python/orsem_worker/disclosures/sec.py`: Form 3/4/5 원문 해석과 ownership 저장.
+- `apps/worker/python/orsem_worker/scheduling.py`, `jobs.py`: 실행 주기와 명시적 수집 범위 검증.
 - `packages/database/src/migrations/1788398000000-AllowSharedCompanyCik.ts`: CIK 공유 지원 마이그레이션.
-- `scripts/collect-sec.cjs`: 운영 수집과 집계 검증 명령.
+- `apps/worker/python/orsem_worker/cli.py`: 운영 수집과 집계 검증 명령.

@@ -35,14 +35,16 @@
 
 ## 명령어
 
+Node.js 24/npm과 Python 3.12 개발 환경이 필요합니다. [Python 환경 설치](PYTHON_WORKER.md#실행-환경) 후 운영 프로세스와 산출물을 공유하는 작업 공간에서는 격리 검증기를 사용합니다.
+
 ```bash
-npm run check
-npm run build
+export ORSEM_WORKER_PYTHON="$PWD/.venv/bin/python"
+python3 scripts/verify-in-isolation.py
 ```
 
-`check`는 포맷, 린트, 타입 검사, 전체 테스트, MessengerBotR 문법 검사를 순서대로 실행합니다. GitHub CI도 같은 명령을 사용합니다. 실제 자격 증명이나 `.env` 없이 실행할 수 있으며 공급자 호출과 운영 데이터베이스 연결은 포함하지 않습니다.
+검증기는 임시 작업 복사본에서 `npm run check`와 `npm run build`를 실행합니다. `check`는 포맷, 린트, 타입 검사, 전체 테스트, MessengerBotR 문법 검사를 순서대로 실행합니다. CI나 운영 산출물과 분리된 작업 공간에서는 두 npm 명령을 직접 실행할 수 있습니다. 실제 자격 증명이나 `.env` 없이 실행할 수 있으며 공급자 호출과 운영 데이터베이스 연결은 포함하지 않습니다.
 
-처음 복제했거나 `dist`를 지운 경우에도 루트의 타입 검사·테스트 명령은 `build:packages`를 먼저 실행합니다. 공통 패키지는 contracts → database → opendart-parser 순서로 빌드하므로 이전 빌드 산출물에 의존하지 않습니다.
+처음 복제했거나 `dist`를 지운 경우에도 루트의 타입 검사·테스트 명령은 `build:packages`를 먼저 실행합니다. 공통 TypeScript 패키지는 contracts → database 순서로 빌드합니다. OpenDART 파서는 Python 워커에 포함되며 별도 Node 파서 패키지 빌드는 필요하지 않습니다.
 
 개별 검증은 다음과 같이 실행합니다.
 
@@ -51,6 +53,22 @@ npm run typecheck
 npm test
 npm run test:scripts
 npm run check:messenger-script
+python3 scripts/worker.py lint
+python3 scripts/worker.py typecheck
+python3 scripts/worker.py test
 ```
 
 실제 소스 기본 동작 테스트는 명시적으로 선택했을 때만 실행하고 요청 한도를 적용하며 일반 CI에서 제외합니다. 로그에는 요청 종류, 상태, 소요 시간, 응답 해시를 기록할 수 있지만 API 키나 전체 쿼리 URL을 기록하면 안 됩니다.
+
+## Python 통합 검사
+
+다음 변수는 폐기 가능한 테스트 인스턴스를 명시할 때만 사용합니다. 각 테스트의 DB 이름·소켓·포트 제한을 확인하며 운영 연결 값을 넣지 않습니다.
+
+| 환경 변수                  | 검증 범위                                                          |
+| -------------------------- | ------------------------------------------------------------------ |
+| `ORSEM_TEST_DATABASE_URL`  | 공시·저장·알림 outbox의 실제 MySQL 동작                            |
+| `ORSEM_CONNECTORS_TEST_DB` | 수집기 체크포인트·권리·커서의 실제 MySQL 동작                      |
+| `ORSEM_MARKET_TEST_DB`     | 가격·식별 정보·배치 저장·동시 연결 잠금의 실제 MySQL 동작          |
+| `ORSEM_TEST_REDIS_URL`     | Node↔Python 일반 작업, 재시도·지연, 연속 스케줄, 종료 중 잠금 갱신 |
+
+변수가 없는 검사는 건너뛰므로 통과 수와 생략 수를 함께 기록합니다. BullMQ를 변경할 때는 `test_queue_compatibility.py`, `test_scheduler_advancement.py`, `test_runtime_shutdown.py`를 실제 Redis에서 실행하여 `runtime.Worker`의 동작을 확인합니다. 테스트는 고유 큐 접두사를 사용하며 자신이 생성한 데이터만 정리합니다. 공급자 응답은 합성 자료를 사용하고 외부 연결 성공은 별도로 기록합니다.

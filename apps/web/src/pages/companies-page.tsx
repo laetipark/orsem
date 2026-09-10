@@ -76,12 +76,24 @@ export function CompaniesPage() {
               <table>
                 <thead>
                   <tr>
-                    <th scope="col">종목</th>
-                    <th scope="col">최근 종가</th>
-                    <th scope="col">등락률</th>
-                    <th scope="col">거래량</th>
-                    <th scope="col">시가총액</th>
-                    <th scope="col">시세 기준일</th>
+                    <th scope="col" className="companies-directory__name">
+                      종목
+                    </th>
+                    <th scope="col" className="companies-directory__price">
+                      최근 종가
+                    </th>
+                    <th scope="col" className="companies-directory__change">
+                      등락률
+                    </th>
+                    <th scope="col" className="companies-directory__volume">
+                      거래량
+                    </th>
+                    <th scope="col" className="companies-directory__cap">
+                      시가총액
+                    </th>
+                    <th scope="col" className="companies-directory__date">
+                      시세 기준일
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -93,7 +105,9 @@ export function CompaniesPage() {
                           <Link to={companyPath(company)} className="companies-directory__identity">
                             <CompanyAvatar company={company} />
                             <span>
-                              <strong>{company.nameKo || company.nameEn}</strong>
+                              <strong title={company.nameKo || company.nameEn || undefined}>
+                                {company.nameKo || company.nameEn}
+                              </strong>
                               <small>
                                 {company.stockCode || company.ticker || '코드 확인 대기'} ·{' '}
                                 {company.market}
@@ -101,21 +115,35 @@ export function CompaniesPage() {
                             </span>
                           </Link>
                         </th>
-                        <td>
-                          {quote?.price && quote.currency ? (
-                            formatMoney(quote.price, quote.currency)
-                          ) : (
-                            <span className="muted">—</span>
-                          )}
+                        <td className="companies-directory__price">
+                          <span>
+                            {quote?.price && quote.currency ? (
+                              formatMoney(quote.price, quote.currency)
+                            ) : (
+                              <span className="muted">—</span>
+                            )}
+                          </span>
+                          <small className="companies-directory__price-date">
+                            {quote?.basisDate ? (
+                              <time
+                                dateTime={quote.basisDate}
+                                aria-label={`시세 기준일 ${formatDate(quote.basisDate)}`}
+                              >
+                                {formatDate(quote.basisDate)}
+                              </time>
+                            ) : (
+                              '기준일 확인 대기'
+                            )}
+                          </small>
                         </td>
                         <td
-                          className={
+                          className={`companies-directory__change ${
                             (quote?.changePercent ?? 0) > 0
                               ? 'positive'
                               : (quote?.changePercent ?? 0) < 0
                                 ? 'negative'
                                 : ''
-                          }
+                          }`}
                           title={
                             quote?.referenceDate
                               ? `${formatDate(quote.referenceDate)} 종가 대비`
@@ -124,10 +152,11 @@ export function CompaniesPage() {
                         >
                           {formatPercent(quote?.changePercent)}
                         </td>
-                        <td>
+                        <td className="companies-directory__volume">
                           {quote?.volume != null ? `${financialNumber(quote.volume)}주` : '—'}
                         </td>
                         <td
+                          className="companies-directory__cap"
                           title={
                             quote?.capBasisDate
                               ? `${formatDate(quote.capBasisDate)} 금융위원회 자료`
@@ -138,7 +167,9 @@ export function CompaniesPage() {
                             ? `${financialNumber(quote.marketCap, true)}${['KRX', 'KOSPI', 'KOSDAQ', 'KONEX'].includes(company.market) ? '원' : ' USD'}`
                             : '—'}
                         </td>
-                        <td>{quote?.basisDate ? formatDate(quote.basisDate) : '—'}</td>
+                        <td className="companies-directory__date">
+                          {quote?.basisDate ? formatDate(quote.basisDate) : '—'}
+                        </td>
                       </tr>
                     );
                   })}

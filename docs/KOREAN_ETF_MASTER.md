@@ -20,10 +20,11 @@
 
 ## 수동 확인과 적용
 
-운영 `dist`에서 빌드하지 않습니다. 격리한 배포 후보에서 먼저 다음 CLI의 `--dry-run` 결과를 확인합니다. 환경 파일은 외부 실행 환경으로 주입하고 명령 출력에 키를 노출하지 않습니다.
+격리 후보는 `python3 scripts/worker.py cli sync-korean-etfs --dry-run`으로 확인합니다. 운영에서는 설치된 wheel을 직접 선택합니다. 환경 파일은 기존 외부 설정으로 주입하고 명령 출력에 키를 노출하지 않습니다. [Python CLI 실행 구분](PYTHON_WORKER.md#운영-cli)을 참고하세요.
 
 ```bash
-node --env-file=/home/laeti/orsem/.env <배포후보>/apps/worker/dist/cli/sync-korean-etfs.js --dry-run
+export ORSEM_REPO_ROOT=/home/laeti/orsem
+/home/laeti/orsem-data/worker/current/bin/python -I -B -m orsem_worker.cli sync-korean-etfs --dry-run
 ```
 
 이 명령은 6개 공식 응답과 기존 식별 정보를 확인한 뒤 예상 등록·갱신·충돌 건수만 출력합니다. 기업이나 체크포인트를 저장하지 않습니다. 검증된 후보와 운영 백업을 확보한 후 `--apply`를 사용하면 하나의 트랜잭션으로 기업과 체크포인트를 반영합니다. Worker의 자동 갱신과 CLI는 공통 DB 잠금으로 중복 실행을 막습니다. 기존 API의 종목 목록·통합 검색·관심 종목·차트는 등록된 ETF의 회사 ID와 종목 코드를 그대로 사용합니다.

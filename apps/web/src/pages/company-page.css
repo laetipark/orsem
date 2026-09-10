@@ -88,23 +88,48 @@
   gap: 6px;
   flex: none;
 }
-.company-heading__actions .button {
-  font-size: 11px;
-  min-height: 32px;
-  padding: 6px 8px;
+.company-heading__actions
+  :is(
+    .company-sidebar-toggle,
+    .company-notification__button,
+    .company-group-trigger,
+    .company-share__button
+  ) {
+  height: 44px;
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--muted);
+}
+.company-heading__actions
+  :is(.company-notification__button, .company-group-trigger, .company-share__button) {
+  width: 44px;
+  min-width: 44px;
+  padding: 0;
+}
+.company-heading__actions
+  :is(
+    .company-sidebar-toggle,
+    .company-notification__button,
+    .company-group-trigger,
+    .company-share__button
+  ):hover:not(:disabled) {
+  background: var(--surface-3);
+  border-color: var(--border-strong);
+  color: var(--teal);
+}
+.company-heading__actions
+  :is(.company-notification__button--enabled, .company-group-trigger--selected) {
+  color: var(--teal);
 }
 .company-sidebar-toggle {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 5px;
-  border: 0;
-  border-radius: 5px;
-  padding: 6px 8px;
-  background: transparent;
-  color: var(--muted);
-  font-size: 11px;
-  min-height: 32px;
+  padding: 0 10px;
+  font-size: 12px;
   cursor: pointer;
 }
 .company-page .company-overview {
@@ -701,10 +726,10 @@
   .company-heading__actions {
     gap: 2px;
   }
-  .company-heading__actions .button {
-    min-height: 44px;
-    padding: 5px 6px;
-    font-size: 11px;
+  .company-heading__actions
+    :is(.company-notification__button, .company-group-trigger, .company-share__button) {
+    border-color: transparent;
+    background: transparent;
   }
   .company-page .company-quote-price {
     font-size: 32px;

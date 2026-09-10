@@ -38,7 +38,7 @@ Marketaux·Alpha Vantage·Finnhub와 신규 기업 IR·한국경제 RSS는 **구
 
 뉴스 건수는 증거의 강도를 뜻하지 않습니다. 이벤트 묶음은 공식 소스, 최초 보도, 발견 경로, 독립적으로 검증된 출처를 각각 기록합니다.
 
-뉴스 기사 본문은 요청·추출·저장·번역하지 않습니다. 자동 번역은 승인된 `NEWS_RSS`·`IR`의 제목과 제공 요약에만 적용합니다. 소스의 `rightsMode`가 기록된 정책과 일치하고 `metadataStorageAllowed`, `displayAllowed`, `aiAllowed`가 모두 `true`인 `OFFICIAL_PUBLIC_DATA`·`PRIVATE_DISPLAY_ONLY` 항목만 처리합니다. `fullTextStorageAllowed`는 메타데이터 번역 조건이 아니며 `UNKNOWN`, `STORE_METADATA_ONLY`, `LINK_ONLY`, `NO_REDISTRIBUTION`의 번역은 허용하지 않습니다. 제목·제공 요약·출처·시각·해시를 보존하고 번역은 별도로 저장해 **자동 번역**으로 표시합니다. 모든 뉴스는 원문으로 연결하며 공시 분류나 증거 등급은 바꾸지 않습니다. [번역 범위와 보존](NEWS_TRANSLATION.md#처리-범위와-보존)을 참고하세요.
+뉴스 기사 본문은 요청·추출·저장·번역하지 않습니다. 자동 번역은 승인된 `NEWS_RSS`·`IR`의 제목과 제공 요약에만 적용합니다. 소스의 `rightsMode`가 기록된 정책과 일치하고 `metadataStorageAllowed`, `displayAllowed`, `aiAllowed`가 모두 `true`인 `OFFICIAL_PUBLIC_DATA`·`PRIVATE_DISPLAY_ONLY` 항목만 처리합니다. `fullTextStorageAllowed`는 메타데이터 번역 조건이 아니며 `UNKNOWN`, `STORE_METADATA_ONLY`, `LINK_ONLY`, `NO_REDISTRIBUTION`의 번역은 허용하지 않습니다. 제목·제공 요약·출처·시각·해시를 보존하고 번역은 별도로 저장해 **자동 번역**으로 표시합니다. 모든 뉴스는 원문으로 연결하며 공시 분류나 증거 등급은 바꾸지 않습니다. [번역 범위와 보존](NEWS_TRANSLATION.md#입력과-권리)을 참고하세요.
 
 기존 기사 본문과 본문 번역·수동 편집 사본은 마이그레이션으로 운영 DB에서 제거합니다. 수동 제목·요약과 감사 이력은 메타데이터 v2로 보존하며 앱의 이전 본문 편집 초안도 삭제합니다. 과거 백업과 공시 원본은 이 정리 대상에 포함하지 않습니다.
 

@@ -307,7 +307,7 @@ export function CompanyPage() {
               ) : null}
             </p>
           </div>
-          <div className="company-heading__actions">
+          <div className="company-heading__actions" role="group" aria-label="종목 설정 및 공유">
             <button
               type="button"
               className="company-sidebar-toggle"
