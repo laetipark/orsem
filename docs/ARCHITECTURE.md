@@ -2,11 +2,13 @@
 
 Orsem은 개인용 비상업 관측 시스템입니다. 공시와 뉴스를 감지하며, 주문을 실행하거나 자동 매수·매도 추천을 생성하지 않습니다.
 
+이 문서는 Python 3.12 워커의 구조를 설명합니다. 현재 운영 전환 상태는 [배포 문서](DEPLOYMENT.md#python-워커-전환-상태)에 별도로 기록합니다.
+
 ```text
 OpenDART / SEC / Samsung Global / Federal Reserve / BLS
                           │
                           ▼
-            검토된 프로필의 worker 수집기 + 체크포인트
+            Python worker 수집기 + 영속 체크포인트
                           │
                    MySQL job_outbox
                           │
@@ -33,21 +35,25 @@ NAVER 뉴스는 정기 대상 순환 또는 종목 뉴스 열람 시 자동 조�
 ## 패키지
 
 - `apps/api`: 인증이 필요한 REST API와 봇 기기 게이트웨이.
-- `apps/worker`: 일정, 소스 어댑터, 큐, 정규화, 전송 대기함, 분류기.
+- `apps/worker/python/orsem_worker`: Python 일정·소스 어댑터·BullMQ 작업·정규화·전송 대기함·분류기.
 - `apps/discord-bot`: 조회 전용 슬래시 명령과 기한부 점유 방식의 알림 전송.
 - `apps/web`: 운영 대시보드.
 - `packages/contracts`: 실행 시점에 검증하는 소스·API·큐 계약.
 - `packages/database`: TypeORM 엔티티, 데이터 소스, 마이그레이션. 스키마 자동 동기화는 비활성화합니다.
-- `packages/opendart-parser`: 악의적인 입력에 대비한 ZIP/XML 정규화와 D001/D002/D003/D004/D005 추출기.
+- `apps/worker/python/orsem_worker/disclosures`: 한도가 적용된 ZIP/XML 정규화, D001–D005 추출기, 원문 검토·조회용 데이터 반영, SEC ownership 파서.
+- `scripts/worker.py`와 `scripts/*parser*.py`: Python 실행·검증·운영 감사 명령. 전환 관측이 끝날 때까지 기존 TypeScript 구현은 복구 비교 대상으로 남습니다.
 - `integrations/messengerbot-r`: 로컬 전송 기록을 갖춘 Android API2 브리지.
 
 ## 코드 책임 분리
 
 - API의 `resources/orsem-data.service.ts`는 조회·권한·트랜잭션을 조합합니다. 순수 응답 변환은 `resources/resource-mappers.ts`, 페이지 결과 구성은 `common/pagination.ts`, 커서 직렬화는 `common/cursor.ts`에서 관리합니다. 지역 필터와 정렬을 적용한 뒤 `limit + 1`개를 읽어 다음 페이지 유무를 결정합니다.
-- worker의 `common/bounded-response.ts`는 선언된 크기와 실제 스트림 바이트를 함께 제한합니다. 제공자마다 정한 한도·오류 문구는 호출부에 남깁니다. `market-data/toss-view-fetch-policy.ts`는 요청 범위·저장된 수집 이력·현재 시각으로 갱신 범위를 결정하며 네트워크나 데이터베이스에 접근하지 않습니다.
+- Python worker의 `connectors/common.py`와 개별 클라이언트는 HTTP 응답 바이트·redirect·제한 시간을 통제합니다. `market/toss.py`는 요청 범위·저장된 수집 이력·현재 시각을 이용해 토스 갱신 범위를 결정합니다. `disclosures/`는 원문 보존과 추출·검토·반영을, `connectors/`는 소스별 권리·예산·수집·번역을, `market/`은 가격·기업 정보·시장 선정을 담당합니다.
+- `core.py`·`storage.py`는 기존 MySQL 테이블에 바인딩된 SQL과 명시적 트랜잭션으로 접근합니다. DDL은 계속 `packages/database`의 TypeORM 마이그레이션이 관리하며 Python에서 스키마를 자동 생성하지 않습니다. `jobs.py`는 기존 JSON 작업 계약을 검증하고 `runtime.py`·`scheduling.py`는 기존 Redis 큐와 JobScheduler를 관리합니다. `push.py`·`outbox.py`·`alert_gate.py`는 알림 수신 권한과 현재 활성 공시 결과를 전송 직전에도 확인합니다.
 - 웹의 시장 조회, 그룹 분류, 시각 표시, 카드와 가격 표시를 별도 모듈로 관리합니다. 화면 배치는 컴포넌트와 CSS가 맡고, 수집 시각·자료 기준 시각의 의미는 `lib/market-time.ts`에서 공유합니다. 표시용 한글 명칭은 `lib/domain-labels.ts`를 사용하며 API 코드와 원본 인용문은 변경하지 않습니다.
 
-루트의 `npm run build:packages`는 공통 패키지를 의존 순서대로 빌드합니다. `npm run check`로 로컬과 CI에서 같은 검증 순서를 실행합니다. [검증 명령](TESTING.md)을 참고하세요.
+Node.js 24/npm workspace는 API·웹·Discord·공통 TypeScript 계약을 유지합니다. Python 워커는 JavaScript 실행 브리지 없이 `python -m orsem_worker`로 실행합니다. 기존 BullMQ 큐 이름·접두사·작업 데이터·재시도 계약과 DB 식별자를 공유하므로 언어 전환 시 일반 큐 작업이나 수집 자료를 초기화하지 않습니다. Python 패키지는 wheel과 잠긴 의존성으로 배포합니다.
+
+운영 산출물과 겹치는 작업 공간에서는 `python3 scripts/verify-in-isolation.py`로 `npm run check`와 `npm run build`를 격리 실행합니다. Python 검증은 Ruff·mypy·pytest를 사용합니다. 실행 환경과 관리 명령은 [Python 워커 안내](PYTHON_WORKER.md)를 참고하세요.
 
 ## 이벤트 시각의 의미
 

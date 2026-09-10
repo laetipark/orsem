@@ -1,5 +1,5 @@
 import { SearchInput } from '../components/search-input';
-import { useInfiniteQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { Newspaper, RefreshCw, Search } from 'lucide-react';
 import { type FormEvent, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -53,15 +53,23 @@ export function NewsPage() {
   }, []);
   const [params, setParams] = useSearchParams();
   const [draft, setDraft] = useState(params.get('q') ?? '');
+  const companyId = params.get('companyId') || undefined;
+  const company = useQuery({
+    queryKey: ['company', companyId],
+    queryFn: ({ signal }) => api.company(companyId!, signal),
+    enabled: Boolean(companyId),
+  });
   const filters = {
-    scope: (['market', 'company'].includes(params.get('scope') ?? '')
-      ? params.get('scope')
-      : 'all') as 'all' | 'market' | 'company',
+    scope: (companyId
+      ? 'company'
+      : ['market', 'company'].includes(params.get('scope') ?? '')
+        ? params.get('scope')
+        : 'all') as 'all' | 'market' | 'company',
     region: parseRegion(params.get('region')),
     sourceKind: parseNewsSourceKind(params.get('sourceKind')),
     publisher: params.get('publisher') || undefined,
     q: params.get('q') || undefined,
-    companyId: params.get('companyId') || undefined,
+    companyId,
   };
   const news = useInfiniteQuery({
     queryKey: ['news', filters],
@@ -79,6 +87,7 @@ export function NewsPage() {
       const next = new URLSearchParams(current);
       if (value) next.set(name, value);
       else next.delete(name);
+      if (name === 'scope' && value !== 'company') next.delete('companyId');
       next.delete('cursor');
       return next;
     });
@@ -91,7 +100,9 @@ export function NewsPage() {
     <div className="page-stack news-page">
       <div className="page-lead">
         <p>
-          시장 공통 소식과 기업 관련 뉴스를 구분해 확인합니다. 모든 기사는 원문 링크로 제공합니다.
+          {companyId
+            ? `${company.data?.nameKo ?? '선택한 종목'} 관련 뉴스를 최신순으로 모두 확인할 수 있습니다.`
+            : '시장 공통 소식과 기업 관련 뉴스를 구분해 확인합니다. 모든 기사는 원문 링크로 제공합니다.'}
         </p>
         <div className="news-page__actions">
           <Button
@@ -183,7 +194,8 @@ export function NewsPage() {
       <Card className="market-news" aria-labelledby="news-list-title">
         <CardHeader>
           <h2 id="news-list-title">
-            <Newspaper size={19} aria-hidden="true" /> 최신 뉴스
+            <Newspaper size={19} aria-hidden="true" />{' '}
+            {companyId ? `${company.data?.nameKo ?? '종목'} 관련 뉴스 전체` : '최신 뉴스'}
           </h2>
           <span className="market-news__refresh-note">목록 1분마다 갱신</span>
         </CardHeader>
@@ -219,8 +231,14 @@ export function NewsPage() {
             onRetry={() => void (news.isFetchNextPageError ? news.fetchNextPage() : news.refetch())}
           />
         ) : null}
-        {items.length ? <MarketNewsList items={items} /> : null}
-        {news.data && !items.length && !news.isError ? <MarketNewsEmpty /> : null}
+        {items.length ? <MarketNewsList items={items} companyDetail={Boolean(companyId)} /> : null}
+        {news.data && !items.length && !news.isError ? (
+          companyId ? (
+            <p className="market-news__end">해당 종목과 연결된 뉴스가 없습니다.</p>
+          ) : (
+            <MarketNewsEmpty />
+          )
+        ) : null}
         {news.hasNextPage ? (
           <div className="market-news__more">
             <Button

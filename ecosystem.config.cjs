@@ -48,6 +48,12 @@ const newsTranslationEnvironment = fileBackedEnvironment([
 // 상속받은 변수를 덮어쓰지 않으므로, 이렇게 하지 않으면 PM2에 남은
 // 빈 SEC_USER_AGENT가 .env의 유효한 값을 가릴 수 있습니다.
 const connectorEnvironment = fileBackedEnvironment([
+  'LOGO_DEV_ENABLED',
+  'LOGO_DEV_PUBLISHABLE_KEY',
+  'LOGO_DEV_MONTHLY_LIMIT',
+  'BRANDFETCH_ENABLED',
+  'BRANDFETCH_CLIENT_ID',
+  'BRANDFETCH_MONTHLY_LIMIT',
   'OPENDART_API_KEY',
   'OPENDART_GLOBAL_ALERT_TYPES',
   'OPENDART_POLL_OVERLAP_DAYS',
@@ -173,17 +179,21 @@ module.exports = {
     {
       ...common,
       name: 'orsem-worker',
-      script: 'apps/worker/dist/main.js',
-      interpreter: nodeInterpreter,
+      script: path.join(dataDir, 'worker/current/bin/python'),
+      args: '-m orsem_worker',
+      interpreter: 'none',
       instances: 1,
       exec_mode: 'fork',
       max_memory_restart: '768M',
-      node_args: '--env-file=.env --max-old-space-size=672',
+      kill_timeout: 660_000,
       env: {
         ...common.env,
         ...aiEnvironment,
         ...newsTranslationEnvironment,
         ...connectorEnvironment,
+        ORSEM_REPO_ROOT: root,
+        PYTHONUNBUFFERED: '1',
+        PYTHONDONTWRITEBYTECODE: '1',
       },
     },
     {

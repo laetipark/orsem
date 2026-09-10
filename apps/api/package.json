@@ -10,7 +10,7 @@
     "start:dev": "nest start --watch",
     "admin:create": "ts-node --files src/cli/create-admin.ts",
     "pretest": "npm run build --workspace=@orsem/contracts && npm run build --workspace=@orsem/database",
-    "test": "tsc -p tsconfig.json && node --test dist/**/*.spec.js",
+    "test": "tsc -p tsconfig.json --outDir .test-dist --tsBuildInfoFile .test-dist/.tsbuildinfo && node --test .test-dist/**/*.spec.js",
     "test:unit": "npm run test"
   },
   "dependencies": {

@@ -6,9 +6,12 @@ import type { FetchImplementation } from '../opendart/opendart.client';
 
 const KEY = { connector: 'SEC', stream: 'ACCESS_COOLDOWN' };
 const MINIMUM_COOLDOWN_MS = 10 * 60_000;
+const MAXIMUM_BACKOFF_MS = 6 * 60 * 60_000;
 const SEC_HOSTS = new Set(['sec.gov', 'www.sec.gov', 'data.sec.gov']);
-const SEC_REQUEST_INTERVAL_MS = 250;
+const SEC_REQUEST_INTERVAL_MS = 1000;
+const RECOVERY_TIMEOUT_MS = 30_000;
 const states = new WeakMap<DataSource, { tail: Promise<void>; nextAt: number }>();
+type RecoveryLease = { owner: string; expiresAt: number };
 type Cooldown = {
   retryAt: Date;
   providerStatus: 403 | 429;
@@ -61,7 +64,61 @@ function later(left: Cooldown | null, right: Cooldown | null): Cooldown | null {
   return left.retryAt >= right.retryAt ? left : right;
 }
 
-function retryTime(header: string | null, now: number): Date {
+function savedConsecutiveFailures(metadata: Record<string, unknown> | null | undefined): number {
+  const count = metadata?.consecutiveFailures;
+  if (typeof count === 'number' && Number.isSafeInteger(count) && count >= 0) return count;
+  // Existing checkpoints predate the counter but still represent an observed denial.
+  return savedCooldown(metadata) ? 1 : 0;
+}
+
+function savedRecoveryLease(
+  metadata: Record<string, unknown> | null | undefined,
+): RecoveryLease | null {
+  const owner = metadata?.recoveryOwner;
+  const expiresAt = Date.parse(String(metadata?.recoveryExpiresAt ?? ''));
+  return typeof owner === 'string' && owner && Number.isFinite(expiresAt)
+    ? { owner, expiresAt }
+    : null;
+}
+
+/** Bound recovery headers to the lease even if a transport ignores its AbortSignal. */
+async function recoveryFetch(
+  fetchImpl: FetchImplementation,
+  input: Parameters<FetchImplementation>[0],
+  init: Parameters<FetchImplementation>[1],
+  lease: RecoveryLease,
+): Promise<Response> {
+  const controller = new AbortController();
+  const callerSignal = init?.signal ?? (input instanceof Request ? input.signal : null);
+  const signal = AbortSignal.any([controller.signal, ...(callerSignal ? [callerSignal] : [])]);
+  const expire = () =>
+    controller.abort(new DOMException('SEC recovery request timed out.', 'TimeoutError'));
+  const remaining = lease.expiresAt - Date.now();
+  if (remaining <= 0) expire();
+  const timer = setTimeout(expire, Math.max(0, remaining));
+  let abort!: () => void;
+  try {
+    signal.throwIfAborted();
+    const aborted = new Promise<never>((_, reject) => {
+      abort = () => reject(signal.reason);
+      signal.addEventListener('abort', abort, { once: true });
+    });
+    const response = fetchImpl(input, { ...init, signal }).then((value) => {
+      if (Date.now() >= lease.expiresAt) expire();
+      if (signal.aborted) {
+        void value.body?.cancel().catch(() => undefined);
+        throw signal.reason;
+      }
+      return value;
+    });
+    return await Promise.race([response, aborted]);
+  } finally {
+    clearTimeout(timer);
+    if (abort) signal.removeEventListener('abort', abort);
+  }
+}
+
+function retryTime(header: string | null, now: number, consecutiveFailures = 1): Date {
   const value = header?.trim() ?? '';
   const explicit = /^\d+$/.test(value)
     ? now + Number(value) * 1000
@@ -69,7 +126,11 @@ function retryTime(header: string | null, now: number): Date {
       ? Date.parse(value)
       : NaN;
   const valid = Number.isFinite(explicit) && explicit <= 8.64e15 ? explicit : 0;
-  return new Date(Math.max(now + MINIMUM_COOLDOWN_MS, valid));
+  const backoff = Math.min(
+    MAXIMUM_BACKOFF_MS,
+    MINIMUM_COOLDOWN_MS * 2 ** Math.min(Math.max(0, consecutiveFailures - 1), 6),
+  );
+  return new Date(Math.max(now + backoff, valid));
 }
 
 /** Leaves request headers, transport failures and every non-SEC request unchanged. */
@@ -97,6 +158,7 @@ export function createSecFetch(
       release = resolve;
     });
     await previous;
+    let recoveryLease: RecoveryLease | null = null;
     try {
       let cooldown: Cooldown | null;
       try {
@@ -161,23 +223,84 @@ export function createSecFetch(
       const signal = init?.signal ?? (input instanceof Request ? input.signal : null);
       signal?.throwIfAborted();
       // Another worker may have received a denial while this request waited for its slot.
+      let failuresAtStart = 0;
+      let lastFailureId: unknown;
       try {
-        const row = await dataSource.getRepository(SourceCheckpointEntity).findOneBy(KEY);
-        const cooling = savedCooldown(row?.metadataJson);
-        if (cooling && cooling.retryAt.getTime() > Date.now())
-          throw new SecAccessCooldownError(
-            cooling.retryAt,
-            cooling.providerStatus,
-            false,
-            cooling.providerCode,
-          );
+        recoveryLease = await dataSource.transaction(async (manager) => {
+          const repository = manager.getRepository(SourceCheckpointEntity);
+          const row = await repository.findOne({ where: KEY, lock: { mode: 'pessimistic_write' } });
+          if (!row) throw new SecAccessPolicyError();
+          const cooling = savedCooldown(row.metadataJson);
+          if (cooling && cooling.retryAt.getTime() > Date.now())
+            throw new SecAccessCooldownError(
+              cooling.retryAt,
+              cooling.providerStatus,
+              false,
+              cooling.providerCode,
+            );
+          const held = savedRecoveryLease(row.metadataJson);
+          if (held && held.expiresAt > Date.now())
+            throw new SecAccessCooldownError(
+              new Date(held.expiresAt),
+              cooling?.providerStatus ?? 403,
+              false,
+              cooling?.providerCode ?? null,
+            );
+          failuresAtStart = savedConsecutiveFailures(row.metadataJson);
+          lastFailureId = row.metadataJson?.lastFailureId;
+          if (failuresAtStart > 0) {
+            const lease = { owner: randomUUID(), expiresAt: Date.now() + RECOVERY_TIMEOUT_MS };
+            row.metadataJson = {
+              ...row.metadataJson,
+              recoveryOwner: lease.owner,
+              recoveryExpiresAt: new Date(lease.expiresAt).toISOString(),
+            };
+            await repository.save(row);
+            return lease;
+          }
+          return null;
+        });
       } catch (error) {
         if (error instanceof SecAccessCooldownError) throw error;
         throw new SecAccessPolicyError();
       }
       state.nextAt = Date.now() + SEC_REQUEST_INTERVAL_MS;
-      const response = await fetchImpl(input, init);
-      if (response.status !== 403 && response.status !== 429) return response;
+      const response = recoveryLease
+        ? await recoveryFetch(fetchImpl, input, init, recoveryLease)
+        : await fetchImpl(input, init);
+      if (response.status !== 403 && response.status !== 429) {
+        if (response.ok && failuresAtStart > 0) {
+          try {
+            await dataSource.transaction(async (manager) => {
+              const repository = manager.getRepository(SourceCheckpointEntity);
+              const row = await repository.findOne({
+                where: KEY,
+                lock: { mode: 'pessimistic_write' },
+              });
+              if (!row) throw new SecAccessPolicyError();
+              // A slow successful request must not reset a newer denial from another worker.
+              if (
+                savedConsecutiveFailures(row.metadataJson) !== failuresAtStart ||
+                row.metadataJson?.lastFailureId !== lastFailureId ||
+                (recoveryLease &&
+                  (row.metadataJson?.recoveryOwner !== recoveryLease.owner ||
+                    recoveryLease.expiresAt <= Date.now()))
+              )
+                return;
+              row.metadataJson = {
+                ...row.metadataJson,
+                consecutiveFailures: 0,
+                lastSuccessAt: new Date().toISOString(),
+              };
+              await repository.save(row);
+            });
+          } catch {
+            void response.body?.cancel().catch(() => undefined);
+            throw new SecAccessPolicyError();
+          }
+        }
+        return response;
+      }
       const now = Date.now();
       const retryAfter = response.headers.get('retry-after');
       const observed: Cooldown = {
@@ -197,9 +320,17 @@ export function createSecFetch(
             .execute();
           const row = await repository.findOne({ where: KEY, lock: { mode: 'pessimistic_write' } });
           if (!row) throw new Error('SEC access checkpoint unavailable.');
+          const consecutiveFailures = Math.min(
+            Number.MAX_SAFE_INTEGER,
+            savedConsecutiveFailures(row.metadataJson) + 1,
+          );
+          observed.retryAt = retryTime(retryAfter, now, consecutiveFailures);
           const next = later(savedCooldown(row.metadataJson), observed)!;
           row.metadataJson = {
             ...row.metadataJson,
+            consecutiveFailures,
+            lastFailureId: randomUUID(),
+            lastFailureAt: new Date(now).toISOString(),
             retryAt: next.retryAt.toISOString(),
             providerStatus: next.providerStatus,
             providerCode: next.providerCode,
@@ -257,6 +388,27 @@ export function createSecFetch(
         cooldown!.providerCode,
       );
     } finally {
+      if (recoveryLease) {
+        const owner = recoveryLease.owner;
+        try {
+          await dataSource.transaction(async (manager) => {
+            const repository = manager.getRepository(SourceCheckpointEntity);
+            const row = await repository.findOne({
+              where: KEY,
+              lock: { mode: 'pessimistic_write' },
+            });
+            if (!row || row.metadataJson?.recoveryOwner !== owner) return;
+            row.metadataJson = {
+              ...row.metadataJson,
+              recoveryOwner: null,
+              recoveryExpiresAt: null,
+            };
+            await repository.save(row);
+          });
+        } catch {
+          // A failed cleanup cannot bypass policy; the lease expires at the transport deadline.
+        }
+      }
       release();
     }
   };

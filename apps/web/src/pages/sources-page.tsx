@@ -1,8 +1,7 @@
 import { ExternalLink, Image } from 'lucide-react';
-import { useOutletContext } from 'react-router-dom';
+import { Link, useOutletContext } from 'react-router-dom';
 import { ConnectorFreshness } from '../components/connector-freshness';
 import { Card, CardContent, CardHeader } from '../components/ui';
-import { logoAttributionUrl } from '../lib/company-branding';
 import type { Session } from '../types';
 import './sources-page.css';
 
@@ -27,16 +26,15 @@ export function SourcesPage() {
           <div className="sources-attribution__provider">
             <div>
               <h3>기업 로고</h3>
-              <p>기업 식별을 확인한 로고를 표시하며, 로고가 없는 기업은 이름으로 표시합니다.</p>
+              <p>
+                종목 로고는 Logo.dev와 선택적으로 연결한 Brandfetch에서 표시하며, 개별 출처와 이용
+                조건을 검수한 로컬 로고를 우선할 수 있습니다. 로고를 불러오지 못하면 종목명·코드로
+                만든 아이콘을 표시합니다.
+              </p>
             </div>
-            <a
-              href={logoAttributionUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              referrerPolicy="no-referrer"
-            >
-              기업 로고 제공자 <ExternalLink size={15} aria-hidden="true" />
-            </a>
+            <Link to="/logo-sources">
+              로고 출처·이용 안내 <ExternalLink size={15} aria-hidden="true" />
+            </Link>
           </div>
         </CardContent>
       </Card>

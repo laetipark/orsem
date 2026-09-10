@@ -454,15 +454,24 @@ export class NewsDiscoveryService {
                 this.config.secUserAgent,
                 this.config.httpTimeoutMs,
               )
-            : {};
+            : adapter instanceof SecSubmissionsConnector
+              ? { ownershipStatus: 'DISABLED', ownershipIncomplete: null }
+              : {};
         partialFailureCount += Number(ownershipMetadata.ownershipFailed ?? 0);
+        const ownershipIncomplete = ownershipMetadata.ownershipIncomplete === true;
+        const ownershipWarning = ownershipIncomplete
+          ? `SEC 공시 목록은 저장했으며, 내부자 거래 원문 ${Number(ownershipMetadata.ownershipPending)}건은 처리 대기 중입니다.`
+          : null;
         const completedAt = new Date();
+        const secSubmissionsComplete =
+          adapter instanceof SecSubmissionsConnector && secScopes.length > 0 && !truncated;
         run.status = ProcessingStatus.COMPLETED;
         run.itemsSeen = String(seen);
         run.itemsCreated = String(created);
         run.finishedAt = completedAt;
         const runWarnings = [
           adapter.name === 'SEC' ? secScopeWarning : null,
+          ownershipWarning,
           truncated
             ? adapter.name === 'GDELT'
               ? 'GDELT window recovery is incomplete; inspect its checkpoint.'
@@ -488,6 +497,16 @@ export class NewsDiscoveryService {
           {
             ...discoveryMetadata,
             ...ownershipMetadata,
+            ...(adapter instanceof SecSubmissionsConnector
+              ? {
+                  submissionsStatus: secSubmissionsComplete ? 'HEALTHY' : 'DEGRADED',
+                  submissionsHttpStatus:
+                    Number(adapter.discoveryMetadata.requestsCompleted ?? 0) > 0 ? 200 : null,
+                  submissionsLastSuccessAt: secSubmissionsComplete
+                    ? completedAt.toISOString()
+                    : null,
+                }
+              : {}),
             ...(adapter instanceof SecSubmissionsConnector ||
             adapter instanceof GdeltMetadataConnector ||
             adapter instanceof AlpacaNewsConnector ||
@@ -501,8 +520,13 @@ export class NewsDiscoveryService {
           },
           adapter.name === 'SEC'
             ? {
-                degradedMessage: secScopeWarning,
-                recordSuccessInstant: secScopes.length > 0 && !truncated,
+                degradedMessage:
+                  [secScopeWarning, ownershipWarning].filter(Boolean).join(' ') || null,
+                recordSuccessInstant:
+                  secSubmissionsComplete &&
+                  !secScopeWarning &&
+                  !ownershipIncomplete &&
+                  partialFailureCount === 0,
               }
             : {
                 recordSuccessInstant:
@@ -517,7 +541,10 @@ export class NewsDiscoveryService {
         results.push({
           connector: adapter.name,
           status:
-            partialFailureCount > 0 || truncated || (adapter.name === 'SEC' && secScopeWarning)
+            partialFailureCount > 0 ||
+            ownershipIncomplete ||
+            truncated ||
+            (adapter.name === 'SEC' && secScopeWarning)
               ? ConnectorStatus.DEGRADED
               : ConnectorStatus.HEALTHY,
           seen,
@@ -1130,6 +1157,14 @@ export class NewsDiscoveryService {
       else checkpoint.lastSuccessAt ??= null;
       checkpoint.metadataJson = {
         ...metadata,
+        ...(connector === 'SEC'
+          ? {
+              submissionsLastSuccessAt:
+                metadata.submissionsLastSuccessAt ??
+                checkpoint.metadataJson?.submissionsLastSuccessAt ??
+                null,
+            }
+          : {}),
         seen,
         created,
         truncated,
@@ -1157,7 +1192,9 @@ export class NewsDiscoveryService {
           partialFailureCount > 0
             ? connector === 'NEWS_RSS'
               ? `${partialFailureCount} RSS feed/item failure(s).`
-              : `${partialFailureCount} registered IR feed(s) failed.`
+              : connector === 'SEC'
+                ? `${partialFailureCount} SEC 내부자 거래 원문 처리 실패; 저장된 공시 목록은 유지됩니다.`
+                : `${partialFailureCount} registered IR feed(s) failed.`
             : null,
         ]
           .filter((message): message is string => Boolean(message))
@@ -1169,6 +1206,14 @@ export class NewsDiscoveryService {
       else row.lastFailureAt ??= null;
       row.metadataJson = {
         ...metadata,
+        ...(connector === 'SEC'
+          ? {
+              submissionsLastSuccessAt:
+                metadata.submissionsLastSuccessAt ??
+                row.metadataJson?.submissionsLastSuccessAt ??
+                null,
+            }
+          : {}),
         requestAttempted: [
           'SEC',
           'GDELT',
@@ -1222,6 +1267,12 @@ export class NewsDiscoveryService {
     row.metadataJson = {
       rightsMode,
       operation: stream,
+      ...(connector === 'SEC'
+        ? {
+            submissionsLastSuccessAt: row.metadataJson?.submissionsLastSuccessAt ?? null,
+            submissionsStatus: 'DEGRADED',
+          }
+        : {}),
       ...metadata,
       lastAttemptAt:
         metadata.requestAttempted === false

@@ -11,3 +11,4 @@ export * from './watchlist-groups';
 export * from './watchlist-rooms';
 
 export * from './news-company-matching';
+export * from './company-logos';

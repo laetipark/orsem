@@ -8,6 +8,7 @@ import {
   MemberEntity,
   NewsItemEntity,
   NotificationPreferenceEntity,
+  NotificationCompanyPreferenceEntity,
   PushDeliveryEntity,
   PushSubscriptionEntity,
   SourceItemEntity,
@@ -103,6 +104,7 @@ function harness() {
     [MemberEntity, [{ id: uuid(1), status: 'APPROVED', role: 'VIEWER', provider: 'KAKAO' }]],
     [AdminEntity, []],
     [NotificationPreferenceEntity, [samplePreference()]],
+    [NotificationCompanyPreferenceEntity, []],
     [PushSubscriptionEntity, [sampleSubscription()]],
     [AlertEntity, [sampleAlert()]],
     [EventClusterEntity, [sampleEvent()]],
@@ -331,6 +333,27 @@ describe('personal push fan-out and source policy', () => {
       dedupeKey: `${uuid(5)}:alert:${uuid(2)}`,
       status: 'PENDING',
     });
+  });
+
+  it('applies company overrides without bypassing account, topic, or filing-type gates', () => {
+    const base = {
+      ownerKey,
+      subscriptionOwnerKey: ownerKey,
+      ownerAuthorized: true,
+      enabled: true,
+      topics: ['FILINGS'],
+      topic: 'FILINGS' as const,
+      watchlistOnly: true,
+      watchlisted: false,
+    };
+    expect(pushPreferenceAllows({ ...base, companyEnabled: true })).toBe(true);
+    expect(pushPreferenceAllows({ ...base, watchlisted: true, companyEnabled: false })).toBe(false);
+    expect(pushPreferenceAllows({ ...base, companyEnabled: true, enabled: false })).toBe(false);
+    expect(pushPreferenceAllows({ ...base, companyEnabled: true, topics: [] })).toBe(false);
+    expect(pushPreferenceAllows({ ...base, companyEnabled: true, ownerAuthorized: false })).toBe(
+      false,
+    );
+    expect(pushPreferenceAllows({ ...base, companyEnabled: true, filingType: 'D003' })).toBe(false);
   });
 
   it('does not fan out a pre-subscription backlog, disabled topic, or removed account', async () => {

@@ -1,6 +1,8 @@
 # Orsem
 
-Orsem은 한국의 지분 공시, 공식 공시 문서, 시장 가격, 출처가 있는 뉴스를 확인하는 NestJS + React 기반 개인용 관측 시스템입니다. D001 대량보유 보고, D002 임원·주요주주의 실제 소유변동, D003 의결권 위임 권유, D004 공개매수, D005 향후 거래계획은 서로 다른 이벤트 유형으로 저장하고 검토합니다.
+Orsem은 한국의 지분 공시, 공식 공시 문서, 시장 가격, 출처가 있는 뉴스를 확인하는 개인용 관측 시스템입니다. API는 NestJS, 화면은 React, 수집·파싱 워커는 Python 3.12로 구성합니다. D001 대량보유 보고, D002 임원·주요주주의 실제 소유변동, D003 의결권 위임 권유, D004 공개매수, D005 향후 거래계획은 서로 다른 이벤트 유형으로 저장하고 검토합니다.
+
+Python 워커는 운영 전환 후 관측 중입니다. 실행 환경과 검증·운영 명령은 [Python 워커 안내](docs/PYTHON_WORKER.md), 현재 전환 상태와 이전 기록은 [배포 문서](docs/DEPLOYMENT.md)에서 확인합니다.
 
 이 시스템은 관측을 목적으로 합니다. 보유 수량 증가를 자동으로 장내매수로 판단하지 않으며, 어떤 이벤트도 자동 매수·매도 추천이나 주문으로 연결하지 않습니다.
 
@@ -10,12 +12,12 @@ Marketaux·Alpha Vantage NEWS_SENTIMENT·Finnhub Company News의 조건부 metad
 
 ```text
 apps/api                 NestJS REST, 인증, 관리자 및 봇 게이트웨이
-apps/worker              BullMQ 수집기, 파서 작업 관리 및 알림
+apps/worker/python       Python BullMQ 수집기, ZIP/XML 파서 및 알림
 apps/discord-bot         Discord 전송 및 조회 전용 슬래시 명령
 apps/web                 React/Vite 운영 대시보드
 packages/contracts       Zod 계약 및 도메인 용어
 packages/database        MySQL 엔티티 및 마이그레이션
-packages/opendart-parser 처리 한도가 적용된 ZIP/XML 파서
+scripts/worker.py        Python 실행·검사·운영 CLI 진입점
 integrations/            MessengerBotR API2 브리지
 deploy/                  적용 전 검토할 PM2/Nginx/MySQL 예시
 docs/                    아키텍처, 이용 권리, 보안 및 운영 절차
@@ -23,11 +25,13 @@ docs/                    아키텍처, 이용 권리, 보안 및 운영 절차
 
 ## 로컬 미리보기
 
-Node.js 24와 npm 11이 필요합니다.
+Node.js 24, npm 11과 Python 3.12가 필요합니다. API·웹·Discord와 공통 TypeScript 패키지는 npm workspace를 유지합니다.
 
 ```bash
 cp .env.example .env
 npm install
+python3.12 -m venv .venv
+.venv/bin/python -m pip install -r apps/worker/python/requirements-dev.lock
 npm run dev:web
 ```
 
@@ -36,7 +40,7 @@ npm run dev:web
 ```bash
 npm run db:migrate
 npm run dev:api
-npm run dev:worker
+python3 scripts/worker.py start
 ```
 
 ## 실제 데이터 소스 설정
@@ -61,14 +65,14 @@ OpenDART 재검증과 UTC 이관, 현재 검토 수치 및 CSV 내보내기는 [
 
 ## 검증
 
+운영 프로세스가 이 저장소의 `dist`를 사용하면 격리 복사본에서 검사와 빌드를 실행합니다. 아래 명령은 `npm run check`와 `npm run build`를 임시 작업 복사본에서 실행하며 운영 `dist`를 교체하지 않습니다.
+
 ```bash
-npm run format:check
-npm run lint
-npm run typecheck
-npm test
-npm run build
-npm run check:messenger-script
+export ORSEM_WORKER_PYTHON="$PWD/.venv/bin/python"
+python3 scripts/verify-in-isolation.py
 ```
+
+Python만 검사할 때는 `python3 scripts/worker.py lint`, `typecheck`, `test`를 사용합니다. DB·Redis 통합 검사는 별도로 지정한 폐기 가능한 인스턴스에서 실행합니다. 운영 명령과 각 명령의 쓰기 범위는 [Python 워커 안내](docs/PYTHON_WORKER.md)에 정리합니다.
 
 공시 원문, 로그, 비밀 값, 비공개 테스트 문서 모음은 이 저장소가 아닌 `/home/laeti/orsem-data`에 보관합니다.
 

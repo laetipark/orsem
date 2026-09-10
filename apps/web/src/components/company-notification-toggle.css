@@ -1,0 +1,58 @@
+.company-notification {
+  position: relative;
+  flex: 0 0 auto;
+}
+.company-notification__button {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  min-width: 44px;
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--muted);
+  cursor: pointer;
+}
+.company-notification__button--enabled {
+  color: var(--teal);
+}
+.company-notification__button:disabled {
+  cursor: default;
+  opacity: 0.65;
+}
+.company-notification__button:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 3px;
+}
+.company-notification__hint {
+  display: none;
+  position: absolute;
+  z-index: 5;
+  right: 0;
+  top: 100%;
+  width: max-content;
+  max-width: min(260px, 75vw);
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.company-notification:focus-within .company-notification__hint,
+.company-notification:hover .company-notification__hint,
+.company-notification__hint[role='status'] {
+  display: block;
+}
+.company-notification__hint a {
+  color: var(--teal);
+  white-space: nowrap;
+}
+@media (max-width: 640px) {
+  .company-notification__button {
+    border-color: transparent;
+    background: transparent;
+  }
+}

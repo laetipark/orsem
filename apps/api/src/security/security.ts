@@ -25,6 +25,7 @@ const RATE_LIMIT = 'orsem:rate-limit';
 const MEMBER_READ = 'orsem:member-read';
 const OWN_NOTIFICATION_ACCESS = 'orsem:own-notification-access';
 const OWN_WATCHLIST_GROUP_ACCESS = 'orsem:own-watchlist-group-access';
+const COMPANY_LOGO_PERMIT_ACCESS = 'orsem:company-logo-permit-access';
 
 export const Public = () => SetMetadata(PUBLIC_ROUTE, true);
 export const SkipCsrf = () => SetMetadata(SKIP_CSRF, true);
@@ -35,6 +36,8 @@ export const ReadOnlyMemberAccess = () => SetMetadata(MEMBER_READ, true);
 export const OwnNotificationAccess = () => SetMetadata(OWN_NOTIFICATION_ACCESS, true);
 // Only group/room controllers may use this; their services check ownership and membership on each call.
 export const OwnWatchlistGroupAccess = () => SetMetadata(OWN_WATCHLIST_GROUP_ACCESS, true);
+// This permits a request-budget reservation only; it grants no logo metadata edit rights.
+export const CompanyLogoPermitAccess = () => SetMetadata(COMPANY_LOGO_PERMIT_ACCESS, true);
 export const RateLimit = (limit: number, windowMs = 60_000) =>
   SetMetadata(RATE_LIMIT, { limit, windowMs });
 
@@ -93,7 +96,9 @@ export class AdminSessionGuard implements CanActivate {
     const ownGroups =
       ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method) &&
       hasMetadata(this.reflector, OWN_WATCHLIST_GROUP_ACCESS, context);
-    if (!memberRead && !ownNotifications && !ownGroups) {
+    const logoPermit =
+      request.method === 'POST' && hasMetadata(this.reflector, COMPANY_LOGO_PERMIT_ACCESS, context);
+    if (!memberRead && !ownNotifications && !ownGroups && !logoPermit) {
       throw new ForbiddenException('이 계정은 승인된 관측 화면만 읽을 수 있습니다.');
     }
     return true;

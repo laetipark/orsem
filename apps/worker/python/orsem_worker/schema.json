@@ -1,0 +1,2854 @@
+{
+  "watchlist_groups": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "ownerKey": {
+      "name": "owner_key",
+      "type": "varchar"
+    },
+    "name": {
+      "name": "name",
+      "type": "varchar"
+    },
+    "isShared": {
+      "name": "is_shared",
+      "type": "boolean"
+    },
+    "roomId": {
+      "name": "room_id",
+      "type": "char"
+    },
+    "revision": {
+      "name": "revision",
+      "type": "int"
+    },
+    "position": {
+      "name": "position",
+      "type": "int"
+    }
+  },
+  "watchlist_group_items": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "groupId": {
+      "name": "group_id",
+      "type": "char"
+    },
+    "companyId": {
+      "name": "company_id",
+      "type": "char"
+    },
+    "position": {
+      "name": "position",
+      "type": "int"
+    }
+  },
+  "watchlist_group_follows": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "groupId": {
+      "name": "group_id",
+      "type": "char"
+    },
+    "ownerKey": {
+      "name": "owner_key",
+      "type": "varchar"
+    },
+    "position": {
+      "name": "position",
+      "type": "int"
+    }
+  },
+  "news_source_companies": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "sourceItemId": {
+      "name": "source_item_id",
+      "type": "char"
+    },
+    "companyId": {
+      "name": "company_id",
+      "type": "char"
+    },
+    "matchMethod": {
+      "name": "match_method",
+      "type": "varchar"
+    },
+    "inputHash": {
+      "name": "input_hash",
+      "type": "char"
+    },
+    "matcherVersion": {
+      "name": "matcher_version",
+      "type": "int"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    }
+  },
+  "proxy_solicitations": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "filingId": {
+      "name": "filing_id",
+      "type": "char"
+    },
+    "parseRunId": {
+      "name": "parse_run_id",
+      "type": "char"
+    },
+    "factsJson": {
+      "name": "facts_json",
+      "type": "json"
+    },
+    "provenanceJson": {
+      "name": "provenance_json",
+      "type": "json"
+    }
+  },
+  "proxy_agenda_items": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "proxySolicitationId": {
+      "name": "proxy_solicitation_id",
+      "type": "char"
+    },
+    "ordinal": {
+      "name": "ordinal",
+      "type": "int"
+    },
+    "title": {
+      "name": "title",
+      "type": "text"
+    },
+    "provenanceJson": {
+      "name": "provenance_json",
+      "type": "json"
+    }
+  },
+  "tender_offers": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "filingId": {
+      "name": "filing_id",
+      "type": "char"
+    },
+    "parseRunId": {
+      "name": "parse_run_id",
+      "type": "char"
+    },
+    "documentKind": {
+      "name": "document_kind",
+      "type": "varchar"
+    },
+    "factsJson": {
+      "name": "facts_json",
+      "type": "json"
+    },
+    "provenanceJson": {
+      "name": "provenance_json",
+      "type": "json"
+    }
+  },
+  "tender_offer_securities": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "tenderOfferId": {
+      "name": "tender_offer_id",
+      "type": "char"
+    },
+    "rowIndex": {
+      "name": "row_index",
+      "type": "int"
+    },
+    "factsJson": {
+      "name": "facts_json",
+      "type": "json"
+    },
+    "provenanceJson": {
+      "name": "provenance_json",
+      "type": "json"
+    }
+  },
+  "market_instruments": {
+    "id": {
+      "name": "id",
+      "type": "varchar"
+    },
+    "definitionJson": {
+      "name": "definition_json",
+      "type": "json"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    }
+  },
+  "market_observations": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "instrumentId": {
+      "name": "instrument_id",
+      "type": "varchar"
+    },
+    "kind": {
+      "name": "kind",
+      "type": "varchar"
+    },
+    "period": {
+      "name": "period",
+      "type": "varchar"
+    },
+    "value": {
+      "name": "value",
+      "type": "decimal"
+    },
+    "sourceDate": {
+      "name": "source_date",
+      "type": "date"
+    },
+    "providerAt": {
+      "name": "provider_at",
+      "type": "datetime"
+    },
+    "firstObservedAt": {
+      "name": "first_observed_at",
+      "type": "datetime"
+    },
+    "lastObservedAt": {
+      "name": "last_observed_at",
+      "type": "datetime"
+    },
+    "source": {
+      "name": "source",
+      "type": "varchar"
+    },
+    "sourceUrl": {
+      "name": "source_url",
+      "type": "text"
+    },
+    "rightsMode": {
+      "name": "rights_mode",
+      "type": "varchar"
+    },
+    "referenceValue": {
+      "name": "reference_value",
+      "type": "decimal"
+    },
+    "referenceDate": {
+      "name": "reference_date",
+      "type": "date"
+    },
+    "referenceLabel": {
+      "name": "reference_label",
+      "type": "varchar"
+    },
+    "rawMetadataJson": {
+      "name": "raw_metadata_json",
+      "type": "json"
+    }
+  },
+  "notification_company_preferences": {
+    "ownerKey": {
+      "name": "owner_key",
+      "type": "varchar"
+    },
+    "companyId": {
+      "name": "company_id",
+      "type": "char"
+    },
+    "enabled": {
+      "name": "enabled",
+      "type": "boolean"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    }
+  },
+  "notification_preferences": {
+    "ownerKey": {
+      "name": "owner_key",
+      "type": "varchar"
+    },
+    "enabled": {
+      "name": "enabled",
+      "type": "boolean"
+    },
+    "topicsJson": {
+      "name": "topics_json",
+      "type": "json"
+    },
+    "watchlistOnly": {
+      "name": "watchlist_only",
+      "type": "boolean"
+    },
+    "filingTypesJson": {
+      "name": "filing_types_json",
+      "type": "json"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    }
+  },
+  "push_subscriptions": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "ownerKey": {
+      "name": "owner_key",
+      "type": "varchar"
+    },
+    "endpoint": {
+      "name": "endpoint",
+      "type": "text"
+    },
+    "endpointHash": {
+      "name": "endpoint_hash",
+      "type": "char"
+    },
+    "p256dh": {
+      "name": "p256dh",
+      "type": "varchar"
+    },
+    "auth": {
+      "name": "auth",
+      "type": "varchar"
+    },
+    "deviceName": {
+      "name": "device_name",
+      "type": "varchar"
+    },
+    "expirationTime": {
+      "name": "expiration_time",
+      "type": "datetime"
+    },
+    "lastSeenAt": {
+      "name": "last_seen_at",
+      "type": "datetime"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    }
+  },
+  "push_deliveries": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "subscriptionId": {
+      "name": "subscription_id",
+      "type": "char"
+    },
+    "ownerKey": {
+      "name": "owner_key",
+      "type": "varchar"
+    },
+    "dedupeKey": {
+      "name": "dedupe_key",
+      "type": "varchar"
+    },
+    "alertId": {
+      "name": "alert_id",
+      "type": "char"
+    },
+    "eventClusterId": {
+      "name": "event_cluster_id",
+      "type": "char"
+    },
+    "topic": {
+      "name": "topic",
+      "type": "varchar"
+    },
+    "status": {
+      "name": "status",
+      "type": "varchar"
+    },
+    "payloadJson": {
+      "name": "payload_json",
+      "type": "json"
+    },
+    "availableAt": {
+      "name": "available_at",
+      "type": "datetime"
+    },
+    "leaseUntil": {
+      "name": "lease_until",
+      "type": "datetime"
+    },
+    "attempts": {
+      "name": "attempts",
+      "type": "int"
+    },
+    "lastError": {
+      "name": "last_error",
+      "type": "text"
+    },
+    "sentAt": {
+      "name": "sent_at",
+      "type": "datetime"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    }
+  },
+  "admins": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "singletonKey": {
+      "name": "singleton_key",
+      "type": "tinyint"
+    },
+    "email": {
+      "name": "email",
+      "type": "varchar"
+    },
+    "passwordHash": {
+      "name": "password_hash",
+      "type": "varchar"
+    },
+    "totpEnabled": {
+      "name": "totp_enabled",
+      "type": "boolean"
+    },
+    "isActive": {
+      "name": "is_active",
+      "type": "boolean"
+    },
+    "failedLoginCount": {
+      "name": "failed_login_count",
+      "type": "int"
+    },
+    "lockedUntil": {
+      "name": "locked_until",
+      "type": "datetime"
+    },
+    "lastLoginAt": {
+      "name": "last_login_at",
+      "type": "datetime"
+    }
+  },
+  "members": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "provider": {
+      "name": "provider",
+      "type": "varchar"
+    },
+    "providerSubject": {
+      "name": "provider_subject",
+      "type": "varchar"
+    },
+    "role": {
+      "name": "role",
+      "type": "varchar"
+    },
+    "status": {
+      "name": "status",
+      "type": "varchar"
+    },
+    "displayName": {
+      "name": "display_name",
+      "type": "varchar"
+    },
+    "lastLoginAt": {
+      "name": "last_login_at",
+      "type": "datetime"
+    },
+    "reviewedAt": {
+      "name": "reviewed_at",
+      "type": "datetime"
+    },
+    "reviewedByAdminId": {
+      "name": "reviewed_by_admin_id",
+      "type": "char"
+    }
+  },
+  "admin_totp_secrets": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "adminId": {
+      "name": "admin_id",
+      "type": "char"
+    },
+    "encryptedSecret": {
+      "name": "encrypted_secret",
+      "type": "text"
+    },
+    "confirmedAt": {
+      "name": "confirmed_at",
+      "type": "datetime"
+    }
+  },
+  "totp_recovery_codes": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "adminId": {
+      "name": "admin_id",
+      "type": "char"
+    },
+    "codeHash": {
+      "name": "code_hash",
+      "type": "varchar"
+    },
+    "usedAt": {
+      "name": "used_at",
+      "type": "datetime"
+    }
+  },
+  "auth_audit_logs": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "adminId": {
+      "name": "admin_id",
+      "type": "char"
+    },
+    "action": {
+      "name": "action",
+      "type": "varchar"
+    },
+    "success": {
+      "name": "success",
+      "type": "boolean"
+    },
+    "ipHash": {
+      "name": "ip_hash",
+      "type": "char"
+    },
+    "userAgent": {
+      "name": "user_agent",
+      "type": "varchar"
+    },
+    "metadataJson": {
+      "name": "metadata_json",
+      "type": "json"
+    }
+  },
+  "companies": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "market": {
+      "name": "market",
+      "type": "varchar"
+    },
+    "corpCode": {
+      "name": "corp_code",
+      "type": "char"
+    },
+    "stockCode": {
+      "name": "stock_code",
+      "type": "char"
+    },
+    "ticker": {
+      "name": "ticker",
+      "type": "varchar"
+    },
+    "cik": {
+      "name": "cik",
+      "type": "char"
+    },
+    "nameKo": {
+      "name": "name_ko",
+      "type": "varchar"
+    },
+    "nameEn": {
+      "name": "name_en",
+      "type": "varchar"
+    },
+    "isListed": {
+      "name": "is_listed",
+      "type": "boolean"
+    },
+    "sourceUpdatedDate": {
+      "name": "source_updated_date",
+      "type": "date"
+    }
+  },
+  "alpaca_assets": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "providerAssetId": {
+      "name": "provider_asset_id",
+      "type": "char"
+    },
+    "companyId": {
+      "name": "company_id",
+      "type": "char"
+    },
+    "assetClass": {
+      "name": "asset_class",
+      "type": "varchar"
+    },
+    "exchange": {
+      "name": "exchange",
+      "type": "varchar"
+    },
+    "symbol": {
+      "name": "symbol",
+      "type": "varchar"
+    },
+    "name": {
+      "name": "name",
+      "type": "text"
+    },
+    "status": {
+      "name": "status",
+      "type": "varchar"
+    },
+    "tradable": {
+      "name": "tradable",
+      "type": "boolean"
+    },
+    "marginable": {
+      "name": "marginable",
+      "type": "boolean"
+    },
+    "shortable": {
+      "name": "shortable",
+      "type": "boolean"
+    },
+    "easyToBorrow": {
+      "name": "easy_to_borrow",
+      "type": "boolean"
+    },
+    "fractionable": {
+      "name": "fractionable",
+      "type": "boolean"
+    },
+    "maintenanceMarginRequirement": {
+      "name": "maintenance_margin_requirement",
+      "type": "varchar"
+    },
+    "attributesJson": {
+      "name": "attributes_json",
+      "type": "json"
+    },
+    "rawJson": {
+      "name": "raw_json",
+      "type": "json"
+    },
+    "rightsMode": {
+      "name": "rights_mode",
+      "type": "varchar"
+    },
+    "provenanceUrl": {
+      "name": "provenance_url",
+      "type": "text"
+    },
+    "firstObservedAt": {
+      "name": "first_observed_at",
+      "type": "datetime"
+    },
+    "lastObservedAt": {
+      "name": "last_observed_at",
+      "type": "datetime"
+    },
+    "isCurrent": {
+      "name": "is_current",
+      "type": "boolean"
+    }
+  },
+  "company_aliases": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "companyId": {
+      "name": "company_id",
+      "type": "char"
+    },
+    "source": {
+      "name": "source",
+      "type": "varchar"
+    },
+    "alias": {
+      "name": "alias",
+      "type": "varchar"
+    },
+    "aliasType": {
+      "name": "alias_type",
+      "type": "varchar"
+    }
+  },
+  "market_leader_watchlist": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "companyId": {
+      "name": "company_id",
+      "type": "char"
+    },
+    "priority": {
+      "name": "priority",
+      "type": "varchar"
+    },
+    "realtimeAlerts": {
+      "name": "realtime_alerts",
+      "type": "boolean"
+    },
+    "digestAlerts": {
+      "name": "digest_alerts",
+      "type": "boolean"
+    },
+    "notes": {
+      "name": "notes",
+      "type": "text"
+    }
+  },
+  "market_leader_company_links": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "companyId": {
+      "name": "company_id",
+      "type": "char"
+    },
+    "representativeCompanyId": {
+      "name": "representative_company_id",
+      "type": "char"
+    },
+    "region": {
+      "name": "region",
+      "type": "varchar"
+    },
+    "priority": {
+      "name": "priority",
+      "type": "varchar"
+    },
+    "realtimeAlerts": {
+      "name": "realtime_alerts",
+      "type": "boolean"
+    },
+    "digestAlerts": {
+      "name": "digest_alerts",
+      "type": "boolean"
+    },
+    "notes": {
+      "name": "notes",
+      "type": "text"
+    }
+  },
+  "source_items": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "newsArticleId": {
+      "name": "news_article_id",
+      "type": "char"
+    },
+    "sourceKind": {
+      "name": "source_kind",
+      "type": "varchar"
+    },
+    "sourcePolicyJson": {
+      "name": "source_policy_json",
+      "type": "json"
+    },
+    "source": {
+      "name": "source",
+      "type": "varchar"
+    },
+    "externalId": {
+      "name": "external_id",
+      "type": "varchar"
+    },
+    "companyId": {
+      "name": "company_id",
+      "type": "char"
+    },
+    "url": {
+      "name": "url",
+      "type": "text"
+    },
+    "title": {
+      "name": "title",
+      "type": "text"
+    },
+    "normalizedTitleHash": {
+      "name": "normalized_title_hash",
+      "type": "char"
+    },
+    "sourceName": {
+      "name": "source_name",
+      "type": "varchar"
+    },
+    "author": {
+      "name": "author",
+      "type": "varchar"
+    },
+    "publishedAt": {
+      "name": "published_at",
+      "type": "datetime"
+    },
+    "firstObservedAt": {
+      "name": "first_observed_at",
+      "type": "datetime"
+    },
+    "processedAt": {
+      "name": "processed_at",
+      "type": "datetime"
+    },
+    "rawHash": {
+      "name": "raw_hash",
+      "type": "char"
+    },
+    "rawObjectUri": {
+      "name": "raw_object_uri",
+      "type": "text"
+    },
+    "rightsMode": {
+      "name": "rights_mode",
+      "type": "varchar"
+    },
+    "provenanceUrl": {
+      "name": "provenance_url",
+      "type": "text"
+    },
+    "rawMetadataJson": {
+      "name": "raw_metadata_json",
+      "type": "json"
+    },
+    "translationJson": {
+      "name": "translation_json",
+      "type": "json"
+    },
+    "manualTranslationJson": {
+      "name": "manual_translation_json",
+      "type": "json"
+    }
+  },
+  "news_articles": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "canonicalUrl": {
+      "name": "canonical_url",
+      "type": "text"
+    },
+    "urlHash": {
+      "name": "url_hash",
+      "type": "char"
+    },
+    "sortAt": {
+      "name": "sort_at",
+      "type": "datetime"
+    },
+    "firstObservedAt": {
+      "name": "first_observed_at",
+      "type": "datetime"
+    }
+  },
+  "news_article_contents": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "sourceItemId": {
+      "name": "source_item_id",
+      "type": "char"
+    },
+    "status": {
+      "name": "status",
+      "type": "varchar"
+    },
+    "language": {
+      "name": "language",
+      "type": "varchar"
+    },
+    "blocksJson": {
+      "name": "blocks_json",
+      "type": "json"
+    },
+    "contentHash": {
+      "name": "content_hash",
+      "type": "char"
+    },
+    "extractorVersion": {
+      "name": "extractor_version",
+      "type": "int"
+    },
+    "fetchedAt": {
+      "name": "fetched_at",
+      "type": "datetime"
+    },
+    "attemptedAt": {
+      "name": "attempted_at",
+      "type": "datetime"
+    },
+    "attempts": {
+      "name": "attempts",
+      "type": "int"
+    },
+    "nextAttemptAt": {
+      "name": "next_attempt_at",
+      "type": "datetime"
+    },
+    "failureCode": {
+      "name": "failure_code",
+      "type": "varchar"
+    },
+    "rightsPolicyJson": {
+      "name": "rights_policy_json",
+      "type": "json"
+    },
+    "translationJson": {
+      "name": "translation_json",
+      "type": "json"
+    },
+    "manualTranslationJson": {
+      "name": "manual_translation_json",
+      "type": "json"
+    }
+  },
+  "news_translation_revisions": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "sourceItemId": {
+      "name": "source_item_id",
+      "type": "char"
+    },
+    "editedByAdminId": {
+      "name": "edited_by_admin_id",
+      "type": "char"
+    },
+    "sourceHash": {
+      "name": "source_hash",
+      "type": "char"
+    },
+    "contentHash": {
+      "name": "content_hash",
+      "type": "char"
+    },
+    "previousManualJson": {
+      "name": "previous_manual_json",
+      "type": "json"
+    },
+    "manualJson": {
+      "name": "manual_json",
+      "type": "json"
+    }
+  },
+  "news_items": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "sourceItemId": {
+      "name": "source_item_id",
+      "type": "char"
+    },
+    "companyId": {
+      "name": "company_id",
+      "type": "char"
+    },
+    "title": {
+      "name": "title",
+      "type": "text"
+    },
+    "description": {
+      "name": "description",
+      "type": "text"
+    },
+    "publishedAt": {
+      "name": "published_at",
+      "type": "datetime"
+    },
+    "tickersJson": {
+      "name": "tickers_json",
+      "type": "json"
+    },
+    "tagsJson": {
+      "name": "tags_json",
+      "type": "json"
+    },
+    "engagementJson": {
+      "name": "engagement_json",
+      "type": "json"
+    }
+  },
+  "price_bars": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "companyId": {
+      "name": "company_id",
+      "type": "char"
+    },
+    "interval": {
+      "name": "interval",
+      "type": "varchar"
+    },
+    "barAt": {
+      "name": "bar_at",
+      "type": "datetime"
+    },
+    "sessionDate": {
+      "name": "session_date",
+      "type": "date"
+    },
+    "open": {
+      "name": "open",
+      "type": "decimal"
+    },
+    "high": {
+      "name": "high",
+      "type": "decimal"
+    },
+    "low": {
+      "name": "low",
+      "type": "decimal"
+    },
+    "close": {
+      "name": "close",
+      "type": "decimal"
+    },
+    "volume": {
+      "name": "volume",
+      "type": "decimal"
+    },
+    "currency": {
+      "name": "currency",
+      "type": "char"
+    },
+    "source": {
+      "name": "source",
+      "type": "varchar"
+    },
+    "rightsMode": {
+      "name": "rights_mode",
+      "type": "varchar"
+    },
+    "rawPayloadJson": {
+      "name": "raw_payload_json",
+      "type": "json"
+    },
+    "provenanceJson": {
+      "name": "provenance_json",
+      "type": "json"
+    },
+    "observedAt": {
+      "name": "observed_at",
+      "type": "datetime"
+    }
+  },
+  "ir_sources": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "companyId": {
+      "name": "company_id",
+      "type": "char"
+    },
+    "url": {
+      "name": "url",
+      "type": "text"
+    },
+    "urlHash": {
+      "name": "url_hash",
+      "type": "char"
+    },
+    "sourceType": {
+      "name": "source_type",
+      "type": "varchar"
+    },
+    "rightsMode": {
+      "name": "rights_mode",
+      "type": "varchar"
+    },
+    "isActive": {
+      "name": "is_active",
+      "type": "boolean"
+    },
+    "lastCheckedAt": {
+      "name": "last_checked_at",
+      "type": "datetime"
+    }
+  },
+  "filings": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "source": {
+      "name": "source",
+      "type": "varchar"
+    },
+    "rceptNo": {
+      "name": "rcept_no",
+      "type": "varchar"
+    },
+    "companyId": {
+      "name": "company_id",
+      "type": "char"
+    },
+    "detailType": {
+      "name": "detail_type",
+      "type": "char"
+    },
+    "sourceDetailType": {
+      "name": "source_detail_type",
+      "type": "varchar"
+    },
+    "titleDetectedType": {
+      "name": "title_detected_type",
+      "type": "varchar"
+    },
+    "canonicalType": {
+      "name": "canonical_type",
+      "type": "varchar"
+    },
+    "classificationStatus": {
+      "name": "classification_status",
+      "type": "varchar"
+    },
+    "classifierVersion": {
+      "name": "classifier_version",
+      "type": "varchar"
+    },
+    "classificationProvenanceJson": {
+      "name": "classification_provenance_json",
+      "type": "json"
+    },
+    "reportName": {
+      "name": "report_name",
+      "type": "text"
+    },
+    "filerName": {
+      "name": "filer_name",
+      "type": "varchar"
+    },
+    "rceptDate": {
+      "name": "rcept_date",
+      "type": "date"
+    },
+    "rm": {
+      "name": "rm",
+      "type": "text"
+    },
+    "submissionKind": {
+      "name": "submission_kind",
+      "type": "varchar"
+    },
+    "effectiveState": {
+      "name": "effective_state",
+      "type": "varchar"
+    },
+    "firstObservedAt": {
+      "name": "first_observed_at",
+      "type": "datetime"
+    },
+    "lastSeenAt": {
+      "name": "last_seen_at",
+      "type": "datetime"
+    },
+    "rawListJson": {
+      "name": "raw_list_json",
+      "type": "json"
+    },
+    "activeParseRunId": {
+      "name": "active_parse_run_id",
+      "type": "char"
+    }
+  },
+  "filing_list_observations": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "filingId": {
+      "name": "filing_id",
+      "type": "char"
+    },
+    "observedAt": {
+      "name": "observed_at",
+      "type": "datetime"
+    },
+    "queryDetailType": {
+      "name": "query_detail_type",
+      "type": "char"
+    },
+    "rawListJson": {
+      "name": "raw_list_json",
+      "type": "json"
+    },
+    "ingestionRunId": {
+      "name": "ingestion_run_id",
+      "type": "char"
+    }
+  },
+  "filing_documents": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "filingId": {
+      "name": "filing_id",
+      "type": "char"
+    },
+    "objectUri": {
+      "name": "object_uri",
+      "type": "text"
+    },
+    "sha256": {
+      "name": "sha256",
+      "type": "char"
+    },
+    "mediaType": {
+      "name": "media_type",
+      "type": "varchar"
+    },
+    "byteSize": {
+      "name": "byte_size",
+      "type": "decimal"
+    },
+    "originalFilename": {
+      "name": "original_filename",
+      "type": "varchar"
+    },
+    "retrievedAt": {
+      "name": "retrieved_at",
+      "type": "datetime"
+    },
+    "rightsMode": {
+      "name": "rights_mode",
+      "type": "varchar"
+    }
+  },
+  "filing_relations": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "fromFilingId": {
+      "name": "from_filing_id",
+      "type": "char"
+    },
+    "toFilingId": {
+      "name": "to_filing_id",
+      "type": "char"
+    },
+    "relationType": {
+      "name": "relation_type",
+      "type": "varchar"
+    },
+    "confidence": {
+      "name": "confidence",
+      "type": "decimal"
+    },
+    "source": {
+      "name": "source",
+      "type": "varchar"
+    },
+    "reviewRequired": {
+      "name": "review_required",
+      "type": "boolean"
+    },
+    "reviewDecision": {
+      "name": "review_decision",
+      "type": "varchar"
+    },
+    "reviewedByAdminId": {
+      "name": "reviewed_by_admin_id",
+      "type": "char"
+    },
+    "reviewedAt": {
+      "name": "reviewed_at",
+      "type": "datetime"
+    },
+    "matchedFieldsJson": {
+      "name": "matched_fields_json",
+      "type": "json"
+    }
+  },
+  "parse_runs": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "filingId": {
+      "name": "filing_id",
+      "type": "char"
+    },
+    "parserVersion": {
+      "name": "parser_version",
+      "type": "varchar"
+    },
+    "rawSha256": {
+      "name": "raw_sha256",
+      "type": "char"
+    },
+    "inputType": {
+      "name": "input_type",
+      "type": "varchar"
+    },
+    "extractorType": {
+      "name": "extractor_type",
+      "type": "varchar"
+    },
+    "resultType": {
+      "name": "result_type",
+      "type": "varchar"
+    },
+    "normalizerVersion": {
+      "name": "normalizer_version",
+      "type": "varchar"
+    },
+    "classifierVersion": {
+      "name": "classifier_version",
+      "type": "varchar"
+    },
+    "reuseFingerprint": {
+      "name": "reuse_fingerprint",
+      "type": "char"
+    },
+    "candidateErrorsJson": {
+      "name": "candidate_errors_json",
+      "type": "json"
+    },
+    "normalizationAuditsJson": {
+      "name": "normalization_audits_json",
+      "type": "json"
+    },
+    "supersedesRunId": {
+      "name": "supersedes_run_id",
+      "type": "char"
+    },
+    "validationStatus": {
+      "name": "validation_status",
+      "type": "varchar"
+    },
+    "status": {
+      "name": "status",
+      "type": "varchar"
+    },
+    "confidence": {
+      "name": "confidence",
+      "type": "decimal"
+    },
+    "classificationResult": {
+      "name": "classification_result",
+      "type": "varchar"
+    },
+    "startedAt": {
+      "name": "started_at",
+      "type": "datetime"
+    },
+    "finishedAt": {
+      "name": "finished_at",
+      "type": "datetime"
+    },
+    "warningsJson": {
+      "name": "warnings_json",
+      "type": "json"
+    },
+    "errorCode": {
+      "name": "error_code",
+      "type": "varchar"
+    },
+    "errorMessage": {
+      "name": "error_message",
+      "type": "text"
+    },
+    "resultJson": {
+      "name": "result_json",
+      "type": "json"
+    }
+  },
+  "parse_issues": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "parseRunId": {
+      "name": "parse_run_id",
+      "type": "char"
+    },
+    "severity": {
+      "name": "severity",
+      "type": "varchar"
+    },
+    "code": {
+      "name": "code",
+      "type": "varchar"
+    },
+    "message": {
+      "name": "message",
+      "type": "text"
+    },
+    "contextJson": {
+      "name": "context_json",
+      "type": "json"
+    }
+  },
+  "insider_reports": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "filingId": {
+      "name": "filing_id",
+      "type": "char"
+    },
+    "reporterName": {
+      "name": "reporter_name",
+      "type": "varchar"
+    },
+    "relationship": {
+      "name": "relationship",
+      "type": "varchar"
+    },
+    "position": {
+      "name": "position",
+      "type": "varchar"
+    },
+    "isRegisteredExecutive": {
+      "name": "is_registered_executive",
+      "type": "boolean"
+    },
+    "isMajorShareholder": {
+      "name": "is_major_shareholder",
+      "type": "boolean"
+    },
+    "ownershipBefore": {
+      "name": "ownership_before",
+      "type": "decimal"
+    },
+    "ownershipAfter": {
+      "name": "ownership_after",
+      "type": "decimal"
+    },
+    "ownershipChange": {
+      "name": "ownership_change",
+      "type": "decimal"
+    },
+    "ownershipRateAfter": {
+      "name": "ownership_rate_after",
+      "type": "decimal"
+    },
+    "rawJson": {
+      "name": "raw_json",
+      "type": "json"
+    }
+  },
+  "insider_transactions": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "insiderReportId": {
+      "name": "insider_report_id",
+      "type": "char"
+    },
+    "eventDate": {
+      "name": "event_date",
+      "type": "date"
+    },
+    "securityTypeRaw": {
+      "name": "security_type_raw",
+      "type": "varchar"
+    },
+    "methodRaw": {
+      "name": "method_raw",
+      "type": "varchar"
+    },
+    "nature": {
+      "name": "nature",
+      "type": "varchar"
+    },
+    "direction": {
+      "name": "direction",
+      "type": "varchar"
+    },
+    "quantity": {
+      "name": "quantity",
+      "type": "decimal"
+    },
+    "unitPrice": {
+      "name": "unit_price",
+      "type": "decimal"
+    },
+    "amount": {
+      "name": "amount",
+      "type": "decimal"
+    },
+    "currency": {
+      "name": "currency",
+      "type": "char"
+    },
+    "sharesAfter": {
+      "name": "shares_after",
+      "type": "decimal"
+    },
+    "parserConfidence": {
+      "name": "parser_confidence",
+      "type": "decimal"
+    },
+    "rawJson": {
+      "name": "raw_json",
+      "type": "json"
+    }
+  },
+  "trade_plans": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "filingId": {
+      "name": "filing_id",
+      "type": "char"
+    },
+    "reporterName": {
+      "name": "reporter_name",
+      "type": "varchar"
+    },
+    "plannedStartDate": {
+      "name": "planned_start_date",
+      "type": "date"
+    },
+    "plannedEndDate": {
+      "name": "planned_end_date",
+      "type": "date"
+    },
+    "planStatus": {
+      "name": "plan_status",
+      "type": "varchar"
+    },
+    "rawJson": {
+      "name": "raw_json",
+      "type": "json"
+    }
+  },
+  "trade_plan_items": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "tradePlanId": {
+      "name": "trade_plan_id",
+      "type": "char"
+    },
+    "securityTypeRaw": {
+      "name": "security_type_raw",
+      "type": "varchar"
+    },
+    "methodRaw": {
+      "name": "method_raw",
+      "type": "varchar"
+    },
+    "plannedQuantity": {
+      "name": "planned_quantity",
+      "type": "decimal"
+    },
+    "plannedUnitPrice": {
+      "name": "planned_unit_price",
+      "type": "decimal"
+    },
+    "plannedAmount": {
+      "name": "planned_amount",
+      "type": "decimal"
+    },
+    "rawJson": {
+      "name": "raw_json",
+      "type": "json"
+    }
+  },
+  "plan_execution_matches": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "tradePlanItemId": {
+      "name": "trade_plan_item_id",
+      "type": "char"
+    },
+    "insiderTransactionId": {
+      "name": "insider_transaction_id",
+      "type": "char"
+    },
+    "relationType": {
+      "name": "relation_type",
+      "type": "varchar"
+    },
+    "confidence": {
+      "name": "confidence",
+      "type": "decimal"
+    },
+    "source": {
+      "name": "source",
+      "type": "varchar"
+    },
+    "confirmedByAdminId": {
+      "name": "confirmed_by_admin_id",
+      "type": "char"
+    },
+    "confirmedAt": {
+      "name": "confirmed_at",
+      "type": "datetime"
+    },
+    "reviewDecision": {
+      "name": "review_decision",
+      "type": "varchar"
+    },
+    "reviewedByAdminId": {
+      "name": "reviewed_by_admin_id",
+      "type": "char"
+    },
+    "reviewedAt": {
+      "name": "reviewed_at",
+      "type": "datetime"
+    },
+    "matchedFieldsJson": {
+      "name": "matched_fields_json",
+      "type": "json"
+    }
+  },
+  "large_holder_reports": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "filingId": {
+      "name": "filing_id",
+      "type": "char"
+    },
+    "reporterName": {
+      "name": "reporter_name",
+      "type": "varchar"
+    },
+    "reportReasonRaw": {
+      "name": "report_reason_raw",
+      "type": "text"
+    },
+    "holdingPurposeRaw": {
+      "name": "holding_purpose_raw",
+      "type": "text"
+    },
+    "sharesBefore": {
+      "name": "shares_before",
+      "type": "decimal"
+    },
+    "sharesAfter": {
+      "name": "shares_after",
+      "type": "decimal"
+    },
+    "ownershipRateBefore": {
+      "name": "ownership_rate_before",
+      "type": "decimal"
+    },
+    "ownershipRateAfter": {
+      "name": "ownership_rate_after",
+      "type": "decimal"
+    },
+    "rawJson": {
+      "name": "raw_json",
+      "type": "json"
+    }
+  },
+  "large_holder_positions": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "largeHolderReportId": {
+      "name": "large_holder_report_id",
+      "type": "char"
+    },
+    "holderName": {
+      "name": "holder_name",
+      "type": "varchar"
+    },
+    "relationshipRaw": {
+      "name": "relationship_raw",
+      "type": "varchar"
+    },
+    "securityTypeRaw": {
+      "name": "security_type_raw",
+      "type": "varchar"
+    },
+    "sharesBefore": {
+      "name": "shares_before",
+      "type": "decimal"
+    },
+    "sharesAfter": {
+      "name": "shares_after",
+      "type": "decimal"
+    },
+    "rawJson": {
+      "name": "raw_json",
+      "type": "json"
+    }
+  },
+  "large_holding_changes": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "largeHolderReportId": {
+      "name": "large_holder_report_id",
+      "type": "char"
+    },
+    "eventDate": {
+      "name": "event_date",
+      "type": "date"
+    },
+    "methodRaw": {
+      "name": "method_raw",
+      "type": "varchar"
+    },
+    "direction": {
+      "name": "direction",
+      "type": "varchar"
+    },
+    "shareChange": {
+      "name": "share_change",
+      "type": "decimal"
+    },
+    "amount": {
+      "name": "amount",
+      "type": "decimal"
+    },
+    "rawJson": {
+      "name": "raw_json",
+      "type": "json"
+    }
+  },
+  "event_clusters": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "canonicalEventType": {
+      "name": "canonical_event_type",
+      "type": "varchar"
+    },
+    "companyId": {
+      "name": "company_id",
+      "type": "char"
+    },
+    "occurredAt": {
+      "name": "occurred_at",
+      "type": "datetime"
+    },
+    "publishedAt": {
+      "name": "published_at",
+      "type": "datetime"
+    },
+    "firstObservedAt": {
+      "name": "first_observed_at",
+      "type": "datetime"
+    },
+    "processedAt": {
+      "name": "processed_at",
+      "type": "datetime"
+    },
+    "state": {
+      "name": "state",
+      "type": "varchar"
+    },
+    "evidenceGrade": {
+      "name": "evidence_grade",
+      "type": "varchar"
+    },
+    "summary": {
+      "name": "summary",
+      "type": "text"
+    },
+    "dedupeKey": {
+      "name": "dedupe_key",
+      "type": "varchar"
+    },
+    "metadataJson": {
+      "name": "metadata_json",
+      "type": "json"
+    }
+  },
+  "event_cluster_items": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "eventClusterId": {
+      "name": "event_cluster_id",
+      "type": "char"
+    },
+    "itemType": {
+      "name": "item_type",
+      "type": "varchar"
+    },
+    "itemId": {
+      "name": "item_id",
+      "type": "char"
+    },
+    "isPrimary": {
+      "name": "is_primary",
+      "type": "boolean"
+    },
+    "provenanceJson": {
+      "name": "provenance_json",
+      "type": "json"
+    }
+  },
+  "ai_runs": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "subjectType": {
+      "name": "subject_type",
+      "type": "varchar"
+    },
+    "subjectId": {
+      "name": "subject_id",
+      "type": "char"
+    },
+    "provider": {
+      "name": "provider",
+      "type": "varchar"
+    },
+    "model": {
+      "name": "model",
+      "type": "varchar"
+    },
+    "promptHash": {
+      "name": "prompt_hash",
+      "type": "char"
+    },
+    "status": {
+      "name": "status",
+      "type": "varchar"
+    },
+    "inputProvenanceJson": {
+      "name": "input_provenance_json",
+      "type": "json"
+    },
+    "outputJson": {
+      "name": "output_json",
+      "type": "json"
+    },
+    "errorMessage": {
+      "name": "error_message",
+      "type": "text"
+    }
+  },
+  "api_usage_counters": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "connector": {
+      "name": "connector",
+      "type": "varchar"
+    },
+    "usageDate": {
+      "name": "usage_date",
+      "type": "date"
+    },
+    "requestCount": {
+      "name": "request_count",
+      "type": "decimal"
+    },
+    "itemCount": {
+      "name": "item_count",
+      "type": "decimal"
+    },
+    "lastRequestAt": {
+      "name": "last_request_at",
+      "type": "datetime"
+    }
+  },
+  "ingestion_runs": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "connector": {
+      "name": "connector",
+      "type": "varchar"
+    },
+    "stream": {
+      "name": "stream",
+      "type": "varchar"
+    },
+    "windowStart": {
+      "name": "window_start",
+      "type": "date"
+    },
+    "windowEnd": {
+      "name": "window_end",
+      "type": "date"
+    },
+    "status": {
+      "name": "status",
+      "type": "varchar"
+    },
+    "itemsSeen": {
+      "name": "items_seen",
+      "type": "decimal"
+    },
+    "itemsCreated": {
+      "name": "items_created",
+      "type": "decimal"
+    },
+    "startedAt": {
+      "name": "started_at",
+      "type": "datetime"
+    },
+    "finishedAt": {
+      "name": "finished_at",
+      "type": "datetime"
+    },
+    "errorMessage": {
+      "name": "error_message",
+      "type": "text"
+    }
+  },
+  "source_checkpoints": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "connector": {
+      "name": "connector",
+      "type": "varchar"
+    },
+    "stream": {
+      "name": "stream",
+      "type": "varchar"
+    },
+    "lastSuccessDate": {
+      "name": "last_success_date",
+      "type": "date"
+    },
+    "cursor": {
+      "name": "checkpoint_cursor",
+      "type": "text"
+    },
+    "lastSuccessAt": {
+      "name": "last_success_at",
+      "type": "datetime"
+    },
+    "metadataJson": {
+      "name": "metadata_json",
+      "type": "json"
+    }
+  },
+  "job_outbox": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "kind": {
+      "name": "kind",
+      "type": "varchar"
+    },
+    "dedupeKey": {
+      "name": "dedupe_key",
+      "type": "varchar"
+    },
+    "payloadJson": {
+      "name": "payload_json",
+      "type": "json"
+    },
+    "status": {
+      "name": "status",
+      "type": "varchar"
+    },
+    "availableAt": {
+      "name": "available_at",
+      "type": "datetime"
+    },
+    "attempts": {
+      "name": "attempts",
+      "type": "int"
+    },
+    "lockedAt": {
+      "name": "locked_at",
+      "type": "datetime"
+    },
+    "lastError": {
+      "name": "last_error",
+      "type": "text"
+    }
+  },
+  "alerts": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "eventClusterId": {
+      "name": "event_cluster_id",
+      "type": "char"
+    },
+    "idempotencyKey": {
+      "name": "idempotency_key",
+      "type": "varchar"
+    },
+    "status": {
+      "name": "status",
+      "type": "varchar"
+    },
+    "alertVersion": {
+      "name": "alert_version",
+      "type": "int"
+    },
+    "payloadJson": {
+      "name": "payload_json",
+      "type": "json"
+    }
+  },
+  "alert_outbox": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "alertId": {
+      "name": "alert_id",
+      "type": "char"
+    },
+    "channel": {
+      "name": "channel",
+      "type": "varchar"
+    },
+    "idempotencyKey": {
+      "name": "idempotency_key",
+      "type": "varchar"
+    },
+    "status": {
+      "name": "status",
+      "type": "varchar"
+    },
+    "payload": {
+      "name": "payload",
+      "type": "json"
+    },
+    "availableAt": {
+      "name": "available_at",
+      "type": "datetime"
+    },
+    "attempts": {
+      "name": "attempts",
+      "type": "int"
+    },
+    "lastError": {
+      "name": "last_error",
+      "type": "text"
+    }
+  },
+  "alert_deliveries": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "alertId": {
+      "name": "alert_id",
+      "type": "char"
+    },
+    "channel": {
+      "name": "channel",
+      "type": "varchar"
+    },
+    "destinationHash": {
+      "name": "destination_hash",
+      "type": "char"
+    },
+    "status": {
+      "name": "status",
+      "type": "varchar"
+    },
+    "externalMessageId": {
+      "name": "external_message_id",
+      "type": "varchar"
+    },
+    "sentAt": {
+      "name": "sent_at",
+      "type": "datetime"
+    },
+    "acknowledgedAt": {
+      "name": "acknowledged_at",
+      "type": "datetime"
+    },
+    "errorMessage": {
+      "name": "error_message",
+      "type": "text"
+    }
+  },
+  "reviews": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "subjectType": {
+      "name": "subject_type",
+      "type": "varchar"
+    },
+    "subjectId": {
+      "name": "subject_id",
+      "type": "char"
+    },
+    "dedupeKey": {
+      "name": "dedupe_key",
+      "type": "varchar"
+    },
+    "reviewGroup": {
+      "name": "review_group",
+      "type": "varchar"
+    },
+    "parseRunId": {
+      "name": "parse_run_id",
+      "type": "char"
+    },
+    "supersededByReviewId": {
+      "name": "superseded_by_review_id",
+      "type": "char"
+    },
+    "reopenedFromReviewId": {
+      "name": "reopened_from_review_id",
+      "type": "char"
+    },
+    "reason": {
+      "name": "reason",
+      "type": "text"
+    },
+    "status": {
+      "name": "status",
+      "type": "varchar"
+    },
+    "classificationResult": {
+      "name": "classification_result",
+      "type": "varchar"
+    },
+    "resolution": {
+      "name": "resolution",
+      "type": "text"
+    },
+    "resolvedByAdminId": {
+      "name": "resolved_by_admin_id",
+      "type": "char"
+    },
+    "resolvedAt": {
+      "name": "resolved_at",
+      "type": "datetime"
+    }
+  },
+  "connector_health": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "connector": {
+      "name": "connector",
+      "type": "varchar"
+    },
+    "status": {
+      "name": "status",
+      "type": "varchar"
+    },
+    "message": {
+      "name": "message",
+      "type": "text"
+    },
+    "lastSuccessAt": {
+      "name": "last_success_at",
+      "type": "datetime"
+    },
+    "lastFailureAt": {
+      "name": "last_failure_at",
+      "type": "datetime"
+    },
+    "metadataJson": {
+      "name": "metadata_json",
+      "type": "json"
+    },
+    "checkedAt": {
+      "name": "checked_at",
+      "type": "datetime"
+    }
+  },
+  "messenger_devices": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "externalDeviceId": {
+      "name": "external_device_id",
+      "type": "varchar"
+    },
+    "tokenHash": {
+      "name": "token_hash",
+      "type": "varchar"
+    },
+    "room": {
+      "name": "room",
+      "type": "varchar"
+    },
+    "authorHash": {
+      "name": "author_hash",
+      "type": "varchar"
+    },
+    "packageName": {
+      "name": "package_name",
+      "type": "varchar"
+    },
+    "botVersion": {
+      "name": "bot_version",
+      "type": "varchar"
+    },
+    "isActive": {
+      "name": "is_active",
+      "type": "boolean"
+    },
+    "pairedAt": {
+      "name": "paired_at",
+      "type": "datetime"
+    },
+    "lastSeenAt": {
+      "name": "last_seen_at",
+      "type": "datetime"
+    }
+  },
+  "device_pairings": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "codeHash": {
+      "name": "code_hash",
+      "type": "char"
+    },
+    "createdByAdminId": {
+      "name": "created_by_admin_id",
+      "type": "char"
+    },
+    "expiresAt": {
+      "name": "expires_at",
+      "type": "datetime"
+    },
+    "consumedAt": {
+      "name": "consumed_at",
+      "type": "datetime"
+    },
+    "deviceId": {
+      "name": "device_id",
+      "type": "char"
+    }
+  },
+  "bot_room_bindings": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "consumer": {
+      "name": "consumer",
+      "type": "varchar"
+    },
+    "deviceId": {
+      "name": "device_id",
+      "type": "char"
+    },
+    "roomLabel": {
+      "name": "room_label",
+      "type": "varchar"
+    },
+    "roomHash": {
+      "name": "room_hash",
+      "type": "char"
+    },
+    "isActive": {
+      "name": "is_active",
+      "type": "boolean"
+    }
+  },
+  "bot_deliveries": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "alertId": {
+      "name": "alert_id",
+      "type": "char"
+    },
+    "alertDeliveryId": {
+      "name": "alert_delivery_id",
+      "type": "char"
+    },
+    "consumer": {
+      "name": "consumer",
+      "type": "varchar"
+    },
+    "deviceId": {
+      "name": "device_id",
+      "type": "char"
+    },
+    "dedupeKey": {
+      "name": "dedupe_key",
+      "type": "varchar"
+    },
+    "status": {
+      "name": "status",
+      "type": "varchar"
+    },
+    "payload": {
+      "name": "payload",
+      "type": "json"
+    },
+    "availableAt": {
+      "name": "available_at",
+      "type": "datetime"
+    },
+    "leaseUntil": {
+      "name": "lease_until",
+      "type": "datetime"
+    },
+    "externalMessageId": {
+      "name": "external_message_id",
+      "type": "varchar"
+    },
+    "acknowledgedAt": {
+      "name": "acknowledged_at",
+      "type": "datetime"
+    },
+    "attempts": {
+      "name": "attempts",
+      "type": "int"
+    },
+    "lastError": {
+      "name": "last_error",
+      "type": "text"
+    }
+  },
+  "bot_commands": {
+    "id": {
+      "name": "id",
+      "type": "uuid"
+    },
+    "createdAt": {
+      "name": "created_at",
+      "type": "datetime"
+    },
+    "updatedAt": {
+      "name": "updated_at",
+      "type": "datetime"
+    },
+    "deviceId": {
+      "name": "device_id",
+      "type": "char"
+    },
+    "externalCommandId": {
+      "name": "external_command_id",
+      "type": "varchar"
+    },
+    "command": {
+      "name": "command",
+      "type": "varchar"
+    },
+    "query": {
+      "name": "query",
+      "type": "text"
+    },
+    "receivedAt": {
+      "name": "received_at",
+      "type": "datetime"
+    },
+    "responseJson": {
+      "name": "response_json",
+      "type": "json"
+    }
+  }
+}

@@ -1,0 +1,52 @@
+{
+  "feedId": "fed-press",
+  "xml": "<rss><channel><item><title>Board &amp; Company announces results</title><link>https://publisher.example/results?a=1&amp;b=2</link><guid>fixture</guid><pubDate>Thu, 10 Sep 2026 01:02:03 GMT</pubDate><description>&lt;p&gt;Revenue grew 12%.&lt;/p&gt;</description><content>NEVER_STORE</content></item></channel></rss>",
+  "parsed": {
+    "candidates": [
+      {
+        "connector": "NEWS_RSS",
+        "externalId": "5f5b1959023568fed1941f93028bbc836f7be9b3de85f0807662a894a57dea9b",
+        "title": "Board & Company announces results",
+        "url": "https://publisher.example/results?a=1&b=2",
+        "publishedAt": "2026-09-10T01:02:03.000Z",
+        "sourceName": "Federal Reserve",
+        "tickers": [],
+        "tags": ["ECONOMY", "POLICY", "RSS"],
+        "rightsMode": "OFFICIAL_PUBLIC_DATA",
+        "sourceKind": "OFFICIAL_RELEASE",
+        "sourcePolicy": {
+          "rightsMode": "OFFICIAL_PUBLIC_DATA",
+          "aiAllowed": true,
+          "fullTextStorageAllowed": true,
+          "publicRedistributionAllowed": true,
+          "displayAllowed": true,
+          "metadataStorageAllowed": true,
+          "notifyAllowed": false,
+          "policyUrl": "https://www.federalreserve.gov/disclaimer.htm",
+          "checkedAt": "2026-09-05"
+        },
+        "metadata": {
+          "feedId": "fed-press",
+          "feedUrl": "https://www.federalreserve.gov/feeds/press_all.xml",
+          "publisher": "Federal Reserve",
+          "publisherId": "federal-reserve",
+          "originalAuthor": null,
+          "originalCategories": [],
+          "marketRegion": "us",
+          "rightsContext": "OFFICIAL_RSS_READER",
+          "rightsPolicyUrl": "https://www.federalreserve.gov/disclaimer.htm",
+          "originalTitle": "Board &amp; Company announces results",
+          "originalLink": "https://publisher.example/results?a=1&amp;b=2",
+          "originalGuid": "fixture",
+          "originalPublishedAt": "Thu, 10 Sep 2026 01:02:03 GMT",
+          "originalUpdatedAt": null,
+          "providerUpdatedAt": null,
+          "description": "<p>Revenue grew 12%.</p>"
+        }
+      }
+    ],
+    "skippedItems": 0,
+    "truncated": false
+  },
+  "hash": "cce536055f944316c55a79cb2d15bf4c75325cdecd827da61284434530f1728d"
+}

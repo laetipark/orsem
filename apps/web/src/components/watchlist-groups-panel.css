@@ -272,6 +272,9 @@
   height: 30px;
   flex: none;
 }
+.watch-group-stock__company .company-avatar img {
+  padding: 0;
+}
 .watch-group-stock__company > span:last-child {
   min-width: 0;
 }

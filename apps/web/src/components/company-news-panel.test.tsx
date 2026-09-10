@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { api } from '../lib/api';
 import { CompanyNewsPanel } from './company-news-panel';
+import type { SourceItem } from '../types';
 
 const visibility = vi.hoisted(() => ({ visible: true }));
 vi.mock('../lib/use-visible-panel', () => ({
@@ -64,12 +65,80 @@ it('queries twenty company news entries only after selecting related news with a
   await screen.findByText('아직 연결된 기업 뉴스가 없습니다.');
   expect(api.news).toHaveBeenCalledOnce();
   expect(api.news).toHaveBeenCalledWith(
-    { companyId: 'company-1', limit: 20, scope: 'company' },
+    { companyId: 'company-1', limit: 20, scope: 'company', cursor: null },
     expect.any(AbortSignal),
   );
   expect(screen.queryByRole('tab', { name: 'NAVER' })).toBeNull();
   expect(screen.getByRole('tabpanel')).toHaveAccessibleName('관련 뉴스');
   expect(screen.queryByText('최근 7일 공시·이벤트가 없습니다.')).toBeNull();
+});
+
+it('pages recent activities in groups of five', async () => {
+  vi.mocked(api.companyRecentActivity).mockResolvedValue({
+    ...activity,
+    filingCount: 7,
+    items: Array.from({ length: 7 }, (_, i) => ({
+      id: String(i),
+      kind: 'FILING' as const,
+      title: `공시 ${i + 1}`,
+      date: '2026-09-06',
+      url: `/filings/${i}`,
+    })),
+  });
+  render(panel());
+  await screen.findByRole('link', { name: '공시 1' });
+  expect(screen.getAllByRole('listitem')).toHaveLength(5);
+  expect(screen.queryByRole('link', { name: '공시 6' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: '다음 5개' }));
+  expect(screen.getAllByRole('listitem')).toHaveLength(2);
+  expect(screen.getByRole('link', { name: '공시 6' })).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: '이전 5개' }));
+  expect(screen.getByRole('link', { name: '공시 1' })).toBeVisible();
+});
+
+it('pages company news beyond the first server page and links to the complete company feed', async () => {
+  const item = (i: number): SourceItem => ({
+    id: String(i),
+    title: `관련 뉴스 ${i}`,
+    source: 'IR',
+    sourceName: '회사',
+    url: `https://example.com/news/${i}`,
+    firstObservedAt: `2026-09-0${7 - i}T00:00:00Z`,
+    relatedCompanies: [],
+    externalId: null,
+    author: null,
+    publishedAt: null,
+    processedAt: null,
+    rightsMode: 'OFFICIAL_PUBLIC_DATA',
+    provenanceUrl: null,
+    tickers: [],
+    tags: [],
+    contentState: 'UNAVAILABLE',
+    contentSourceId: null,
+    contentLanguage: null,
+    translated: false,
+  });
+  vi.mocked(api.news).mockImplementation(async (filters) =>
+    filters?.cursor
+      ? { items: [item(6)], nextCursor: null }
+      : { items: [1, 2, 3, 4, 5].map(item), nextCursor: 'older-company-news' },
+  );
+  render(panel());
+  fireEvent.click(screen.getByRole('tab', { name: '관련 뉴스' }));
+  await screen.findByText('관련 뉴스 1');
+  expect(screen.getAllByRole('listitem')).toHaveLength(5);
+  expect(screen.getByRole('link', { name: '전체 보기' })).toHaveAttribute(
+    'href',
+    '/news?companyId=company-1&scope=company',
+  );
+  fireEvent.click(screen.getByRole('button', { name: '다음 5개' }));
+  await screen.findByText('관련 뉴스 6');
+  expect(screen.getAllByRole('listitem')).toHaveLength(1);
+  expect(api.news).toHaveBeenLastCalledWith(
+    { companyId: 'company-1', scope: 'company', limit: 20, cursor: 'older-company-news' },
+    expect.any(AbortSignal),
+  );
+  expect(screen.getByRole('button', { name: '다음 5개' })).toBeDisabled();
 });
 
 it('aborts in-flight activity and news requests when their tabs are left', async () => {

@@ -301,7 +301,7 @@ it('creates and selects a room from the space selector without using its action 
   fireEvent.click(screen.getByRole('button', { name: '만들기' }));
   await waitFor(() => expect(create).toHaveBeenCalledWith('새 관심방', '공동 관심 목록'));
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
-  expect(screen.getByLabelText('URL')).toHaveTextContent('watchRoom=new-room');
+  await waitFor(() => expect(screen.getByLabelText('URL')).toHaveTextContent('watchRoom=new-room'));
   expect(screen.getByLabelText('URL')).toHaveTextContent('region=kr');
   expect(screen.getByLabelText('URL')).not.toHaveTextContent('watchGroup=own');
   await waitFor(() =>

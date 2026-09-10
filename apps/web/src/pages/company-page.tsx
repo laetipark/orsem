@@ -19,6 +19,8 @@ import { formatDate, formatKst, formatMoney, formatPercent } from '../lib/format
 import { disclosureLabels, displayDomainText } from '../lib/domain-labels';
 import { CompanyNewsPanel } from '../components/company-news-panel';
 import { CompanyGroupPicker } from '../components/company-group-picker';
+import { CompanyNotificationToggle } from '../components/company-notification-toggle';
+import { CompanyShareButton } from '../components/company-share-button';
 import { MarketSelectionMembership } from '../components/market-selection';
 import { recordRecentCompany } from '../lib/recent-companies';
 import { watchActorKey } from '../components/watchlist-group-editors';
@@ -315,7 +317,9 @@ export function CompanyPage() {
               {sideOpen ? <PanelRightClose size={15} /> : <PanelRightOpen size={15} />}공시·뉴스{' '}
               {sideOpen ? '접기' : '펼치기'}
             </button>
+            <CompanyNotificationToggle companyId={data.id} />
             <CompanyGroupPicker key={data.id} companyId={data.id} />
+            <CompanyShareButton key={`share-${data.id}`} company={data} />
           </div>
         </section>
         <MarketSelectionMembership companyId={data.id} />

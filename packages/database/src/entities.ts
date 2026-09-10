@@ -40,6 +40,7 @@ import { NewsSourceCompanyEntity } from './news-relevance-entities';
 import { DISCLOSURE_ENTITIES } from './disclosure-entities';
 import { MarketInstrumentEntity, MarketObservationEntity } from './market-entities';
 import {
+  NotificationCompanyPreferenceEntity,
   NotificationPreferenceEntity,
   PushSubscriptionEntity,
   PushDeliveryEntity,
@@ -1010,6 +1011,7 @@ export class BotCommandEntity extends EntityBase {
 }
 
 export const ENTITIES = [
+  NotificationCompanyPreferenceEntity,
   ...WATCHLIST_GROUP_ENTITIES,
   NewsSourceCompanyEntity,
   ...DISCLOSURE_ENTITIES,

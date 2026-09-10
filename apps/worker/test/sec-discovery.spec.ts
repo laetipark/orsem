@@ -18,10 +18,12 @@ import type { CompatibleClassifierClient } from '../src/ai/compatible-classifier
 import { projectSecFilingEvents } from '../src/connectors/sec-event-projection';
 import type { PushFanoutService } from '../src/push/push-fanout.service';
 import { discoverLinksJobSchema } from '../src/queues/job-data';
+import { ingestPendingSecOwnership } from '../src/sec/ownership-ingestion';
 
 jest.mock('../src/connectors/sec-event-projection', () => ({
   projectSecFilingEvents: jest.fn().mockResolvedValue({ created: 1, existing: 0 }),
 }));
+jest.mock('../src/sec/ownership-ingestion', () => ({ ingestPendingSecOwnership: jest.fn() }));
 
 const CIK = '0001652044';
 const company = (id: string, ticker: string, cik = CIK) => ({
@@ -292,6 +294,131 @@ describe('SEC recent submissions metadata', () => {
 });
 
 describe('SEC ingestion baselines and share classes', () => {
+  it('records successful mapped issuers without advancing full success while another scoped issuer lacks a CIK', async () => {
+    const db = memoryDatabase();
+    db.rows(CompanyEntity)[1] = { ...GOOGL, cik: null };
+    db.rows(MarketLeaderScopeEntity).push({
+      id: 'unmapped-watch',
+      companyId: GOOGL.id,
+      priority: WatchPriority.P1,
+    });
+    const previousSuccess = new Date('2026-09-01T00:00:00Z');
+    db.rows(ConnectorHealthEntity).push({
+      id: 'health',
+      connector: 'sec',
+      status: ConnectorStatus.HEALTHY,
+      lastSuccessAt: previousSuccess,
+      metadataJson: {},
+    });
+    const fetcher = jest.fn(async () => jsonResponse(response(1)));
+    const service = new NewsDiscoveryService(db.dataSource, config, fetcher, {
+      enqueueNews: jest.fn(),
+    } as unknown as PushFanoutService);
+    expect(await service.discover(scheduled())).toMatchObject([
+      { status: ConnectorStatus.DEGRADED, created: 1 },
+    ]);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(db.rows(ConnectorHealthEntity)[0]).toMatchObject({
+      lastSuccessAt: previousSuccess,
+      metadataJson: {
+        missingScopeCikCount: 1,
+        eligibleIssuerCount: 1,
+        submissionsStatus: 'HEALTHY',
+        submissionsLastSuccessAt: expect.any(String),
+      },
+    });
+    expect(
+      db.rows(SourceCheckpointEntity).find((row) => row.stream === 'LINK_DISCOVERY:P1_P2')
+        ?.lastSuccessAt,
+    ).toBeNull();
+    expect(db.rows(SourceItemEntity)).toHaveLength(1);
+  });
+
+  it('keeps SEC degraded through ownership failure and deferred retries while preserving successful submissions', async () => {
+    const db = memoryDatabase();
+    const previousSuccess = new Date('2026-09-01T00:00:00Z');
+    db.rows(ConnectorHealthEntity).push({
+      id: 'health',
+      connector: 'sec',
+      status: ConnectorStatus.HEALTHY,
+      lastSuccessAt: previousSuccess,
+      metadataJson: {},
+    });
+    const ownership = jest.mocked(ingestPendingSecOwnership);
+    ownership
+      .mockResolvedValueOnce({
+        ownershipFailed: 1,
+        ownershipPending: 1,
+        ownershipWaiting: 1,
+        ownershipIncomplete: true,
+        ownershipHttpStatus: 403,
+        ownershipAttempted: 1,
+      })
+      .mockResolvedValueOnce({
+        ownershipFailed: 0,
+        ownershipPending: 1,
+        ownershipWaiting: 1,
+        ownershipIncomplete: true,
+        ownershipHttpStatus: null,
+        ownershipAttempted: 0,
+      })
+      .mockResolvedValueOnce({
+        ownershipFailed: 0,
+        ownershipPending: 0,
+        ownershipWaiting: 0,
+        ownershipIncomplete: false,
+        ownershipHttpStatus: 200,
+        ownershipAttempted: 1,
+      });
+    const fetcher = jest.fn(async () => jsonResponse(response(1)));
+    const service = new NewsDiscoveryService(
+      db.dataSource,
+      { ...config, secForm4Enabled: true },
+      fetcher,
+      { enqueueNews: jest.fn() } as unknown as PushFanoutService,
+    );
+    for (let index = 0; index < 2; index++) {
+      expect(await service.discover(scheduled())).toMatchObject([
+        { status: ConnectorStatus.DEGRADED, seen: 1, created: index === 0 ? 1 : 0 },
+      ]);
+      const health = db.rows(ConnectorHealthEntity)[0]!;
+      expect(health).toMatchObject({
+        status: ConnectorStatus.DEGRADED,
+        lastSuccessAt: previousSuccess,
+        metadataJson: {
+          httpStatus: 200,
+          submissionsHttpStatus: 200,
+          submissionsStatus: 'HEALTHY',
+          submissionsLastSuccessAt: expect.any(String),
+          ownershipIncomplete: true,
+          ownershipPending: 1,
+          ownershipHttpStatus: index === 0 ? 403 : null,
+        },
+      });
+      expect(health.message).toContain('원문');
+      expect(health.message).not.toContain('IR feed');
+      expect(
+        db.rows(SourceCheckpointEntity).find((row) => row.stream === `SUBMISSIONS:CIK:${CIK}`),
+      ).toMatchObject({
+        cursor: null,
+        lastSuccessAt: expect.any(Date),
+        metadataJson: { baselineComplete: true },
+      });
+      expect(
+        db.rows(SourceCheckpointEntity).find((row) => row.stream === 'LINK_DISCOVERY:P1_P2')
+          ?.lastSuccessAt,
+      ).toBeNull();
+      expect(db.rows(SourceItemEntity)).toHaveLength(1);
+    }
+    expect(await service.discover(scheduled())).toMatchObject([
+      { status: ConnectorStatus.HEALTHY },
+    ]);
+    expect(db.rows(ConnectorHealthEntity)[0]?.lastSuccessAt).not.toBe(previousSuccess);
+    expect(db.rows(ConnectorHealthEntity)[0]).toMatchObject({
+      metadataJson: { ownershipIncomplete: false, ownershipPending: 0 },
+    });
+  });
+
   it('collects the approved personal-group union when the legacy watchlist is empty, deduplicating one issuer', async () => {
     const db = memoryDatabase();
     db.rows(MarketLeaderScopeEntity).length = 0;

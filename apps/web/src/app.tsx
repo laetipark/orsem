@@ -64,8 +64,22 @@ const NotificationsPage = lazy(() =>
 const SourcesPage = lazy(() =>
   import('./pages/sources-page').then((module) => ({ default: module.SourcesPage })),
 );
+const LogoSourcesPage = lazy(() =>
+  import('./pages/logo-sources-page').then((module) => ({ default: module.LogoSourcesPage })),
+);
 
 export function App() {
+  return (
+    <Suspense fallback={<LoadingState label="화면을 불러오는 중입니다." />}>
+      <Routes>
+        <Route path="/logo-sources" element={<LogoSourcesPage />} />
+        <Route path="*" element={<SessionApp />} />
+      </Routes>
+    </Suspense>
+  );
+}
+
+function SessionApp() {
   const queryClient = useQueryClient();
   const session = useQuery({
     queryKey: ['session'],

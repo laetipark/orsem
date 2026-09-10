@@ -299,6 +299,43 @@
 .market-news__heading {
   min-width: 0;
 }
+
+.market-news__list--company .market-news__row {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: 'headline' 'description' 'companies' 'meta';
+}
+.market-news__list--company .market-news__row .market-news__link {
+  grid-row: 1 / 5;
+  grid-template-areas: 'headline' 'description' 'companies' 'meta';
+}
+.market-news__list--company .market-news__description {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.news-company-badges.news-company-badges--scroll {
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  min-width: 0;
+  width: 100%;
+  padding-block: 4px;
+  scrollbar-width: thin;
+}
+.news-company-badges--scroll a {
+  flex: 0 0 auto;
+  max-width: none;
+}
+.news-company-badges--scroll:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: -2px;
+}
+.news-company-badges--scroll[data-mouse-scrollable='true'] a {
+  cursor: inherit;
+}
 .market-news__heading-meta {
   display: flex;
   flex-wrap: wrap;

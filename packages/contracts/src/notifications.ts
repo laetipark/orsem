@@ -93,3 +93,15 @@ export const notificationSettingsSchema = notificationPreferencesSchema.extend({
   ),
 });
 export type NotificationSettings = z.infer<typeof notificationSettingsSchema>;
+
+export const companyNotificationInputSchema = z.object({ enabled: z.boolean() }).strict();
+export const companyNotificationSettingsSchema = z.object({
+  companyId: z.string().uuid(),
+  // Company scope only. Global/topic/device/source gates still apply at delivery.
+  enabled: z.boolean(),
+  inherited: z.boolean(),
+  globalEnabled: z.boolean(),
+  pushConfigured: z.boolean(),
+  hasActiveSubscription: z.boolean(),
+});
+export type CompanyNotificationSettings = z.infer<typeof companyNotificationSettingsSchema>;

@@ -10,6 +10,7 @@ import {
   MemberEntity,
   NewsItemEntity,
   NotificationPreferenceEntity,
+  NotificationCompanyPreferenceEntity,
   PushDeliveryEntity,
   PushSubscriptionEntity,
   SourceItemEntity,
@@ -281,6 +282,13 @@ export class PushFanoutService {
     const watchlisted = companyId
       ? Boolean(await manager.getRepository(MarketLeaderScopeEntity).findOneBy({ companyId }))
       : false;
+    const companyPreference = companyId
+      ? await manager.getRepository(NotificationCompanyPreferenceEntity).findOneBy({
+          ownerKey: preference.ownerKey,
+          companyId,
+        })
+      : null;
+    if (companyPreference && eventAt < companyPreference.updatedAt) return false;
     return pushPreferenceAllows({
       ownerKey: preference.ownerKey,
       subscriptionOwnerKey: subscription.ownerKey,
@@ -290,6 +298,7 @@ export class PushFanoutService {
       topic,
       watchlistOnly: preference.watchlistOnly,
       watchlisted,
+      companyEnabled: companyPreference?.enabled,
       filingType,
       filingTypes: preference.filingTypesJson,
     });

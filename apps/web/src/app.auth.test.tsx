@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   sourceFreshness: vi.fn(),
   disconnectPush: vi.fn(),
   unsubscribeNotifications: vi.fn(),
+  companyLogoCredits: vi.fn(async () => ({ items: [] })),
 }));
 vi.mock('./lib/api', () => ({
   isFixtureMode: false,
@@ -28,6 +29,7 @@ vi.mock('./lib/api', () => ({
     search: mocks.search,
     sourceFreshness: mocks.sourceFreshness,
     unsubscribeNotifications: mocks.unsubscribeNotifications,
+    companyLogoCredits: mocks.companyLogoCredits,
   },
 }));
 vi.mock('./lib/web-push', () => ({ disconnectPushOnLogout: mocks.disconnectPush }));
@@ -107,6 +109,28 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+});
+
+it('serves public logo attribution without requiring a session or a working authentication API', async () => {
+  mocks.session.mockRejectedValue(new Error('session unavailable'));
+  const client = show('/logo-sources');
+  expect(await screen.findByRole('heading', { name: '로고 출처·이용 안내' })).toBeVisible();
+  expect(mocks.session).not.toHaveBeenCalled();
+  expect(mocks.sourceFreshness).not.toHaveBeenCalled();
+  for (const link of screen.getAllByRole('link', { name: 'Logos provided by Logo.dev' })) {
+    expect(link).toHaveAttribute('href', 'https://logo.dev');
+    expect(link).toHaveAttribute('rel', 'noopener');
+    expect(link).toHaveAttribute('referrerpolicy', 'origin');
+  }
+  expect(screen.getByRole('link', { name: 'Brandfetch' })).toHaveAttribute(
+    'href',
+    'https://brandfetch.com',
+  );
+  expect(screen.getByText(/운용사 로고는 개별 ETF의/)).toBeVisible();
+  expect(screen.getByRole('link', { name: 'Simple Icons 이용 안내' })).toBeVisible();
+  expect(screen.getByRole('link', { name: 'Wikimedia Commons 재사용 안내' })).toBeVisible();
+  expect(screen.queryByText(/AllInvestView|Finnhub/)).not.toBeInTheDocument();
+  client.clear();
 });
 
 it('logs out through the mounted App without losing its session subscription', async () => {

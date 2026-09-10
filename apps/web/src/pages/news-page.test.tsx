@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { NewsPage, parseNewsSourceKind } from './news-page';
 
-const mocks = vi.hoisted(() => ({ news: vi.fn(), sourceFreshness: vi.fn() }));
+const mocks = vi.hoisted(() => ({ news: vi.fn(), sourceFreshness: vi.fn(), company: vi.fn() }));
 vi.mock('../lib/api', () => ({ api: mocks }));
 
 let client: QueryClient;
@@ -12,6 +12,42 @@ beforeEach(() => {
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   mocks.news.mockResolvedValue({ items: [], nextCursor: null });
   mocks.sourceFreshness.mockResolvedValue({ asOf: '2026-09-05T00:00:00.000Z', items: [] });
+  mocks.company.mockResolvedValue({ id: 'samsung', nameKo: '삼성전자' });
+});
+
+it('keeps the selected company on every full-feed cursor request', async () => {
+  const item = (id: string) => ({
+    id,
+    title: `회사 뉴스 ${id}`,
+    source: 'IR',
+    url: `https://example.com/${id}`,
+    firstObservedAt: '2026-09-06T00:00:00Z',
+  });
+  mocks.news.mockImplementation(async (filters) =>
+    filters.cursor
+      ? { items: [item('older')], nextCursor: null }
+      : { items: [item('newer')], nextCursor: 'next-company-page' },
+  );
+  render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={['/news?companyId=samsung']}>
+        <NewsPage />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+  await screen.findByRole('heading', { name: '삼성전자 관련 뉴스 전체' });
+  await screen.findByText('회사 뉴스 newer');
+  fireEvent.click(screen.getByRole('button', { name: '뉴스 더 보기' }));
+  await screen.findByText('회사 뉴스 older');
+  expect(screen.getByText('회사 뉴스 newer')).toBeVisible();
+  expect(mocks.news).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      companyId: 'samsung',
+      scope: 'company',
+      cursor: 'next-company-page',
+    }),
+    expect.any(AbortSignal),
+  );
 });
 afterEach(() => {
   cleanup();

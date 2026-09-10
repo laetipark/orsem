@@ -10,6 +10,20 @@ import type { DataSource } from 'typeorm';
 import type { FetchImplementation } from '../opendart/opendart.client';
 import { readBoundedResponseBytes } from '../common/bounded-response';
 import { parseSecOwnership, SEC_OWNERSHIP_MAX_BYTES } from './ownership-parser';
+import { SecAccessCooldownError, SecAccessPolicyError } from '../connectors/sec-access-policy';
+
+function unfinishedOwnership(dataSource: DataSource) {
+  return dataSource
+    .getRepository(SourceItemEntity)
+    .createQueryBuilder('source')
+    .where('source.source = :source', { source: 'SEC' })
+    .andWhere(
+      "JSON_UNQUOTE(JSON_EXTRACT(source.rawMetadataJson, '$.form')) IN ('3','4','5','3/A','4/A','5/A')",
+    )
+    .andWhere(
+      "COALESCE(JSON_UNQUOTE(JSON_EXTRACT(source.rawMetadataJson, '$.ownershipStatus')), '') <> 'COMPLETED'",
+    );
+}
 
 export function ownershipXmlUrl(
   source: Pick<SourceItemEntity, 'url' | 'externalId' | 'rawMetadataJson'>,
@@ -47,16 +61,7 @@ export async function ingestPendingSecOwnership(
   timeoutMs: number,
   limit = 3,
 ): Promise<Record<string, unknown>> {
-  const repository = dataSource.getRepository(SourceItemEntity);
-  const pending = await repository
-    .createQueryBuilder('source')
-    .where('source.source = :source', { source: 'SEC' })
-    .andWhere(
-      "JSON_UNQUOTE(JSON_EXTRACT(source.rawMetadataJson, '$.form')) IN ('3','4','5','3/A','4/A','5/A')",
-    )
-    .andWhere(
-      "COALESCE(JSON_UNQUOTE(JSON_EXTRACT(source.rawMetadataJson, '$.ownershipStatus')), '') <> 'COMPLETED'",
-    )
+  const pending = await unfinishedOwnership(dataSource)
     .andWhere(
       "(JSON_EXTRACT(source.rawMetadataJson, '$.ownershipRetryAt') IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(source.rawMetadataJson, '$.ownershipRetryAt')) <= :now)",
       { now: new Date().toISOString() },
@@ -65,15 +70,24 @@ export async function ingestPendingSecOwnership(
     .take(limit)
     .getMany();
   let completed = 0,
-    failed = 0;
+    failed = 0,
+    attempted = 0,
+    skipped = 0,
+    unknownAttempts = 0;
+  let httpStatus: number | null = null;
   for (const source of pending) {
+    let requestAttempted: boolean | null = false;
+    httpStatus = null;
     try {
       const url = ownershipXmlUrl(source);
+      attempted++;
+      requestAttempted = true;
       const response = await fetchImpl(url, {
         headers: { 'User-Agent': userAgent, Accept: 'application/xml,text/xml' },
         redirect: 'error',
         signal: AbortSignal.timeout(timeoutMs),
       });
+      httpStatus = response.status;
       if (!response.ok) {
         await response.body?.cancel();
         throw new Error(`SEC ownership HTTP ${response.status}`);
@@ -110,6 +124,9 @@ export async function ingestPendingSecOwnership(
           ownershipStatus: 'COMPLETED',
           ownershipRetryAt: null,
           ownershipProcessedAt: new Date().toISOString(),
+          ownershipError: null,
+          ownershipHttpStatus: response.status,
+          ownershipRequestAttempted: true,
         };
         await sources.save(current);
         const companies = await manager.getRepository(CompanyEntity).find({
@@ -165,8 +182,24 @@ export async function ingestPendingSecOwnership(
           .execute();
       });
       completed++;
-    } catch {
+    } catch (error) {
       failed++;
+      const accessWaiting = error instanceof SecAccessCooldownError;
+      const requestSkipped = accessWaiting && !error.requestAttempted;
+      if (requestSkipped) {
+        attempted--;
+        skipped++;
+        requestAttempted = false;
+      }
+      if (error instanceof SecAccessPolicyError) {
+        attempted--;
+        unknownAttempts++;
+        requestAttempted = null;
+      }
+      if (accessWaiting) httpStatus = error.providerStatus;
+      const retryAt = new Date(
+        Math.max(Date.now() + 3600_000, accessWaiting ? error.retryAt.getTime() : 0),
+      );
       // Do not expose raw payloads, network details, or contact headers in an error field.
       await dataSource.transaction(async (manager) => {
         const sources = manager.getRepository(SourceItemEntity);
@@ -177,9 +210,11 @@ export async function ingestPendingSecOwnership(
         if (!current || current.rawMetadataJson?.ownershipStatus === 'COMPLETED') return;
         current.rawMetadataJson = {
           ...current.rawMetadataJson,
-          ownershipStatus: 'FAILED',
-          ownershipRetryAt: new Date(Date.now() + 3600_000).toISOString(),
+          ownershipStatus: accessWaiting ? 'WAITING' : 'FAILED',
+          ownershipRetryAt: retryAt.toISOString(),
           ownershipError: 'XML_FETCH_OR_VALIDATION_FAILED',
+          ownershipHttpStatus: httpStatus,
+          ownershipRequestAttempted: requestAttempted,
         };
         await sources.save(current);
       });
@@ -187,9 +222,32 @@ export async function ingestPendingSecOwnership(
       break;
     }
   }
+  // Include deferred and overflow documents; no request this run is not evidence of recovery.
+  const [remaining, waiting] = await Promise.all([
+    unfinishedOwnership(dataSource).getCount(),
+    unfinishedOwnership(dataSource)
+      .andWhere("JSON_UNQUOTE(JSON_EXTRACT(source.rawMetadataJson, '$.ownershipRetryAt')) > :now", {
+        now: new Date().toISOString(),
+      })
+      .getCount(),
+  ]);
   return {
-    ownershipAttempted: completed + failed,
+    ownershipAttempted: attempted,
     ownershipCompleted: completed,
     ownershipFailed: failed,
+    ownershipSkipped: skipped,
+    ownershipUnknownAttempts: unknownAttempts,
+    ownershipHttpStatus: httpStatus,
+    ownershipPending: remaining,
+    ownershipWaiting: waiting,
+    ownershipIncomplete: remaining > 0,
+    ownershipStatus:
+      remaining === 0
+        ? completed > 0
+          ? 'COMPLETED'
+          : 'NO_PENDING'
+        : remaining === waiting
+          ? 'RETRY_WAITING'
+          : 'PENDING',
   };
 }

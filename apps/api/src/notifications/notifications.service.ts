@@ -6,15 +6,20 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  Optional,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import {
+  companyNotificationSettingsSchema,
   notificationPreferencesSchema,
   DEFAULT_NOTIFICATION_FILING_TYPES,
   notificationSettingsSchema,
   pushSubscriptionInputSchema,
 } from '@orsem/contracts';
 import {
+  CompanyEntity,
+  MarketLeaderScopeEntity,
+  NotificationCompanyPreferenceEntity,
   NotificationPreferenceEntity,
   PushDeliveryEntity,
   PushSubscriptionEntity,
@@ -24,6 +29,7 @@ import { In, type EntityManager } from 'typeorm';
 import type { z } from 'zod';
 import { APP_CONFIG, type AppConfig } from '../config/app-config';
 import { DatabaseRuntimeService } from '../persistence/database-runtime.service';
+import { FixtureStoreService } from '../fixtures/fixture-store.service';
 
 export interface NotificationOwner {
   key: string;
@@ -37,11 +43,97 @@ const defaultTopics = ['FILINGS', 'ANALYSIS', 'CORRECTIONS', 'NEWS'] as const;
 export class NotificationsService {
   private readonly fixturePreferences = new Map<string, NotificationPreferenceEntity>();
   private readonly fixtureSubscriptions = new Map<string, PushSubscriptionEntity>();
+  private readonly fixtureCompanyPreferences = new Map<
+    string,
+    NotificationCompanyPreferenceEntity
+  >();
 
   constructor(
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     private readonly database: DatabaseRuntimeService,
+    @Optional() private readonly fixtures?: FixtureStoreService,
   ) {}
+
+  private async assertCompany(companyId: string): Promise<void> {
+    const exists = this.config.fixtureMode
+      ? this.fixtures?.companies.some((company) => company.id === companyId)
+      : await this.database
+          .requireDataSource()
+          .getRepository(CompanyEntity)
+          .existsBy({ id: companyId });
+    if (!exists) throw new NotFoundException('종목을 찾을 수 없습니다.');
+  }
+
+  async companySettings(owner: NotificationOwner, companyId: string) {
+    await this.assertCompany(companyId);
+    const preference = await this.preference(owner);
+    const repository = this.config.fixtureMode ? null : this.database.requireDataSource();
+    const override = repository
+      ? await repository
+          .getRepository(NotificationCompanyPreferenceEntity)
+          .findOneBy({ ownerKey: owner.key, companyId })
+      : this.fixtureCompanyPreferences.get(`${owner.key}:${companyId}`);
+    const marketLeader = repository
+      ? await repository.getRepository(MarketLeaderScopeEntity).existsBy({ companyId })
+      : false; // Fixture market selection is unconfigured, as on the dashboard.
+    const subscriptions = repository
+      ? await repository.getRepository(PushSubscriptionEntity).findBy({ ownerKey: owner.key })
+      : [...this.fixtureSubscriptions.values()].filter((item) => item.ownerKey === owner.key);
+    const now = new Date();
+    return companyNotificationSettingsSchema.parse({
+      companyId,
+      enabled: override?.enabled ?? (!preference.watchlistOnly || marketLeader),
+      inherited: !override,
+      globalEnabled: preference.enabled,
+      pushConfigured: this.pushConfigured && !this.config.fixtureMode,
+      hasActiveSubscription: subscriptions.some(
+        (item) => !item.expirationTime || item.expirationTime > now,
+      ),
+    });
+  }
+
+  async updateCompanySettings(
+    owner: NotificationOwner,
+    companyId: string,
+    input: { enabled: boolean },
+  ) {
+    await this.assertCompany(companyId);
+    if (this.config.fixtureMode) {
+      const key = `${owner.key}:${companyId}`;
+      const existing = this.fixtureCompanyPreferences.get(key);
+      if (!existing || existing.enabled !== input.enabled) {
+        const now = new Date();
+        this.fixtureCompanyPreferences.set(
+          key,
+          Object.assign(new NotificationCompanyPreferenceEntity(), {
+            ownerKey: owner.key,
+            companyId,
+            enabled: input.enabled,
+            createdAt: existing?.createdAt ?? now,
+            updatedAt: now,
+          }),
+        );
+      }
+    } else {
+      await this.ownerTransaction(owner, async (manager) => {
+        const repository = manager.getRepository(NotificationCompanyPreferenceEntity);
+        const existing = await repository.findOneBy({ ownerKey: owner.key, companyId });
+        if (existing?.enabled === input.enabled) return;
+        await repository.save(
+          repository.create({
+            ...existing,
+            ownerKey: owner.key,
+            companyId,
+            enabled: input.enabled,
+            updatedAt: new Date(),
+          }),
+        );
+        // The delivery worker rechecks this row before sending. Do not touch the global
+        // preference timestamp or cancel unrelated companies' deliveries.
+      });
+    }
+    return this.companySettings(owner, companyId);
+  }
 
   private get pushConfigured(): boolean {
     return this.config.webPush.enabled && Boolean(this.config.webPush.publicKey);

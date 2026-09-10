@@ -1,5 +1,24 @@
 # 운영
 
+## Python 워커 실행과 점검
+
+Python 3.12 워커와 관리 CLI의 전환 상태는 [현재 배포 상태](DEPLOYMENT.md#python-워커-전환-상태)를 확인합니다. PM2는 `/home/laeti/orsem-data/worker/current/bin/python -m orsem_worker`를 직접 실행합니다. API·웹·Discord는 기존 TypeScript 프로세스를 유지합니다.
+
+개발용 명령은 저장소 루트에서 `python3 scripts/worker.py start`, `lint`, `typecheck`, `test`로 실행합니다. 실행기는 `ORSEM_WORKER_PYTHON`, 루트 `.venv/bin/python`, 워커 내부 `.venv/bin/python`, 호출한 Python 순서로 실행 환경을 선택합니다. 운영 환경으로 관리 명령을 실행하려면 `ORSEM_WORKER_PYTHON=/home/laeti/orsem-data/worker/current/bin/python`을 명시합니다.
+
+```bash
+python3 scripts/worker.py cli collect-sec --status
+python3 scripts/worker.py cli backfill-news-relevance --dry-run
+python3 scripts/worker.py cli sync-korean-etfs --dry-run
+python3 scripts/worker.py cli preview-market-leaders
+```
+
+`collect-sec --status`는 저장된 상태를 조회합니다. ETF·시장 후보 조회는 공급자 요청을 포함하며, `--apply`가 있는 명령은 지정한 DB 자료를 변경합니다. 실제 SEC 수집·검증과 파서 감사·staging·백업 명령의 범위는 [Python 운영 CLI](PYTHON_WORKER.md#운영-cli)를 참고합니다. 비밀 값은 기존 외부 환경 파일로 주입하고 감사 산출물·원문은 저장소 밖에 보관합니다.
+
+배포 전에는 `python3 scripts/verify-in-isolation.py`로 검사·빌드를 격리합니다. 운영 `dist` 또는 `worker/current` 환경에 검사 산출물을 덮어쓰지 않습니다. 재시작 전 큐의 기존 정지 상태를 기록하고 활성 작업이 끝나는지 확인합니다. 워커 종료 유예는 11분이며, 체크포인트·DB outbox·일반 큐 작업을 지워 재시도를 초기화하지 않습니다.
+
+종목별 알림 선택은 개인 계정의 설정입니다. Python 워커는 알림 후보 생성과 실제 Web Push 전송 직전에 종목별 설정, 전체 알림 활성화, 주제·공시 유형, 계정 권한을 함께 확인합니다. 관심 그룹 편집과 종목별 알림 설정은 독립적으로 유지합니다.
+
 ## 조건부 뉴스 확장 운영 (2026-09-07)
 
 이번 확장은 운영 수집을 자동으로 켜지 않는다. `MARKETAUX_NEWS_ENABLED`, `ALPHAVANTAGE_NEWS_ENABLED`, `FINNHUB_NEWS_ENABLED`는 모두 false다. 키만 추가해도 요청하지 않는다. 코드의 공급자 권리, `APPROVED_FREE_NEWS_ACCESS`의 무료 이용 확인 만료일·entitlement, 정확한 원출판사별 정책을 모두 승인해야 한다. Finnhub는 계정에서 확인한 분당 요청 한도도 필요하다. 유료 플랜/요금 청구로 자동 전환하지 않는다.
@@ -36,7 +55,7 @@
 | -------------------------------------- | ----------------------------------------------------------------------------- |
 | OpenDART D001/D002/D003/D004/D005      | 평일 08:00–19:59에는 2분마다, 나머지 평일 시간에는 5분마다, 주말에는 30분마다 |
 | OpenDART 기업 코드                     | 일요일 03:30                                                                  |
-| SEC 월간 상위 종목·개인 그룹 제출 문서 | 10분마다, 식별 가능한 User-Agent 사용, 단일 worker 공통 최소 250ms 간격       |
+| SEC 월간 상위 종목·개인 그룹 제출 문서 | 10분마다, 식별 가능한 User-Agent 사용, 같은 DB의 worker가 1초 요청 슬롯 공유  |
 | 월간 시총 상위 종목                    | KST 매월 새 달에 국내·미국 각각 20개, 5분 간격 점검·실패 후 6시간 재시도      |
 | NAVER 관련 뉴스                        | 15분마다 회사·시장·자산 주제를 합해 최대 10회 순환, 만료되는 임시 메모리      |
 | Samsung Global Newsroom                | 검토된 Global RSS를 15분마다, 관심종목 필터 없음                              |
@@ -69,15 +88,13 @@ KRX와 Alpaca EOD 가격 수집 일정은 종료되었으며, 큐에 남은 이�
    ```
 
 3. 서버 환경에 `MARKET_DATA_PROVIDER=toss`와 `TOSS_CREDENTIALS_FILE=/home/laeti/orsem-data/toss-credentials.json`을 설정합니다. 또는 프로세스 환경에 `TOSS_CLIENT_ID`와 `TOSS_CLIENT_SECRET`을 직접 주입합니다. 자격 증명에 `VITE_*`를 사용하면 안 됩니다. 두 방식 모두 유효한 자격 증명을 제공하지 않으면 토스를 비활성화하며, 환경에 주입한 값이 파일보다 우선합니다.
-4. 패키지를 빌드하고 `npm run db:migrate`를 실행한 뒤 API와 worker를 다시 불러옵니다.
+4. 처음 설치하거나 코드·스키마가 변경됐다면 격리 검증 후 배포 명세의 마이그레이션과 실행 파일을 적용합니다. 자격 증명만 변경한 경우 빌드·마이그레이션은 생략하고 큐 작업 종료를 확인한 뒤 관련 프로세스의 환경만 다시 불러옵니다.
 
    ```bash
-   npm run build
-   npm run db:migrate
-   pm2 startOrReload ecosystem.config.cjs --only orsem-api,orsem-worker --update-env
+   python3 scripts/verify-in-isolation.py
    ```
 
-5. 기존 기업을 엽니다. 과거 일봉·분봉을 요청하고 해당 기업을 실시간 구독에 일시적으로 추가합니다. 관심 목록의 P1/P2 기업은 자동 수집합니다.
+5. [배포 절차](DEPLOYMENT.md)에 따라 API와 Python 워커를 시작한 뒤 기존 기업을 엽니다. 과거 일봉·분봉을 요청하고 해당 기업을 실시간 구독에 일시적으로 추가합니다. 관심 목록의 P1/P2 기업은 자동 수집합니다.
 6. 운영 화면의 토스 상태를 확인하고 실제 공급자 시각과 시장별 봉을 하나 이상 비교한 뒤, 거래 시간 중 새 체결 수신을 확인합니다. 빌드 성공이나 OAuth 토큰 발급만으로 실시간 수신이 입증되지는 않습니다.
 
 기업 페이지가 보이는 동안 현재가와 선택한 차트를 2초마다 조회합니다. 분봉 화면은 이벤트 수익률과 마커 목록에 필요한 일봉도 갱신합니다. 타임라인 요청은 저장된 데이터를 반환하고 갱신 작업을 큐에 넣습니다. 2초 조회 주기는 새로운 공급자 값이 2초 안에 도착한다는 보장이 아닙니다. 큐 대기, 재시도, 시장 거래 여부가 신선도에 영향을 줍니다.

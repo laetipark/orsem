@@ -4,6 +4,21 @@ import { RedisStore } from 'connect-redis';
 import { createClient } from 'redis';
 import { createHash } from 'node:crypto';
 import { APP_CONFIG, type AppConfig } from '../config/app-config';
+import type { CompanyLogoProvider } from '@orsem/contracts';
+
+// Shared by all API processes and users. Reserve before the browser sends one image request.
+// 33 UTC-day buckets conservatively cover every rolling 32-day period and hence any
+// provider calendar month, regardless of its billing timezone. Counters renew gradually.
+export const COMPANY_LOGO_BUDGET_SCRIPT = `
+local values = redis.call('MGET', unpack(KEYS))
+local count = 0
+for _, value in ipairs(values) do count = count + tonumber(value or '0') end
+local limit = tonumber(ARGV[1])
+if count >= limit then return 0 end
+redis.call('INCR', KEYS[1])
+redis.call('PEXPIRE', KEYS[1], ARGV[2])
+return 1
+`;
 
 @Injectable()
 export class SessionRuntimeService implements OnApplicationShutdown {
@@ -74,6 +89,28 @@ export class SessionRuntimeService implements OnApplicationShutdown {
       return { available: true, value };
     } catch {
       return { available: false, value: null };
+    }
+  }
+
+  async consumeCompanyLogoBudget(provider: CompanyLogoProvider, limit: number): Promise<boolean> {
+    if (!this.client?.isReady || !Number.isInteger(limit) || limit < 1 || limit > 500_000)
+      return false;
+    try {
+      // No per-client counters or process-memory fallback: absent durable shared storage fails closed.
+      const now = Date.now();
+      return (
+        Number(
+          await this.client.eval(COMPANY_LOGO_BUDGET_SCRIPT, {
+            keys: Array.from({ length: 33 }, (_, offset) => {
+              const date = new Date(now - offset * 86_400_000).toISOString().slice(0, 10);
+              return `${this.config.redisPrefix}logo:budget:${provider}:${date}`;
+            }),
+            arguments: [String(limit), String(34 * 24 * 60 * 60_000)],
+          }),
+        ) === 1
+      );
+    } catch {
+      return false;
     }
   }
 

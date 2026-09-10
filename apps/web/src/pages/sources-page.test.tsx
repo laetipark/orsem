@@ -4,7 +4,6 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppShell } from '../components/app-shell';
 import { api } from '../lib/api';
-import { logoAttributionUrl } from '../lib/company-branding';
 import { ThemeProvider } from '../theme';
 import type { Session, SourceFreshness } from '../types';
 import { SourcesPage } from './sources-page';
@@ -99,7 +98,11 @@ describe('shared data sources page', () => {
     );
     expect(api.sourceFreshness).not.toHaveBeenCalled();
     expect(footer.queryByText('커넥터 신선도')).not.toBeInTheDocument();
-    expect(footer.getByRole('link', { name: 'Logos by AllInvestView' })).toBeInTheDocument();
+    expect(footer.queryByRole('link', { name: 'Logos provided by Logo.dev' })).toBeNull();
+    expect(footer.getByRole('link', { name: '로고 출처·이용 안내' })).toHaveAttribute(
+      'href',
+      '/logo-sources',
+    );
 
     fireEvent.click(footer.getByRole('link', { name: '데이터 출처·신선도' }));
     expect(await screen.findByText('NAVER 뉴스검색')).toBeInTheDocument();
@@ -129,10 +132,11 @@ describe('shared data sources page', () => {
       expect(screen.getByText('미설정')).toBeInTheDocument();
       expect(screen.getByText('기록 없음')).toBeInTheDocument();
       expect(screen.getByText('—')).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: 'Logos by AllInvestView' })).toHaveAttribute(
-        'href',
-        logoAttributionUrl,
-      );
+      expect(
+        within(screen.getByRole('contentinfo')).getByRole('link', {
+          name: '로고 출처·이용 안내',
+        }),
+      ).toHaveAttribute('href', '/logo-sources');
       if (role === 'ADMIN') {
         expect(screen.getByRole('link', { name: '운영 상세 보기' })).toHaveAttribute(
           'href',
@@ -156,7 +160,11 @@ describe('shared data sources page', () => {
     );
     expect(screen.getByText('NAVER 뉴스검색')).toBeInTheDocument();
     expect(screen.queryByText('internal connector configuration')).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Logos by AllInvestView' })).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('contentinfo')).getByRole('link', {
+        name: '로고 출처·이용 안내',
+      }),
+    ).toBeInTheDocument();
   });
 
   it('groups connectors by purpose and preserves deterministic name order after refresh', async () => {

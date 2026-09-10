@@ -1,0 +1,234 @@
+{
+  "OPENDART_CORP_CODE_SCHEDULE": {
+    "id": "opendart-corp-code-weekly",
+    "pattern": "30 3 * * 0",
+    "timezone": "Asia/Seoul"
+  },
+  "SEC_CIK_SYNC_SCHEDULE": {
+    "id": "sec-cik-master-daily",
+    "pattern": "25 7 * * *",
+    "timezone": "Asia/Seoul"
+  },
+  "NEWS_DISCOVERY_SCHEDULES": [
+    {
+      "id": "marketaux-news-hourly",
+      "pattern": "0 * * * *",
+      "timezone": "Asia/Seoul",
+      "payload": {
+        "reason": "SCHEDULED",
+        "connectors": ["MARKETAUX"],
+        "priorities": [],
+        "companyIds": [],
+        "suppressAlerts": true
+      }
+    },
+    {
+      "id": "alphavantage-news-twice-daily",
+      "pattern": "0 0,12 * * *",
+      "timezone": "Asia/Seoul",
+      "payload": {
+        "reason": "SCHEDULED",
+        "connectors": ["ALPHAVANTAGE"],
+        "priorities": [],
+        "companyIds": [],
+        "suppressAlerts": true
+      }
+    },
+    {
+      "id": "finnhub-news-hourly",
+      "pattern": "0 * * * *",
+      "timezone": "Asia/Seoul",
+      "payload": {
+        "reason": "SCHEDULED",
+        "connectors": ["FINNHUB"],
+        "priorities": [],
+        "companyIds": [],
+        "suppressAlerts": true
+      }
+    },
+    {
+      "id": "alpaca-news-thirty-minutes",
+      "pattern": "*/30 * * * *",
+      "timezone": "Asia/Seoul",
+      "payload": {
+        "reason": "SCHEDULED",
+        "connectors": ["ALPACA_NEWS"],
+        "priorities": [],
+        "companyIds": [],
+        "suppressAlerts": true
+      }
+    },
+    {
+      "id": "gdelt-metadata-thirty-minutes",
+      "pattern": "*/30 * * * *",
+      "timezone": "Asia/Seoul",
+      "payload": {
+        "reason": "SCHEDULED",
+        "connectors": ["GDELT"],
+        "priorities": [],
+        "companyIds": [],
+        "suppressAlerts": true
+      }
+    },
+    {
+      "id": "sec-submissions-p1-p2-ten-minutes",
+      "pattern": "*/10 * * * *",
+      "timezone": "Asia/Seoul",
+      "payload": {
+        "connectors": ["SEC"],
+        "priorities": ["P1", "P2"],
+        "companyIds": [],
+        "reason": "SCHEDULED"
+      }
+    },
+    {
+      "id": "registered-ir-fifteen-minutes",
+      "pattern": "*/15 * * * *",
+      "timezone": "Asia/Seoul",
+      "payload": {
+        "connectors": ["IR"],
+        "priorities": [],
+        "companyIds": [],
+        "reason": "SCHEDULED"
+      }
+    },
+    {
+      "id": "publisher-news-rss-fifteen-minutes",
+      "pattern": "*/15 * * * *",
+      "timezone": "Asia/Seoul",
+      "payload": {
+        "connectors": ["NEWS_RSS"],
+        "priorities": [],
+        "companyIds": [],
+        "reason": "SCHEDULED"
+      }
+    }
+  ],
+  "ALPACA_ASSET_SYNC_SCHEDULE": {
+    "id": "alpaca-asset-master-before-eod",
+    "jobName": "sync-alpaca-assets",
+    "pattern": "15 7 * * 2-6",
+    "timezone": "Asia/Seoul"
+  },
+  "TOSS_CANDLE_SCHEDULES": [
+    {
+      "id": "toss-daily-hourly",
+      "pattern": "5 * * * *",
+      "interval": "1d",
+      "lookbackDays": 3
+    },
+    {
+      "id": "toss-minute-candles",
+      "pattern": "* * * * *",
+      "interval": "1m",
+      "lookbackDays": 1
+    }
+  ],
+  "OPENDART_POLL_SCHEDULES": [
+    {
+      "id": "opendart-d001-focused",
+      "detailType": "D001",
+      "pattern": "*/2 8-19 * * 1-5",
+      "timezone": "Asia/Seoul",
+      "cadence": "FOCUSED"
+    },
+    {
+      "id": "opendart-d001-off_hours",
+      "detailType": "D001",
+      "pattern": "*/5 0-7,20-23 * * 1-5",
+      "timezone": "Asia/Seoul",
+      "cadence": "OFF_HOURS"
+    },
+    {
+      "id": "opendart-d001-weekend",
+      "detailType": "D001",
+      "pattern": "*/30 * * * 0,6",
+      "timezone": "Asia/Seoul",
+      "cadence": "WEEKEND"
+    },
+    {
+      "id": "opendart-d002-focused",
+      "detailType": "D002",
+      "pattern": "*/2 8-19 * * 1-5",
+      "timezone": "Asia/Seoul",
+      "cadence": "FOCUSED"
+    },
+    {
+      "id": "opendart-d002-off_hours",
+      "detailType": "D002",
+      "pattern": "*/5 0-7,20-23 * * 1-5",
+      "timezone": "Asia/Seoul",
+      "cadence": "OFF_HOURS"
+    },
+    {
+      "id": "opendart-d002-weekend",
+      "detailType": "D002",
+      "pattern": "*/30 * * * 0,6",
+      "timezone": "Asia/Seoul",
+      "cadence": "WEEKEND"
+    },
+    {
+      "id": "opendart-d003-focused",
+      "detailType": "D003",
+      "pattern": "*/2 8-19 * * 1-5",
+      "timezone": "Asia/Seoul",
+      "cadence": "FOCUSED"
+    },
+    {
+      "id": "opendart-d003-off_hours",
+      "detailType": "D003",
+      "pattern": "*/5 0-7,20-23 * * 1-5",
+      "timezone": "Asia/Seoul",
+      "cadence": "OFF_HOURS"
+    },
+    {
+      "id": "opendart-d003-weekend",
+      "detailType": "D003",
+      "pattern": "*/30 * * * 0,6",
+      "timezone": "Asia/Seoul",
+      "cadence": "WEEKEND"
+    },
+    {
+      "id": "opendart-d004-focused",
+      "detailType": "D004",
+      "pattern": "*/2 8-19 * * 1-5",
+      "timezone": "Asia/Seoul",
+      "cadence": "FOCUSED"
+    },
+    {
+      "id": "opendart-d004-off_hours",
+      "detailType": "D004",
+      "pattern": "*/5 0-7,20-23 * * 1-5",
+      "timezone": "Asia/Seoul",
+      "cadence": "OFF_HOURS"
+    },
+    {
+      "id": "opendart-d004-weekend",
+      "detailType": "D004",
+      "pattern": "*/30 * * * 0,6",
+      "timezone": "Asia/Seoul",
+      "cadence": "WEEKEND"
+    },
+    {
+      "id": "opendart-d005-focused",
+      "detailType": "D005",
+      "pattern": "*/2 8-19 * * 1-5",
+      "timezone": "Asia/Seoul",
+      "cadence": "FOCUSED"
+    },
+    {
+      "id": "opendart-d005-off_hours",
+      "detailType": "D005",
+      "pattern": "*/5 0-7,20-23 * * 1-5",
+      "timezone": "Asia/Seoul",
+      "cadence": "OFF_HOURS"
+    },
+    {
+      "id": "opendart-d005-weekend",
+      "detailType": "D005",
+      "pattern": "*/30 * * * 0,6",
+      "timezone": "Asia/Seoul",
+      "cadence": "WEEKEND"
+    }
+  ]
+}

@@ -1,4 +1,5 @@
 import { CompanyInformationApiService } from './resources/company-information.service';
+import { CompanyLogoController, CompanyLogoService } from './resources/company-logo.service';
 import { WatchlistAccessService } from './watchlist-groups/watchlist-access.service';
 import { WatchlistRoomsController } from './watchlist-groups/watchlist-rooms.controller';
 import { WatchlistRoomsService } from './watchlist-groups/watchlist-rooms.service';
@@ -59,6 +60,7 @@ import { WatchlistGroupsService } from './watchlist-groups/watchlist-groups.serv
     }),
   ],
   controllers: [
+    CompanyLogoController,
     NewsTranslationEditorController,
     AuthController,
     KakaoAuthController,
@@ -82,6 +84,7 @@ import { WatchlistGroupsService } from './watchlist-groups/watchlist-groups.serv
     FixtureStoreService,
     OrsemDataService,
     CompanyInformationApiService,
+    CompanyLogoService,
     NewsTranslationEditorService,
     LivePriceService,
     AuthService,

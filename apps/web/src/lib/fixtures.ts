@@ -32,6 +32,7 @@ import type {
   WatchlistGroupItem,
 } from '../types';
 import { ApiError } from './api';
+import { companyNotificationInputSchema } from '@orsem/contracts';
 
 const now = '2026-09-03T08:42:00.000Z';
 
@@ -1361,6 +1362,7 @@ let fixtureNotificationSettings: NotificationSettings = {
 };
 
 let fixtureAuthenticated = true;
+const fixtureCompanyNotifications = new Map<string, boolean>();
 
 function fixtureRegionMatches(market: string, region: string | null) {
   if (!region || region === 'all') return true;
@@ -1462,6 +1464,31 @@ export async function fixtureRequest<T>(path: string, init?: RequestInit): Promi
     return (method === 'PUT' ? undefined : result) as T;
   }
 
+  const companyNotificationPath = /^\/notifications\/companies\/([^/]+)$/u.exec(pathname);
+  if (companyNotificationPath && ['GET', 'PATCH'].includes(method)) {
+    if (!fixtureAuthenticated || !fixtureSession.user)
+      throw new ApiError(401, 'UNAUTHORIZED', '로그인이 필요합니다.');
+    const companyId = decodeURIComponent(companyNotificationPath[1]!);
+    if (!companies.some((company) => company.id === companyId))
+      throw new ApiError(404, 'NOT_FOUND', '종목을 찾을 수 없습니다.');
+    const key = `${fixtureSession.user.id}:${companyId}`;
+    if (method === 'PATCH') {
+      const parsed = companyNotificationInputSchema.safeParse(
+        JSON.parse(String(init?.body ?? '{}')),
+      );
+      if (!parsed.success)
+        throw new ApiError(400, 'INVALID_BODY', '알림 설정이 올바르지 않습니다.');
+      fixtureCompanyNotifications.set(key, parsed.data.enabled);
+    }
+    return {
+      companyId,
+      enabled: fixtureCompanyNotifications.get(key) ?? !fixtureNotificationSettings.watchlistOnly,
+      inherited: !fixtureCompanyNotifications.has(key),
+      globalEnabled: fixtureNotificationSettings.enabled,
+      pushConfigured: false,
+      hasActiveSubscription: false,
+    } as T;
+  }
   if (pathname === '/notifications/settings' && method === 'GET')
     return { ...fixtureNotificationSettings } as T;
   if (pathname === '/notifications/settings' && method === 'PATCH') {

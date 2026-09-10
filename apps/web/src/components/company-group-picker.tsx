@@ -79,7 +79,7 @@ function MembershipPicker({ actor, companyId }: { actor: string; companyId: stri
         ? '관심그룹 확인 중'
         : '관심그룹 상태 확인 필요'
       : count > 0
-        ? `관심그룹 ${count}`
+        ? '관심그룹 설정'
         : '관심그룹 추가';
 
   async function refresh(message?: string) {
@@ -148,6 +148,7 @@ function MembershipPicker({ actor, companyId }: { actor: string; companyId: stri
         variant="secondary"
         className={`company-group-trigger${count ? ' company-group-trigger--selected' : ''}`}
         aria-label={label}
+        title={label}
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={() => {
@@ -164,12 +165,6 @@ function MembershipPicker({ actor, companyId }: { actor: string; companyId: stri
         ) : (
           <Star size={18} fill={count > 0 ? 'currentColor' : 'none'} aria-hidden="true" />
         )}
-        <span className="company-group-trigger__label">{label}</span>
-        {count !== null && count > 0 ? (
-          <span className="company-group-trigger__count" aria-hidden="true">
-            {count}
-          </span>
-        ) : null}
       </Button>
       {managing ? (
         <GroupManagerDialog

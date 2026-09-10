@@ -1,5 +1,6 @@
 import type {
   Company,
+  CompanyNotificationSettings,
   WatchPermissions,
   WatchRoom,
   WatchRoomDetail,
@@ -7,6 +8,8 @@ import type {
   CompanyWatchlistMemberships,
   SaveCompanyWatchlistMemberships,
   WatchlistGroupQuotes,
+  CompanyLogoResponse,
+  CompanyLogoProvider,
 } from '@orsem/contracts';
 import type {
   CompanyDetail,
@@ -140,6 +143,34 @@ export interface NewsFilters {
 }
 
 export const api = {
+  companyLogoCredits: async (
+    signal?: AbortSignal,
+  ): Promise<{
+    items: Array<{
+      path: string;
+      source: 'manual' | 'simple-icons' | 'wikimedia';
+      sourceUrl: string;
+      license: string;
+      attribution: string;
+    }>;
+  }> => {
+    if (isFixtureMode) return { items: [] };
+    const response = await fetch(`${API_BASE_URL}/companies/logo-credits`, {
+      signal,
+      credentials: 'omit',
+      headers: { Accept: 'application/json' },
+    });
+    if (!response.ok) throw new Error('로고 출처를 불러오지 못했습니다.');
+    return response.json();
+  },
+  companyLogo: (companyId: string, signal?: AbortSignal) =>
+    request<CompanyLogoResponse>(`/companies/${encodeURIComponent(companyId)}/logo`, { signal }),
+  companyLogoPermit: (companyId: string, provider: CompanyLogoProvider, signal?: AbortSignal) =>
+    request<{ allowed: boolean }>(`/companies/${encodeURIComponent(companyId)}/logo-permit`, {
+      method: 'POST',
+      body: JSON.stringify({ provider }),
+      signal,
+    }),
   companyWatchlistMemberships: (companyId: string, signal?: AbortSignal) =>
     request<CompanyWatchlistMemberships>(
       `/watchlist-groups/company-memberships/${encodeURIComponent(companyId)}`,
@@ -253,6 +284,23 @@ export const api = {
   naverNewsStatus: (signal?: AbortSignal) =>
     request<NaverNewsStatus>('/news-search/naver/status', { signal, cache: 'no-store' }),
   notificationSettings: () => request<NotificationSettings>('/notifications/settings'),
+  companyNotificationSettings: (companyId: string, signal?: AbortSignal) =>
+    request<CompanyNotificationSettings>(
+      `/notifications/companies/${encodeURIComponent(companyId)}`,
+      {
+        signal,
+        cache: 'no-store',
+      },
+    ),
+  updateCompanyNotificationSettings: (companyId: string, payload: { enabled: boolean }) =>
+    request<CompanyNotificationSettings>(
+      `/notifications/companies/${encodeURIComponent(companyId)}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+        cache: 'no-store',
+      },
+    ),
   updateNotificationSettings: (payload: NotificationPreferences) =>
     request<NotificationSettings>('/notifications/settings', {
       method: 'PATCH',

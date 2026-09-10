@@ -24,6 +24,7 @@ import { HybridRateLimitGuard } from '../security/security';
 import type { SessionRuntimeService } from '../security/session-runtime.service';
 import { NotificationsController, notificationOwner } from './notifications.controller';
 import { NotificationsService, type NotificationOwner } from './notifications.service';
+import { FixtureStoreService } from '../fixtures/fixture-store.service';
 
 const member: NotificationOwner = {
   key: 'MEMBER:00000000-0000-4000-8000-000000000001',
@@ -67,6 +68,7 @@ function fixtureService() {
   return new NotificationsService(
     loadAppConfig({ NODE_ENV: 'test', FIXTURE_MODE: 'true', ...pushEnvironment }),
     {} as DatabaseRuntimeService,
+    new FixtureStoreService(),
   );
 }
 function request(owner: NotificationOwner): Request {
@@ -102,6 +104,57 @@ test('preferences default off and remain isolated by session identity while meta
   assert.equal(JSON.stringify(own).includes(pushEnvironment.WEB_PUSH_PRIVATE_KEY), false);
   assert.equal((await service.settings(other)).enabled, false);
   assert.deepEqual((await service.settings(other)).subscriptions, []);
+});
+
+test('company notification overrides preserve the global master and are isolated per owner and company', async () => {
+  const service = fixtureService();
+  const firstCompany = '00000000-0000-4000-8000-000000000001';
+  const secondCompany = '00000000-0000-4000-8000-000000000002';
+  assert.deepEqual(await service.companySettings(member, firstCompany), {
+    companyId: firstCompany,
+    enabled: false,
+    inherited: true,
+    globalEnabled: false,
+    pushConfigured: false,
+    hasActiveSubscription: false,
+  });
+  await service.updateCompanySettings(member, firstCompany, { enabled: true });
+  assert.equal((await service.companySettings(member, firstCompany)).enabled, true);
+  assert.equal((await service.companySettings(member, firstCompany)).inherited, false);
+  assert.equal((await service.settings(member)).enabled, false);
+  assert.equal((await service.companySettings(other, firstCompany)).enabled, false);
+  assert.equal((await service.companySettings(member, secondCompany)).enabled, false);
+  await service.updateSettings(member, { ...preferences, watchlistOnly: false });
+  assert.equal((await service.companySettings(member, secondCompany)).enabled, true);
+  await service.updateCompanySettings(member, firstCompany, { enabled: false });
+  assert.equal((await service.companySettings(member, firstCompany)).enabled, false);
+  assert.equal((await service.companySettings(member, secondCompany)).enabled, true);
+  await assert.rejects(
+    () => service.companySettings(member, '00000000-0000-4000-8000-999999999999'),
+    NotFoundException,
+  );
+});
+
+test('company notification controller rejects owner spoofing and invalid values', async () => {
+  const controller = new NotificationsController(fixtureService());
+  const companyId = '00000000-0000-4000-8000-000000000001';
+  assert.throws(
+    () =>
+      controller.updateCompanySettings(
+        companyId,
+        { enabled: true, ownerKey: other.key },
+        request(member),
+      ),
+    BadRequestException,
+  );
+  assert.throws(
+    () => controller.updateCompanySettings(companyId, { enabled: 'true' }, request(member)),
+    BadRequestException,
+  );
+  assert.throws(
+    () => controller.companySettings('not-a-uuid', request(member)),
+    BadRequestException,
+  );
 });
 
 test('five filing preferences require explicit opt-in and preserve an explicit empty selection', async () => {

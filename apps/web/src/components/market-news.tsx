@@ -3,6 +3,7 @@ import { companyRegion } from '@orsem/contracts';
 import { useEffect, useId, useState } from 'react';
 import { newsItems } from '../lib/news-feed';
 import { companyPath } from '../lib/company-path';
+import { useMouseDragScroll } from '../lib/use-mouse-drag-scroll';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowUpRight, ChevronRight, Newspaper } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -164,10 +165,13 @@ export function newsDescription(item: NewsListItem): string {
 export function NewsCompanyBadges({
   companies = [],
   external = false,
+  scroll = false,
 }: {
   companies?: SourceItem['relatedCompanies'];
   external?: boolean;
+  scroll?: boolean;
 }) {
+  const drag = useMouseDragScroll();
   const id = useId();
   const [expanded, setExpanded] = useState(false);
   const [mobile, setMobile] = useState(() => window.matchMedia('(max-width: 767px)').matches);
@@ -204,9 +208,16 @@ export function NewsCompanyBadges({
     </Link>
   );
   return (
-    <div className="news-company-badges" aria-label="관련 종목">
-      {unique.slice(0, count).map(link)}
-      {hidden > 0 ? (
+    <div
+      className={`news-company-badges${scroll ? ` news-company-badges--scroll mouse-drag-scroll${drag.dragging ? ' is-dragging' : ''}` : ''}`}
+      aria-label="관련 종목"
+      role={scroll ? 'region' : undefined}
+      tabIndex={scroll ? 0 : undefined}
+      data-mouse-scrollable={scroll ? drag.scrollable : undefined}
+      {...(scroll ? drag.handlers : {})}
+    >
+      {(scroll ? unique : unique.slice(0, count)).map(link)}
+      {!scroll && hidden > 0 ? (
         <>
           <button
             type="button"
@@ -311,10 +322,12 @@ export function MarketNewsList({
   items,
   headlineOnly = false,
   externalCompanies = false,
+  companyDetail = false,
 }: {
   items: NewsListItem[];
   headlineOnly?: boolean;
   externalCompanies?: boolean;
+  companyDetail?: boolean;
 }) {
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
@@ -322,7 +335,7 @@ export function MarketNewsList({
     return () => window.clearInterval(timer);
   }, []);
   return (
-    <ul className="market-news__list">
+    <ul className={`market-news__list${companyDetail ? ' market-news__list--company' : ''}`}>
       {items
         .filter((item) => !item.expiresAt || Date.parse(item.expiresAt) > now)
         .map((item) => {
@@ -349,7 +362,11 @@ export function MarketNewsList({
                     <span className="sr-only">안전한 원문 링크가 없습니다.</span>
                   </div>
                 )}
-                <NewsCompanyBadges companies={item.relatedCompanies} external={externalCompanies} />
+                <NewsCompanyBadges
+                  companies={item.relatedCompanies}
+                  external={externalCompanies}
+                  scroll={companyDetail}
+                />
               </div>
               {item.source === 'GDELT' ? (
                 <div className="market-news__credit">

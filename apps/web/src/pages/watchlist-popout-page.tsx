@@ -199,13 +199,9 @@ export function WatchlistPopoutPage() {
           <Link to="/sources" target="_blank" rel="noopener noreferrer">
             데이터 출처·신선도
           </Link>
-          <a
-            href="https://www.allinvestview.com/tools/ticker-logos/"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Logos by AllInvestView
-          </a>
+          <Link to="/logo-sources" target="_blank" rel="noopener">
+            로고 출처·이용 안내
+          </Link>
         </div>
         <ObservationDisclaimer compact />
       </footer>

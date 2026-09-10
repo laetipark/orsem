@@ -1,0 +1,716 @@
+{
+  "QUERIES": {
+    "firstRead": "SELECT id FROM parse_runs ORDER BY id LIMIT 1",
+    "snapshot": "SELECT UTC_TIMESTAMP(3) AS snapshot_utc, @@session.time_zone AS session_time_zone, @@session.transaction_isolation AS isolation_level",
+    "clock": "SELECT table_name,row_id,field_name,stored_time FROM (\n    SELECT 'parse_runs' AS table_name,id AS row_id,'created_at' AS field_name,created_at AS stored_time FROM parse_runs\n    UNION ALL SELECT 'parse_runs',id,'updated_at',updated_at FROM parse_runs\n    UNION ALL SELECT 'parse_runs',id,'started_at',started_at FROM parse_runs\n    UNION ALL SELECT 'parse_runs',id,'finished_at',finished_at FROM parse_runs\n    UNION ALL SELECT 'reviews',id,'created_at',created_at FROM reviews\n    UNION ALL SELECT 'reviews',id,'updated_at',updated_at FROM reviews\n  ) clocks WHERE stored_time > ? ORDER BY table_name,row_id,field_name",
+    "failures": "WITH ranked_runs AS (\n  SELECT id,filing_id,status,created_at,ROW_NUMBER() OVER (PARTITION BY filing_id ORDER BY created_at DESC,id DESC) AS rn\n  FROM parse_runs\n) SELECT f.id AS filing_id,c.name_ko AS company_name,c.market,c.stock_code,c.ticker,c.corp_code,\n  f.rcept_no,f.report_name,f.rcept_date,f.source,f.first_observed_at,f.detail_type,f.source_detail_type,\n  f.title_detected_type,f.canonical_type,\n  JSON_UNQUOTE(JSON_EXTRACT(f.classification_provenance_json,'$.documentKind')) AS document_kind,\n  f.classification_status AS filing_classification_status,\n  f.classifier_version AS filing_classifier_version,f.active_parse_run_id,active.status AS active_parse_status,\n  latest.id AS latest_run_id,latest.status AS latest_run_status,d.rights_mode,p.id AS parse_run_id,p.status AS parse_status,p.input_type,p.extractor_type,p.result_type,\n  p.validation_status,p.classification_result,p.confidence,p.parser_version,p.normalizer_version,p.classifier_version,\n  p.reuse_fingerprint,p.raw_sha256,p.supersedes_run_id,p.error_code,p.error_message,p.candidate_errors_json,\n  p.normalization_audits_json,p.warnings_json,p.created_at AS run_created_at,p.updated_at AS run_updated_at,\n  p.started_at,p.finished_at,\n  JSON_EXTRACT(p.result_json,'$.projectionApplied') AS projection_applied,\n  JSON_UNQUOTE(JSON_EXTRACT(p.result_json,'$.parsed.reportReasonKind')) AS report_reason_kind,\n  JSON_UNQUOTE(JSON_EXTRACT(p.result_json,'$.parsed.reportReasonRaw')) AS report_reason_raw,\n  COALESCE(JSON_EXTRACT(p.result_json,'$.parsed.transactions[*].methodRaw'),JSON_EXTRACT(p.result_json,'$.parsed.changes[*].methodRaw'),JSON_EXTRACT(p.result_json,'$.parsed.planItems[*].methodRaw')) AS methods_json,\n  COALESCE(JSON_EXTRACT(p.result_json,'$.parsed.transactions[*].nature'),JSON_EXTRACT(p.result_json,'$.parsed.planItems[*].nature')) AS natures_json,\n  JSON_EXTRACT(p.result_json,'$.sourceReview') AS source_review_json,\n  (SELECT JSON_REMOVE(JSON_EXTRACT(previous.result_json,'$.parsed'),'$.source') FROM parse_runs previous WHERE previous.id=p.supersedes_run_id) AS before_fields_json,\n  JSON_REMOVE(JSON_EXTRACT(p.result_json,'$.parsed'),'$.source') AS after_fields_json,\n  COALESCE(JSON_EXTRACT(p.result_json,'$.parsed.transactions[*].eventDate'),JSON_EXTRACT(p.result_json,'$.parsed.changes[*].eventDate')) AS event_dates_json,\n  JSON_EXTRACT(p.result_json,'$.parsed.planItems[*].plannedStartDate') AS planned_start_dates_json,\n  JSON_EXTRACT(p.result_json,'$.parsed.planItems[*].plannedEndDate') AS planned_end_dates_json,\n  (SELECT JSON_ARRAYAGG(newer.id) FROM parse_runs newer WHERE newer.supersedes_run_id=p.id) AS superseded_by_run_ids,\n    (p.id=latest.id) AS is_latest_run,\n    EXISTS(SELECT 1 FROM parse_runs newer WHERE newer.filing_id=p.filing_id AND newer.status='SUCCEEDED'\n      AND (newer.created_at>p.created_at OR (newer.created_at=p.created_at AND newer.id>p.id))) AS has_newer_success,\n    (SELECT JSON_ARRAYAGG(r.id) FROM reviews r WHERE r.parse_run_id=p.id AND r.status='OPEN') AS open_review_ids\n    FROM parse_runs p JOIN filings f ON f.id=p.filing_id LEFT JOIN companies c ON c.id=f.company_id\n  LEFT JOIN parse_runs active ON active.id=f.active_parse_run_id\n  LEFT JOIN ranked_runs latest ON latest.filing_id=f.id AND latest.rn=1\n  LEFT JOIN filing_documents d ON d.filing_id=f.id AND d.sha256=p.raw_sha256\n    WHERE p.status='FAILED' ORDER BY p.created_at,p.id",
+    "reviews": "WITH ranked_runs AS (\n  SELECT id,filing_id,status,created_at,ROW_NUMBER() OVER (PARTITION BY filing_id ORDER BY created_at DESC,id DESC) AS rn\n  FROM parse_runs\n) SELECT r.id AS review_id,r.review_group,r.status AS review_status,r.subject_type,r.subject_id,\n    r.reason,r.dedupe_key,r.superseded_by_review_id,r.reopened_from_review_id,\n    r.created_at AS review_created_at,r.updated_at AS review_updated_at,\n    f.id AS filing_id,c.name_ko AS company_name,c.market,c.stock_code,c.ticker,c.corp_code,\n  f.rcept_no,f.report_name,f.rcept_date,f.source,f.first_observed_at,f.detail_type,f.source_detail_type,\n  f.title_detected_type,f.canonical_type,\n  JSON_UNQUOTE(JSON_EXTRACT(f.classification_provenance_json,'$.documentKind')) AS document_kind,\n  f.classification_status AS filing_classification_status,\n  f.classifier_version AS filing_classifier_version,f.active_parse_run_id,active.status AS active_parse_status,\n  latest.id AS latest_run_id,latest.status AS latest_run_status,d.rights_mode,p.id AS parse_run_id,p.status AS parse_status,p.input_type,p.extractor_type,p.result_type,\n  p.validation_status,p.classification_result,p.confidence,p.parser_version,p.normalizer_version,p.classifier_version,\n  p.reuse_fingerprint,p.raw_sha256,p.supersedes_run_id,p.error_code,p.error_message,p.candidate_errors_json,\n  p.normalization_audits_json,p.warnings_json,p.created_at AS run_created_at,p.updated_at AS run_updated_at,\n  p.started_at,p.finished_at,\n  JSON_EXTRACT(p.result_json,'$.projectionApplied') AS projection_applied,\n  JSON_UNQUOTE(JSON_EXTRACT(p.result_json,'$.parsed.reportReasonKind')) AS report_reason_kind,\n  JSON_UNQUOTE(JSON_EXTRACT(p.result_json,'$.parsed.reportReasonRaw')) AS report_reason_raw,\n  COALESCE(JSON_EXTRACT(p.result_json,'$.parsed.transactions[*].methodRaw'),JSON_EXTRACT(p.result_json,'$.parsed.changes[*].methodRaw'),JSON_EXTRACT(p.result_json,'$.parsed.planItems[*].methodRaw')) AS methods_json,\n  COALESCE(JSON_EXTRACT(p.result_json,'$.parsed.transactions[*].nature'),JSON_EXTRACT(p.result_json,'$.parsed.planItems[*].nature')) AS natures_json,\n  JSON_EXTRACT(p.result_json,'$.sourceReview') AS source_review_json,\n  (SELECT JSON_REMOVE(JSON_EXTRACT(previous.result_json,'$.parsed'),'$.source') FROM parse_runs previous WHERE previous.id=p.supersedes_run_id) AS before_fields_json,\n  JSON_REMOVE(JSON_EXTRACT(p.result_json,'$.parsed'),'$.source') AS after_fields_json,\n  COALESCE(JSON_EXTRACT(p.result_json,'$.parsed.transactions[*].eventDate'),JSON_EXTRACT(p.result_json,'$.parsed.changes[*].eventDate')) AS event_dates_json,\n  JSON_EXTRACT(p.result_json,'$.parsed.planItems[*].plannedStartDate') AS planned_start_dates_json,\n  JSON_EXTRACT(p.result_json,'$.parsed.planItems[*].plannedEndDate') AS planned_end_dates_json,\n  (SELECT JSON_ARRAYAGG(newer.id) FROM parse_runs newer WHERE newer.supersedes_run_id=p.id) AS superseded_by_run_ids,relation.relation_type,target.rcept_no AS related_rcept_no\n    FROM reviews r LEFT JOIN parse_runs p ON p.id=r.parse_run_id\n    LEFT JOIN filing_relations relation ON r.subject_type='FILING_RELATION' AND relation.id=r.subject_id\n    LEFT JOIN filings f ON f.id=CASE WHEN r.subject_type='FILING' THEN r.subject_id\n      WHEN r.subject_type='FILING_RELATION' THEN relation.from_filing_id ELSE p.filing_id END\n    LEFT JOIN filings target ON target.id=relation.to_filing_id LEFT JOIN companies c ON c.id=f.company_id\n  LEFT JOIN parse_runs active ON active.id=f.active_parse_run_id\n  LEFT JOIN ranked_runs latest ON latest.filing_id=f.id AND latest.rn=1\n  LEFT JOIN filing_documents d ON d.filing_id=f.id AND d.sha256=p.raw_sha256\n    WHERE r.status='OPEN' ORDER BY r.created_at,r.id",
+    "metrics": "WITH ranked_runs AS (\n  SELECT id,filing_id,status,created_at,ROW_NUMBER() OVER (PARTITION BY filing_id ORDER BY created_at DESC,id DESC) AS rn\n  FROM parse_runs\n)\n    SELECT 'all_failed_runs' AS metric,COUNT(*) AS count,'전체 FAILED 실행: 과거 이력 포함' AS definition FROM parse_runs WHERE status='FAILED'\n    UNION ALL SELECT 'failed_filings',COUNT(DISTINCT filing_id),'FAILED 실행이 한 번 이상 있는 공시 수' FROM parse_runs WHERE status='FAILED'\n    UNION ALL SELECT 'latest_failed_filings',COUNT(*),'공시별 최신 실행이 FAILED인 수: created_at DESC,id DESC' FROM ranked_runs WHERE rn=1 AND status='FAILED'\n    UNION ALL SELECT 'latest_partial_filings',COUNT(*),'공시별 최신 실행이 PARTIAL인 수' FROM ranked_runs WHERE rn=1 AND status='PARTIAL'\n    UNION ALL SELECT 'latest_succeeded_filings',COUNT(*),'공시별 최신 실행이 SUCCEEDED인 수' FROM ranked_runs WHERE rn=1 AND status='SUCCEEDED'\n    UNION ALL SELECT 'active_succeeded_filings',COUNT(*),'활성 실행이 SUCCEEDED인 공시 수' FROM filings f JOIN parse_runs p ON p.id=f.active_parse_run_id WHERE p.status='SUCCEEDED'\n    UNION ALL SELECT 'open_reviews',COUNT(*),'현재 OPEN인 전체 검토 수' FROM reviews WHERE status='OPEN'\n    UNION ALL SELECT 'open_parse_reviews',COUNT(*),'현재 OPEN이며 review_group=PARSE인 검토 수' FROM reviews WHERE status='OPEN' AND review_group='PARSE'\n    UNION ALL SELECT 'open_document_reviews',COUNT(*),'현재 OPEN이며 review_group=DOCUMENT인 검토 수' FROM reviews WHERE status='OPEN' AND review_group='DOCUMENT'\n    UNION ALL SELECT 'open_relation_reviews',COUNT(*),'현재 OPEN인 공시 연결 검토 수' FROM reviews WHERE status='OPEN' AND subject_type='FILING_RELATION'\n    UNION ALL SELECT 'open_failed_parse_reviews',COUNT(*),'OPEN 검토 중 연결된 실행이 FAILED인 수: 실패 CSV와 중복' FROM reviews r JOIN parse_runs p ON p.id=r.parse_run_id WHERE r.status='OPEN' AND p.status='FAILED'\n    UNION ALL SELECT 'all_parse_runs',COUNT(*),'전체 파싱 실행 수' FROM parse_runs\n    UNION ALL SELECT 'filings_with_parse_runs',COUNT(*),'실행이 있는 공시 수' FROM ranked_runs WHERE rn=1"
+  },
+  "FAILURE_COLUMNS": [
+    {
+      "key": "snapshot_kst",
+      "label": "기준시각_KST",
+      "opaque": false
+    },
+    {
+      "key": "filing_id",
+      "label": "공시_ID",
+      "opaque": true
+    },
+    {
+      "key": "company_name",
+      "label": "기업명",
+      "opaque": false
+    },
+    {
+      "key": "market",
+      "label": "시장",
+      "opaque": false
+    },
+    {
+      "key": "stock_code",
+      "label": "종목코드",
+      "opaque": true
+    },
+    {
+      "key": "ticker",
+      "label": "티커",
+      "opaque": true
+    },
+    {
+      "key": "corp_code",
+      "label": "고유번호",
+      "opaque": true
+    },
+    {
+      "key": "rcept_no",
+      "label": "접수번호",
+      "opaque": true
+    },
+    {
+      "key": "report_name",
+      "label": "공시제목",
+      "opaque": false
+    },
+    {
+      "key": "rcept_date",
+      "label": "접수일_원본날짜",
+      "opaque": false
+    },
+    {
+      "key": "source",
+      "label": "원문출처",
+      "opaque": false
+    },
+    {
+      "key": "rights_mode",
+      "label": "권리모드",
+      "opaque": false
+    },
+    {
+      "key": "source_url",
+      "label": "공시원문링크",
+      "opaque": false
+    },
+    {
+      "key": "first_observed_at_kst",
+      "label": "최초관측_KST",
+      "opaque": false
+    },
+    {
+      "key": "detail_type",
+      "label": "공시유형_현재저장",
+      "opaque": false
+    },
+    {
+      "key": "source_detail_type",
+      "label": "공시유형_원본",
+      "opaque": false
+    },
+    {
+      "key": "title_detected_type",
+      "label": "공시유형_제목판정",
+      "opaque": false
+    },
+    {
+      "key": "canonical_type",
+      "label": "공시유형_확정",
+      "opaque": false
+    },
+    {
+      "key": "document_kind",
+      "label": "문서종류",
+      "opaque": false
+    },
+    {
+      "key": "filing_classification_status",
+      "label": "공시분류상태",
+      "opaque": false
+    },
+    {
+      "key": "filing_classifier_version",
+      "label": "공시분류버전",
+      "opaque": false
+    },
+    {
+      "key": "active_parse_run_id",
+      "label": "활성실행_ID",
+      "opaque": true
+    },
+    {
+      "key": "active_parse_status",
+      "label": "활성실행상태",
+      "opaque": false
+    },
+    {
+      "key": "latest_run_id",
+      "label": "최신실행_ID",
+      "opaque": true
+    },
+    {
+      "key": "latest_run_status",
+      "label": "최신실행상태",
+      "opaque": false
+    },
+    {
+      "key": "parse_run_id",
+      "label": "파싱실행_ID",
+      "opaque": true
+    },
+    {
+      "key": "parse_status",
+      "label": "파싱상태",
+      "opaque": false
+    },
+    {
+      "key": "input_type",
+      "label": "파싱입력유형",
+      "opaque": false
+    },
+    {
+      "key": "extractor_type",
+      "label": "추출기유형",
+      "opaque": false
+    },
+    {
+      "key": "result_type",
+      "label": "결과유형",
+      "opaque": false
+    },
+    {
+      "key": "validation_status",
+      "label": "검증상태",
+      "opaque": false
+    },
+    {
+      "key": "projection_applied",
+      "label": "결과활성화여부",
+      "opaque": false
+    },
+    {
+      "key": "report_reason_kind",
+      "label": "보고사유분류",
+      "opaque": false
+    },
+    {
+      "key": "report_reason_raw",
+      "label": "보고사유_원문",
+      "opaque": false
+    },
+    {
+      "key": "methods_json",
+      "label": "거래방법_원문_JSON",
+      "opaque": false
+    },
+    {
+      "key": "natures_json",
+      "label": "거래방법분류_JSON",
+      "opaque": false
+    },
+    {
+      "key": "source_review_json",
+      "label": "원문대조기록_JSON",
+      "opaque": false
+    },
+    {
+      "key": "before_fields_json",
+      "label": "이전추출값_JSON",
+      "opaque": false
+    },
+    {
+      "key": "after_fields_json",
+      "label": "현재추출값_JSON",
+      "opaque": false
+    },
+    {
+      "key": "classification_result",
+      "label": "분류판정",
+      "opaque": false
+    },
+    {
+      "key": "confidence",
+      "label": "추출신뢰도",
+      "opaque": false
+    },
+    {
+      "key": "parser_version",
+      "label": "파서버전",
+      "opaque": false
+    },
+    {
+      "key": "normalizer_version",
+      "label": "정규화버전",
+      "opaque": false
+    },
+    {
+      "key": "classifier_version",
+      "label": "실행분류버전",
+      "opaque": false
+    },
+    {
+      "key": "reuse_fingerprint",
+      "label": "재사용지문",
+      "opaque": true
+    },
+    {
+      "key": "raw_sha256",
+      "label": "원본_SHA256",
+      "opaque": true
+    },
+    {
+      "key": "supersedes_run_id",
+      "label": "대체한실행_ID",
+      "opaque": true
+    },
+    {
+      "key": "superseded_by_run_ids",
+      "label": "이후대체실행_ID들",
+      "opaque": false
+    },
+    {
+      "key": "error_code",
+      "label": "오류코드",
+      "opaque": false
+    },
+    {
+      "key": "error_message",
+      "label": "오류메시지_저장원본",
+      "opaque": false
+    },
+    {
+      "key": "candidate_errors_json",
+      "label": "후보별실제오류_JSON",
+      "opaque": false
+    },
+    {
+      "key": "normalization_audits_json",
+      "label": "정규화감사_JSON",
+      "opaque": false
+    },
+    {
+      "key": "warnings_json",
+      "label": "추출경고_JSON",
+      "opaque": false
+    },
+    {
+      "key": "event_dates_json",
+      "label": "거래일_원본날짜_JSON",
+      "opaque": false
+    },
+    {
+      "key": "planned_start_dates_json",
+      "label": "계획시작일_원본날짜_JSON",
+      "opaque": false
+    },
+    {
+      "key": "planned_end_dates_json",
+      "label": "계획종료일_원본날짜_JSON",
+      "opaque": false
+    },
+    {
+      "key": "run_created_at_kst",
+      "label": "실행생성_KST",
+      "opaque": false
+    },
+    {
+      "key": "run_updated_at_kst",
+      "label": "실행갱신_KST",
+      "opaque": false
+    },
+    {
+      "key": "started_at_kst",
+      "label": "시작_KST",
+      "opaque": false
+    },
+    {
+      "key": "finished_at_kst",
+      "label": "종료_KST",
+      "opaque": false
+    },
+    {
+      "key": "is_latest_run",
+      "label": "최신실행여부",
+      "opaque": false
+    },
+    {
+      "key": "has_newer_success",
+      "label": "이후완전성공실행있음",
+      "opaque": false
+    },
+    {
+      "key": "open_review_ids",
+      "label": "연결된대기검토_ID들",
+      "opaque": false
+    }
+  ],
+  "REVIEW_COLUMNS": [
+    {
+      "key": "review_id",
+      "label": "검토_ID",
+      "opaque": true
+    },
+    {
+      "key": "review_group",
+      "label": "검토그룹",
+      "opaque": false
+    },
+    {
+      "key": "review_status",
+      "label": "검토상태",
+      "opaque": false
+    },
+    {
+      "key": "subject_type",
+      "label": "검토대상종류",
+      "opaque": false
+    },
+    {
+      "key": "subject_id",
+      "label": "검토대상_ID",
+      "opaque": true
+    },
+    {
+      "key": "reason",
+      "label": "검토사유_저장원본",
+      "opaque": false
+    },
+    {
+      "key": "dedupe_key",
+      "label": "검토중복방지키",
+      "opaque": true
+    },
+    {
+      "key": "superseded_by_review_id",
+      "label": "대체후속검토_ID",
+      "opaque": true
+    },
+    {
+      "key": "reopened_from_review_id",
+      "label": "재개이전검토_ID",
+      "opaque": true
+    },
+    {
+      "key": "review_created_at_kst",
+      "label": "검토생성_KST",
+      "opaque": false
+    },
+    {
+      "key": "review_updated_at_kst",
+      "label": "검토갱신_KST",
+      "opaque": false
+    },
+    {
+      "key": "snapshot_kst",
+      "label": "기준시각_KST",
+      "opaque": false
+    },
+    {
+      "key": "filing_id",
+      "label": "공시_ID",
+      "opaque": true
+    },
+    {
+      "key": "company_name",
+      "label": "기업명",
+      "opaque": false
+    },
+    {
+      "key": "market",
+      "label": "시장",
+      "opaque": false
+    },
+    {
+      "key": "stock_code",
+      "label": "종목코드",
+      "opaque": true
+    },
+    {
+      "key": "ticker",
+      "label": "티커",
+      "opaque": true
+    },
+    {
+      "key": "corp_code",
+      "label": "고유번호",
+      "opaque": true
+    },
+    {
+      "key": "rcept_no",
+      "label": "접수번호",
+      "opaque": true
+    },
+    {
+      "key": "report_name",
+      "label": "공시제목",
+      "opaque": false
+    },
+    {
+      "key": "rcept_date",
+      "label": "접수일_원본날짜",
+      "opaque": false
+    },
+    {
+      "key": "source",
+      "label": "원문출처",
+      "opaque": false
+    },
+    {
+      "key": "rights_mode",
+      "label": "권리모드",
+      "opaque": false
+    },
+    {
+      "key": "source_url",
+      "label": "공시원문링크",
+      "opaque": false
+    },
+    {
+      "key": "first_observed_at_kst",
+      "label": "최초관측_KST",
+      "opaque": false
+    },
+    {
+      "key": "detail_type",
+      "label": "공시유형_현재저장",
+      "opaque": false
+    },
+    {
+      "key": "source_detail_type",
+      "label": "공시유형_원본",
+      "opaque": false
+    },
+    {
+      "key": "title_detected_type",
+      "label": "공시유형_제목판정",
+      "opaque": false
+    },
+    {
+      "key": "canonical_type",
+      "label": "공시유형_확정",
+      "opaque": false
+    },
+    {
+      "key": "document_kind",
+      "label": "문서종류",
+      "opaque": false
+    },
+    {
+      "key": "filing_classification_status",
+      "label": "공시분류상태",
+      "opaque": false
+    },
+    {
+      "key": "filing_classifier_version",
+      "label": "공시분류버전",
+      "opaque": false
+    },
+    {
+      "key": "active_parse_run_id",
+      "label": "활성실행_ID",
+      "opaque": true
+    },
+    {
+      "key": "active_parse_status",
+      "label": "활성실행상태",
+      "opaque": false
+    },
+    {
+      "key": "latest_run_id",
+      "label": "최신실행_ID",
+      "opaque": true
+    },
+    {
+      "key": "latest_run_status",
+      "label": "최신실행상태",
+      "opaque": false
+    },
+    {
+      "key": "parse_run_id",
+      "label": "파싱실행_ID",
+      "opaque": true
+    },
+    {
+      "key": "parse_status",
+      "label": "파싱상태",
+      "opaque": false
+    },
+    {
+      "key": "input_type",
+      "label": "파싱입력유형",
+      "opaque": false
+    },
+    {
+      "key": "extractor_type",
+      "label": "추출기유형",
+      "opaque": false
+    },
+    {
+      "key": "result_type",
+      "label": "결과유형",
+      "opaque": false
+    },
+    {
+      "key": "validation_status",
+      "label": "검증상태",
+      "opaque": false
+    },
+    {
+      "key": "projection_applied",
+      "label": "결과활성화여부",
+      "opaque": false
+    },
+    {
+      "key": "report_reason_kind",
+      "label": "보고사유분류",
+      "opaque": false
+    },
+    {
+      "key": "report_reason_raw",
+      "label": "보고사유_원문",
+      "opaque": false
+    },
+    {
+      "key": "methods_json",
+      "label": "거래방법_원문_JSON",
+      "opaque": false
+    },
+    {
+      "key": "natures_json",
+      "label": "거래방법분류_JSON",
+      "opaque": false
+    },
+    {
+      "key": "source_review_json",
+      "label": "원문대조기록_JSON",
+      "opaque": false
+    },
+    {
+      "key": "before_fields_json",
+      "label": "이전추출값_JSON",
+      "opaque": false
+    },
+    {
+      "key": "after_fields_json",
+      "label": "현재추출값_JSON",
+      "opaque": false
+    },
+    {
+      "key": "classification_result",
+      "label": "분류판정",
+      "opaque": false
+    },
+    {
+      "key": "confidence",
+      "label": "추출신뢰도",
+      "opaque": false
+    },
+    {
+      "key": "parser_version",
+      "label": "파서버전",
+      "opaque": false
+    },
+    {
+      "key": "normalizer_version",
+      "label": "정규화버전",
+      "opaque": false
+    },
+    {
+      "key": "classifier_version",
+      "label": "실행분류버전",
+      "opaque": false
+    },
+    {
+      "key": "reuse_fingerprint",
+      "label": "재사용지문",
+      "opaque": true
+    },
+    {
+      "key": "raw_sha256",
+      "label": "원본_SHA256",
+      "opaque": true
+    },
+    {
+      "key": "supersedes_run_id",
+      "label": "대체한실행_ID",
+      "opaque": true
+    },
+    {
+      "key": "superseded_by_run_ids",
+      "label": "이후대체실행_ID들",
+      "opaque": false
+    },
+    {
+      "key": "error_code",
+      "label": "오류코드",
+      "opaque": false
+    },
+    {
+      "key": "error_message",
+      "label": "오류메시지_저장원본",
+      "opaque": false
+    },
+    {
+      "key": "candidate_errors_json",
+      "label": "후보별실제오류_JSON",
+      "opaque": false
+    },
+    {
+      "key": "normalization_audits_json",
+      "label": "정규화감사_JSON",
+      "opaque": false
+    },
+    {
+      "key": "warnings_json",
+      "label": "추출경고_JSON",
+      "opaque": false
+    },
+    {
+      "key": "event_dates_json",
+      "label": "거래일_원본날짜_JSON",
+      "opaque": false
+    },
+    {
+      "key": "planned_start_dates_json",
+      "label": "계획시작일_원본날짜_JSON",
+      "opaque": false
+    },
+    {
+      "key": "planned_end_dates_json",
+      "label": "계획종료일_원본날짜_JSON",
+      "opaque": false
+    },
+    {
+      "key": "run_created_at_kst",
+      "label": "실행생성_KST",
+      "opaque": false
+    },
+    {
+      "key": "run_updated_at_kst",
+      "label": "실행갱신_KST",
+      "opaque": false
+    },
+    {
+      "key": "started_at_kst",
+      "label": "시작_KST",
+      "opaque": false
+    },
+    {
+      "key": "finished_at_kst",
+      "label": "종료_KST",
+      "opaque": false
+    },
+    {
+      "key": "relation_type",
+      "label": "공시연결유형",
+      "opaque": false
+    },
+    {
+      "key": "related_rcept_no",
+      "label": "연결후보접수번호",
+      "opaque": true
+    }
+  ],
+  "METRIC_COLUMNS": [
+    {
+      "key": "snapshot_kst",
+      "label": "기준시각_KST",
+      "opaque": false
+    },
+    {
+      "key": "metric",
+      "label": "집계항목",
+      "opaque": false
+    },
+    {
+      "key": "count",
+      "label": "건수",
+      "opaque": false
+    },
+    {
+      "key": "definition",
+      "label": "집계정의",
+      "opaque": false
+    }
+  ]
+}

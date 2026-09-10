@@ -10,6 +10,15 @@ import {
 import type { AlertStatus, NotificationTopic, DisclosureDetailType } from '@orsem/contracts';
 
 const instant = { type: 'datetime' as const, precision: 3 };
+@Entity({ name: 'notification_company_preferences' })
+export class NotificationCompanyPreferenceEntity {
+  @PrimaryColumn({ name: 'owner_key', type: 'varchar', length: 48 }) ownerKey!: string;
+  @PrimaryColumn({ name: 'company_id', type: 'char', length: 36 }) companyId!: string;
+  @Column({ type: 'boolean' }) enabled!: boolean;
+  @CreateDateColumn({ name: 'created_at', ...instant }) createdAt!: Date;
+  @UpdateDateColumn({ name: 'updated_at', ...instant }) updatedAt!: Date;
+}
+
 @Entity({ name: 'notification_preferences' })
 export class NotificationPreferenceEntity {
   @PrimaryColumn({ name: 'owner_key', type: 'varchar', length: 48 }) ownerKey!: string;

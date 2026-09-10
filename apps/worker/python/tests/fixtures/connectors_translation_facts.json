@@ -1,0 +1,1376 @@
+[
+  {
+    "before": "Revenue reached $10.5 billion on September 3.",
+    "after": "9월 3일 매출은 105억 달러에 도달했다.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Results on Sept. 3, 2026",
+    "after": "2026년 9월 3일 실적",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Results on Sep 3",
+    "after": "9월 3일 실적",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Results in September",
+    "after": "9월 실적",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "September results",
+    "after": "9월 실적",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "September Results",
+    "after": "9월 실적",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "September earnings exceeded expectations",
+    "after": "9월 실적이 예상을 웃돌았다",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "September meeting",
+    "after": "9월 회의",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "September Meeting",
+    "after": "9월 회의",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "September meetings were scheduled",
+    "after": "9월 회의가 예정됐다",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "September report",
+    "after": "9월 보고서",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "September Reports",
+    "after": "9월 보고서",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "September 2026 results",
+    "after": "2026년 9월 실적",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "May results",
+    "after": "5월 실적",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "May Report: policy overview",
+    "after": "5월 보고서: 정책 개요",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "September",
+    "after": "9월",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Sept.",
+    "after": "9월",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Results in June. Board approved the report.",
+    "after": "6월 실적. 이사회가 보고서를 승인했다.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "The release is scheduled for early June.",
+    "after": "발표는 6월 초에 예정되어 있다.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "The release is scheduled for late June.",
+    "after": "발표는 6월 말에 예정되어 있다.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "The release is scheduled for mid June.",
+    "after": "발표는 6월 중순에 예정되어 있다.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "The release is scheduled for mid-June.",
+    "after": "발표는 6월 중순에 예정되어 있다.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "The release is scheduled for the month of June.",
+    "after": "발표는 6월에 예정되어 있다.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Results in May",
+    "after": "5월 실적",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Results on May 12",
+    "after": "5월 12일 실적",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Results on May 3rd",
+    "after": "5월 3일 실적",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Results in March",
+    "after": "3월 실적",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Company may grow",
+    "after": "회사가 성장할 수 있다",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Company may report earnings",
+    "after": "회사가 실적을 발표할 수 있다",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Company may report.",
+    "after": "회사가 발표할 수 있다.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "May results improve?",
+    "after": "실적이 개선될 수 있을까?",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "March forward",
+    "after": "앞으로 나아가라",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "March results",
+    "after": "3월 실적",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "The workers march.",
+    "after": "노동자들이 행진한다.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "June Park discussed the results",
+    "after": "준 박이 실적을 논의했다",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "April Kim discussed the results",
+    "after": "에이프릴 김이 실적을 논의했다",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Jan Lee discussed the results",
+    "after": "얀 리가 실적을 논의했다",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "The report was prepared by April Kim",
+    "after": "에이프릴 김이 보고서를 준비했다",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "The report was prepared for June Park",
+    "after": "준 박을 위해 보고서를 준비했다",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "The report was prepared by June A. Park",
+    "after": "준 에이 박이 보고서를 준비했다",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "June Park spoke on September 3",
+    "after": "준 박은 9월 3일 발언했다",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Results on 2026-09-05",
+    "after": "2026년 9월 5일 실적",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Growth expected at 3-4%",
+    "after": "성장률은 3~4% 예상",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "September 26-30",
+    "after": "9월 26~30일",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Growth was −5%",
+    "after": "성장률은 -5%였다",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Revenue reached $1.25 billion",
+    "after": "매출은 12억 5천만 달러",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Revenue reached $1.25 billion",
+    "after": "매출은 12억5천만 달러",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Revenue reached $1.25 trillion",
+    "after": "매출은 1조 2500억 달러",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Loss was -$1.25 billion",
+    "after": "손실은 -12억 5천만 달러",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Revenue reached $10bn",
+    "after": "매출은 100억 달러",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Revenue reached USD 10mn",
+    "after": "매출은 1000만 달러",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Rate is 3-1/2 percent",
+    "after": "금리는 3.5%",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Rate is 3 3/4%",
+    "after": "금리는 3.75%",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Rate is -3-1/2%",
+    "after": "금리는 -3.5%",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Rate is 3-7/25%",
+    "after": "금리는 3.28%",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Rate is at 3-1/2 to 3-3/4 percent",
+    "after": "금리는 3.5%에서 3.75%로 정했다",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "The rate is 3-1/2 to 3-3/4 percent.",
+    "after": "금리는 3.5%에서 3.75%다.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "The rate is 3.5 to 3.75%.",
+    "after": "금리는 3.5%~3.75%.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Rate is at 3.5 to 3.75 percent",
+    "after": "금리는 3.5%에서 3.75%로 정했다",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Rate is at 3.5% to 3.75%",
+    "after": "금리는 3.5~3.75%다",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Rate is at 3.5 through 3.75 percent",
+    "after": "금리는 3.5%에서 3.75%로 정했다",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Rate is at -3.5 to -2.75 percent",
+    "after": "금리는 -3.5%에서 -2.75%로 정했다",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Value is 0.100000000000000001 billion",
+    "after": "값은 100000000.000000001",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Revenue in first-quarter increased 12 percent",
+    "after": "1분기 매출이 12퍼센트 증가했다",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Results were released Tuesday",
+    "after": "화요일 실적이 발표됐다",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Results on Tuesday and Friday",
+    "after": "화요일과 금요일 실적",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "The release is due Tue., September 8, 2026.",
+    "after": "발표는 2026년 9월 8일 화요일에 예정되어 있다.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "The release is due Tues.",
+    "after": "발표는 화요일에 예정되어 있다.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "The release is due Thu.",
+    "after": "발표는 목요일에 예정되어 있다.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "The release is due Thur.",
+    "after": "발표는 목요일에 예정되어 있다.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "The release is due Thurs.",
+    "after": "발표는 목요일에 예정되어 있다.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "The release is due Wed.",
+    "after": "발표는 수요일에 예정되어 있다.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "The release is due Fri.",
+    "after": "발표는 금요일에 예정되어 있다.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "The release is due Sat.",
+    "after": "발표는 토요일에 예정되어 있다.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "The release is due Sun.",
+    "after": "발표는 일요일에 예정되어 있다.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "The release is due Mon.",
+    "after": "발표는 월요일에 예정되어 있다.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Tues",
+    "after": "화요일",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Thurs",
+    "after": "목요일",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Sun Microsystems released results.",
+    "after": "선 마이크로시스템즈가 실적을 발표했다.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "The sun is bright.",
+    "after": "태양이 밝다.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "The board sat down.",
+    "after": "이사회가 자리에 앉았다.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "TueExample was released.",
+    "after": "튜이그잼플이 발표됐다.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Eurozone inflation reached 2 percent.",
+    "after": "유로존 물가 상승률은 2퍼센트에 도달했다.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Foundry revenue grew 2 percent.",
+    "after": "파운드리 매출은 2퍼센트 성장했다.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Revenue was $2 million and $3 million",
+    "after": "매출은 200만 달러와 300만 달러",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Revenue was USD 2 million",
+    "after": "매출은 200만 미국 달러",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Revenue was EUR 2 million",
+    "after": "매출은 200만 유로",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Revenue was EUR 2 million",
+    "after": "매출은 200만 유로화",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Revenue was GBP 2 million",
+    "after": "매출은 200만 파운드",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Revenue was CAD 2 million",
+    "after": "매출은 200만 캐나다 달러",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Revenue was 2 million Canadian dollars",
+    "after": "매출은 200만 캐나다 달러",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Revenue was KRW 2 million",
+    "after": "매출은 200만 원",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Revenue was 200 million yen",
+    "after": "매출은 2억 엔",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Revenue was JPY 200 million",
+    "after": "매출은 2억엔",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Revenue was JPY 200 million",
+    "after": "매출은 2억 엔화",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Price was JPY 200",
+    "after": "가격은 200엔짜리",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Company tested 2 engines",
+    "after": "회사는 2엔진을 시험했다",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Price was KRW 2 million",
+    "after": "가격은 200만 원짜리",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Revenue was 2 million won",
+    "after": "매출은 200만 원",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "The company won the contract",
+    "after": "회사가 계약을 따냈다",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Employees worked in a different dimension",
+    "after": "직원이 다른 차원에서 일했다",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Growth was −5%",
+    "after": "성장률은 5%",
+    "reject": true,
+    "reason": "numeric"
+  },
+  {
+    "before": "Growth was −5%",
+    "after": "성장률은 +5%",
+    "reject": true,
+    "reason": "numeric"
+  },
+  {
+    "before": "Loss was -$1.25 billion",
+    "after": "손실은 12억 5천만 달러",
+    "reject": true,
+    "reason": "numeric"
+  },
+  {
+    "before": "Growth was -1.5%",
+    "after": "성장률은 -1.5",
+    "reject": true,
+    "reason": "numeric"
+  },
+  {
+    "before": "Revenue reached $1.25 billion",
+    "after": "매출은 12억 6천만 달러",
+    "reject": true,
+    "reason": "numeric"
+  },
+  {
+    "before": "Revenue reached $10bn",
+    "after": "매출은 10억 달러",
+    "reject": true,
+    "reason": "numeric"
+  },
+  {
+    "before": "Rate is 3-1/2%",
+    "after": "금리는 3.25%",
+    "reject": true,
+    "reason": "numeric"
+  },
+  {
+    "before": "Rate is 3-1/2 to 3-3/4 percent",
+    "after": "금리는 3.5%에서 3.8%다",
+    "reject": true,
+    "reason": "numeric"
+  },
+  {
+    "before": "The rate is 3-1/2 to 3-3/4 percent.",
+    "after": "금리는 3.5%에서 3.8%다.",
+    "reject": true,
+    "reason": "numeric"
+  },
+  {
+    "before": "The sequence is 3.5 to 3.75 percent.25",
+    "after": "수열은 3.5%~3.75%.25",
+    "reject": true,
+    "reason": "numeric"
+  },
+  {
+    "before": "Rate is 3.5 to 3.75 percent",
+    "after": "금리는 3.5에서 3.75다",
+    "reject": true,
+    "reason": "numeric"
+  },
+  {
+    "before": "Rate is -3.5 to -2.75 percent",
+    "after": "금리는 3.5%에서 2.75%다",
+    "reject": true,
+    "reason": "numeric"
+  },
+  {
+    "before": "Revenue was 3.5. Growth was 3.75 percent.",
+    "after": "매출은 3.5%였다. 성장률은 3.75%였다.",
+    "reject": true,
+    "reason": "numeric"
+  },
+  {
+    "before": "Revenue was 3.5 and growth was 3.75 percent.",
+    "after": "매출은 3.5%이고 성장률은 3.75%였다.",
+    "reject": true,
+    "reason": "numeric"
+  },
+  {
+    "before": "Rate is 3-4%",
+    "after": "금리는 3.4%",
+    "reject": true,
+    "reason": "numeric"
+  },
+  {
+    "before": "Date is 3/4",
+    "after": "날짜는 0.75",
+    "reject": true,
+    "reason": "numeric"
+  },
+  {
+    "before": "Value is 0.100000000000000001 billion",
+    "after": "값은 100000000",
+    "reject": true,
+    "reason": "numeric"
+  },
+  {
+    "before": "Revenue was USD 2 million",
+    "after": "매출은 200만 원",
+    "reject": true,
+    "reason": "currency"
+  },
+  {
+    "before": "Revenue was $2 million",
+    "after": "매출은 200만 원",
+    "reject": true,
+    "reason": "currency"
+  },
+  {
+    "before": "Revenue was $2 million",
+    "after": "매출은 200만",
+    "reject": true,
+    "reason": "currency"
+  },
+  {
+    "before": "Revenue was CAD 2 million",
+    "after": "매출은 200만 미국 달러",
+    "reject": true,
+    "reason": "currency"
+  },
+  {
+    "before": "Revenue was 200 million yen",
+    "after": "매출은 2억 원",
+    "reject": true,
+    "reason": "currency"
+  },
+  {
+    "before": "Revenue was JPY 200 million",
+    "after": "매출은 2억 달러",
+    "reject": true,
+    "reason": "currency"
+  },
+  {
+    "before": "Revenue was JPY 200 million",
+    "after": "매출은 2억",
+    "reject": true,
+    "reason": "currency"
+  },
+  {
+    "before": "Results on Tuesday",
+    "after": "금요일 실적",
+    "reject": true,
+    "reason": "weekday"
+  },
+  {
+    "before": "Results on Tuesday",
+    "after": "실적 발표",
+    "reject": true,
+    "reason": "weekday"
+  },
+  {
+    "before": "The release is due Tue.",
+    "after": "발표는 금요일에 예정되어 있다.",
+    "reject": true,
+    "reason": "weekday"
+  },
+  {
+    "before": "The release is due Thurs.",
+    "after": "발표는 화요일에 예정되어 있다.",
+    "reject": true,
+    "reason": "weekday"
+  },
+  {
+    "before": "Results in September",
+    "after": "8월 실적",
+    "reject": true,
+    "reason": "calendar month"
+  },
+  {
+    "before": "September results",
+    "after": "8월 실적",
+    "reject": true,
+    "reason": "calendar month"
+  },
+  {
+    "before": "September meeting",
+    "after": "10월 회의",
+    "reject": true,
+    "reason": "calendar month"
+  },
+  {
+    "before": "September Report",
+    "after": "8월 보고서",
+    "reject": true,
+    "reason": "calendar month"
+  },
+  {
+    "before": "Results on September 3",
+    "after": "3월 9일 실적",
+    "reject": true,
+    "reason": "calendar month"
+  },
+  {
+    "before": "Results on 2026-09-05",
+    "after": "2026년 5월 9일 실적",
+    "reject": true,
+    "reason": "calendar month"
+  },
+  {
+    "before": "In H1 2026, revenue increased.",
+    "after": "2026년 상반기에 매출이 증가했다.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "In H2 2026, revenue may increase.",
+    "after": "2026 년 하반기에 매출이 증가할 수 있다.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Results for 2026 H1",
+    "after": "2026년상반기 실적",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Results for H2 of 2026",
+    "after": "2026년 하반기 실적",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Results for the first half of 2026",
+    "after": "2026년 상반기 실적",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Results for the second-half of 2026",
+    "after": "2026년 하반기 실적",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Results for 2026 first half",
+    "after": "2026년 상반기 실적",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Revenue in H1 2026 and H2 2027 rose 12 percent.",
+    "after": "2027년 하반기 및 2026년 상반기 매출은 12퍼센트 증가했다.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "In H2 2026, HBM4 and DDR5 demand grew 12 percent.",
+    "after": "2026년 하반기 HBM4 및 DDR5 수요는 12퍼센트 증가했다.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "The H1 chip was released in 2026.",
+    "after": "H1 칩은 2026년에 출시됐다.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "The 2026 H1 chip was released.",
+    "after": "2026년 H1 칩이 출시됐다.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "The H1 2026 chip was released.",
+    "after": "H1 2026 칩이 출시됐다.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "The H1N1 strain was studied in 2026.",
+    "after": "H1N1 균주를 2026년에 연구했다.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "Results for H1 2026",
+    "after": "2026년 하반기 실적",
+    "reject": true,
+    "reason": "half-year"
+  },
+  {
+    "before": "Results for H2 2026",
+    "after": "2026년 상반기 실적",
+    "reject": true,
+    "reason": "half-year"
+  },
+  {
+    "before": "Results for H1 2026",
+    "after": "2026년 1분기 실적",
+    "reject": true,
+    "reason": "half-year"
+  },
+  {
+    "before": "Results for H2 2026",
+    "after": "2026년 2분기 실적",
+    "reject": true,
+    "reason": "half-year"
+  },
+  {
+    "before": "Results for H1 2026",
+    "after": "2027년 상반기 실적",
+    "reject": true,
+    "reason": "half-year"
+  },
+  {
+    "before": "Results for H1 2026",
+    "after": "2026년 실적",
+    "reject": true,
+    "reason": "half-year"
+  },
+  {
+    "before": "Results for H1 2026",
+    "after": "상반기 실적",
+    "reject": true,
+    "reason": "half-year"
+  },
+  {
+    "before": "Results for 2026",
+    "after": "2026년 상반기 실적",
+    "reject": true,
+    "reason": "half-year"
+  },
+  {
+    "before": "Results for H1 2026 and H2 2027",
+    "after": "2026년 하반기 및 2027년 상반기 실적",
+    "reject": true,
+    "reason": "half-year"
+  },
+  {
+    "before": "H1 2026 and H1 2026 results",
+    "after": "2026년 상반기 및 2026년 실적",
+    "reject": true,
+    "reason": "half-year"
+  },
+  {
+    "before": "In H2 2026, HBM4 demand grew 12 percent.",
+    "after": "2026년 하반기 HBM5 수요는 12퍼센트 증가했다.",
+    "reject": true,
+    "reason": "numeric"
+  },
+  {
+    "before": "Revenue in H1 2026 rose 12 percent.",
+    "after": "2026년 상반기 매출은 13퍼센트 증가했다.",
+    "reject": true,
+    "reason": "numeric"
+  },
+  {
+    "before": "The H1 chip was released in 2026.",
+    "after": "H2 칩은 2026년에 출시됐다.",
+    "reject": true,
+    "reason": "numeric"
+  },
+  {
+    "before": "The 2026 H1 chip was released.",
+    "after": "2026년 상반기 칩이 출시됐다.",
+    "reject": true,
+    "reason": "half-year"
+  },
+  {
+    "before": "The H1 2026 chip was released.",
+    "after": "2026년 상반기 칩이 출시됐다.",
+    "reject": true,
+    "reason": "half-year"
+  },
+  {
+    "before": "The H1 chip was released.",
+    "after": "상반기 칩이 출시됐다.",
+    "reject": true,
+    "reason": "numeric"
+  },
+  {
+    "before": "The H1N1 strain was studied.",
+    "after": "상반기 균주를 연구했다.",
+    "reject": true,
+    "reason": "numeric"
+  },
+  {
+    "before": "For release at 4:30 p.m. EDT",
+    "after": "오후 4시 30분 EDT에 발표",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "For release at 4:30 p.m. EDT",
+    "after": "미 동부 일광절약 시간 오후 4시 30분에 발표",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "For release at 4:30 p.m. EDT",
+    "after": "오후 4시 30분 (미국 동부 서머타임)에 발표",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "For release at 4:30 p.m. EDT",
+    "after": "오후 4시 30분 동부 일광 절약 시간(EDT)에 발표",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "For release at 4:30 p.m. EDT",
+    "after": "오후 4시 30분 동부 일광절약(서머타임) 시간에 발표",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "For release at 4:30 p.m. EST",
+    "after": "오후 4시 30분 (미 동부 표준시)에 발표",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "For release at 4:30 p.m. EST",
+    "after": "오후 4시 30분 (동부 표준시간)에 발표",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "For release at 4:30 p.m. Eastern Daylight Time",
+    "after": "오후 4시 30분 EDT에 발표",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "For release at 4:30 p.m. Eastern Standard Time",
+    "after": "오후 4시 30분 EST에 발표",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "For release at 4:30 a.m. EDT",
+    "after": "오전 4시 30분 EDT에 발표",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "For release at 4:30 AM EDT",
+    "after": "오전 4:30 EDT에 발표",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "For release at 4:30pm EDT",
+    "after": "오후 4:30 EDT에 발표",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "For release at 11:00 a.m. EDT",
+    "after": "EDT 시간 11:00에 발표",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "For release at 11:00 a.m. EDT",
+    "after": "발표 시각은 EDT 11:00.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "For release at 11 AM EDT",
+    "after": "EDT 시간 11시 00분에 발표",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "For release at 4:30 p.m. EDT",
+    "after": "EDT 시간 16:30에 발표",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "For release at 4:30 p.m. EDT",
+    "after": "16시 30분 EDT에 발표",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "For release at 9 p.m. EDT",
+    "after": "21시 EDT에 발표",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "For release at 12 a.m. EST",
+    "after": "00:00 EST에 발표",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "For release at 12 a.m. EST",
+    "after": "0시 00분 EST에 발표",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "For release at 12 p.m. EST",
+    "after": "12:00 EST에 발표",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "For release at 12 p.m. EST",
+    "after": "12시 00분 EST에 발표",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "For release at 16:30 EDT",
+    "after": "오후 4시 30분 EDT에 발표",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "For release at 11:00 EDT",
+    "after": "오전 11시 00분 EDT에 발표",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "For release at 00:00 EST",
+    "after": "오전 12시 EST에 발표",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "For release at 12:00 EST",
+    "after": "오후 12시 EST에 발표",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "For release at 04:03 p.m. EDT",
+    "after": "오후 4시 3분 EDT에 발표",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "For release at 4 p.m. EDT",
+    "after": "오후 4시 EDT에 발표",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "For release at 4 p.m. EDT",
+    "after": "오후 4시 00분 EDT에 발표",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "For release at 4:00 p.m. EDT",
+    "after": "오후 4시 EDT에 발표",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "For release at 12:30 a.m. EST",
+    "after": "오전 12시 30분 EST에 발표",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "For release at 12:30 p.m. EST",
+    "after": "오후 12시 30분 EST에 발표",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "For release at 4:30 p.m. UTC",
+    "after": "오후 4시 30분 UTC에 발표",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "For release at 4:30 p.m. KST",
+    "after": "오후 4시 30분 KST에 발표",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "For release at 16:30 UTC",
+    "after": "16시 30분 UTC에 발표",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "The note contains GMT and KST labels.",
+    "after": "메모에 GMT와 KST 표기가 있다.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "I am ready this afternoon.",
+    "after": "나는 오늘 오후에 준비가 되어 있다.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "I am 4 years old.",
+    "after": "나는 4살이다.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "There are 4 people this afternoon.",
+    "after": "오후에는 4명이 있다.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "News from the eastern region.",
+    "after": "동부 지역 소식이다.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "News from the eastern standard market.",
+    "after": "동부 표준시장 소식이다.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "We hired 4 PMs.",
+    "after": "우리는 프로젝트 매니저 4명을 채용했다.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "The ratio is 11:00.",
+    "after": "비율은 11 대 0이다.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "There are 3 cities and 2 counties.",
+    "after": "3시2군이 있다.",
+    "reject": false,
+    "reason": null
+  },
+  {
+    "before": "For release at 4:30 p.m. EDT",
+    "after": "오후 4시 30분 (동부 표준시)에 발표",
+    "reject": true,
+    "reason": "time zone"
+  },
+  {
+    "before": "For release at 4:30 p.m. EDT",
+    "after": "오후 4시 30분 EST에 발표",
+    "reject": true,
+    "reason": "time zone"
+  },
+  {
+    "before": "For release at 4:30 p.m. EST",
+    "after": "오후 4시 30분 EDT에 발표",
+    "reject": true,
+    "reason": "time zone"
+  },
+  {
+    "before": "For release at 4:30 p.m. EDT",
+    "after": "오후 4시 30분 동부 표준시(EDT)에 발표",
+    "reject": true,
+    "reason": "time zone"
+  },
+  {
+    "before": "For release at 4:30 p.m. EDT",
+    "after": "오후 4시 30분 동부 시간에 발표",
+    "reject": true,
+    "reason": "time zone"
+  },
+  {
+    "before": "For release at 4:30 p.m. EDT",
+    "after": "4시 30분 EDT에 발표",
+    "reject": true,
+    "reason": "clock time"
+  },
+  {
+    "before": "For release at 4:30 p.m. EDT",
+    "after": "4:30 EDT에 발표",
+    "reject": true,
+    "reason": "clock time"
+  },
+  {
+    "before": "For release at 9 p.m. EDT",
+    "after": "9시 EDT에 발표",
+    "reject": true,
+    "reason": "clock time"
+  },
+  {
+    "before": "For release at 11 a.m. EDT",
+    "after": "23:00 EDT에 발표",
+    "reject": true,
+    "reason": "clock time"
+  },
+  {
+    "before": "For release at 12 a.m. EST",
+    "after": "12:00 EST에 발표",
+    "reject": true,
+    "reason": "clock time"
+  },
+  {
+    "before": "For release at 12 p.m. EST",
+    "after": "00:00 EST에 발표",
+    "reject": true,
+    "reason": "clock time"
+  },
+  {
+    "before": "For release at 12 a.m. EST",
+    "after": "24:00 EST에 발표",
+    "reject": true,
+    "reason": "clock time"
+  },
+  {
+    "before": "For release at 11 p.m. EST",
+    "after": "25시 EST에 발표",
+    "reject": true,
+    "reason": "clock time"
+  },
+  {
+    "before": "For release at 4:30 p.m. EDT",
+    "after": "오전 4시 30분 EDT에 발표",
+    "reject": true,
+    "reason": "clock time"
+  },
+  {
+    "before": "For release at 4:30 a.m. EDT",
+    "after": "오후 4시 30분 EDT에 발표",
+    "reject": true,
+    "reason": "clock time"
+  },
+  {
+    "before": "For release at 4:30 p.m. EDT",
+    "after": "오후 4시 31분 EDT에 발표",
+    "reject": true,
+    "reason": "clock time"
+  },
+  {
+    "before": "For release at 4:30 p.m. EDT",
+    "after": "오후 3시 40분 EDT에 발표",
+    "reject": true,
+    "reason": "clock time"
+  },
+  {
+    "before": "Releases at 4:30 a.m. and 5:30 p.m.",
+    "after": "오후 4시 30분과 오전 5시 30분에 발표",
+    "reject": true,
+    "reason": "clock time"
+  },
+  {
+    "before": "Growth was 5% at 4:30 p.m.",
+    "after": "오후 4시 30분에 성장률은 6%였다",
+    "reject": true,
+    "reason": "numeric"
+  },
+  {
+    "before": "Release is in the afternoon.",
+    "after": "오후 4시에 발표",
+    "reject": true,
+    "reason": "clock time"
+  }
+]

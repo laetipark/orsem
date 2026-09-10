@@ -1,6 +1,10 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { api } from '../lib/api';
+import { clearCompanyLogoMetadataCache } from '../lib/use-company-logo';
+import { clearLogoFailures } from '../lib/logo-failures';
+import { logoResponse, reviewedMapping } from '../test/logo-fixtures';
 import type { EventSummary } from '../types';
 import {
   EventCompactRow,
@@ -9,19 +13,54 @@ import {
   hasObservedOwnershipSemantics,
 } from './event-row';
 
+beforeEach(() => {
+  clearCompanyLogoMetadataCache();
+  clearLogoFailures();
+  vi.spyOn(api, 'companyLogo').mockResolvedValue(logoResponse());
+  vi.spyOn(api, 'companyLogoPermit').mockResolvedValue({ allowed: true });
+});
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
+
 describe('이벤트의 기업 식별과 로고', () => {
   it.each([
-    ['삼성전자', '005930', null, 'KOSPI', 'https://cdn.tickerlogos.com/samsung.com'],
-    ['엔비디아', null, 'NVDA', 'NASDAQ', 'https://cdn.tickerlogos.com/nvidia.com'],
-  ])(
+    ['삼성전자', '005930', null, 'KOSPI', '005930.KS'],
+    ['엔비디아', null, 'NVDA', 'NASDAQ', 'NVDA'],
+  ] as const)(
     '저장된 시장과 종목 식별자로 %s 로고를 표시한다',
-    (companyName, stockCode, ticker, market, url) => {
+    async (companyName, stockCode, ticker, market, providerTicker) => {
+      const response = logoResponse();
+      response.metadata.market = market === 'KOSPI' ? 'KR' : 'US';
+      response.metadata.exchange = market;
+      response.metadata.symbol = stockCode ?? ticker;
+      response.metadata.providers.logoDev.ticker = reviewedMapping(providerTicker);
+      vi.mocked(api.companyLogo).mockResolvedValue(response);
       const { container } = render(
-        <EventCompanyIdentity event={{ companyName, stockCode, ticker, market: market! }} />,
+        <EventCompanyIdentity event={{ companyName, stockCode, ticker, market }} />,
       );
-      expect(container.querySelector('img')).toHaveAttribute('src', url);
-      expect(container.querySelector('img')).toHaveAttribute('referrerpolicy', 'no-referrer');
-      expect(screen.getByText(companyName!)).toBeVisible();
+      await waitFor(() =>
+        expect(container.querySelector('img')).toHaveAttribute(
+          'src',
+          `https://img.logo.dev/ticker/${providerTicker}?token=pk_test_only&size=128&format=webp&fallback=404`,
+        ),
+      );
+      expect(api.companyLogo).toHaveBeenCalledWith(
+        `${market}:${stockCode ?? ticker}`,
+        expect.any(AbortSignal),
+      );
+      expect(api.companyLogoPermit).toHaveBeenCalledWith(
+        response.metadata.companyId,
+        'logoDev',
+        expect.any(AbortSignal),
+      );
+      expect(container.querySelector('img')).toHaveAttribute('referrerpolicy', 'origin');
+      expect(container.querySelector('.company-avatar')).toHaveAttribute(
+        'data-review-status',
+        'reviewed',
+      );
+      expect(screen.getByText(companyName)).toBeVisible();
       expect(screen.getByText((stockCode ?? ticker)!)).toBeVisible();
     },
   );
@@ -30,20 +69,35 @@ describe('이벤트의 기업 식별과 로고', () => {
     { companyName: '엔비디아', stockCode: null, market: 'NASDAQ' },
     { companyName: '삼성전자', stockCode: '005930', market: 'OTHER' },
     { companyName: '다른 기업', stockCode: null, ticker: 'MSFT', market: 'NASDAQ' },
-  ])('확인된 식별자가 없으면 기업명으로 로고를 추정하지 않는다: $companyName', (event) => {
+  ])('확인된 식별자가 없으면 기업명으로 로고를 추정하지 않는다: $companyName', async (event) => {
     const { container } = render(<EventCompanyIdentity event={event} />);
+    await act(async () => undefined);
     expect(container.querySelector('img')).toBeNull();
+    expect(api.companyLogoPermit).not.toHaveBeenCalled();
     expect(screen.getByText(event.companyName)).toBeVisible();
   });
 
-  it('이미지 로딩 실패 후에도 기업명과 티커를 유지하고 글자 아이콘으로 전환한다', () => {
+  it('이미지 로딩 실패 후에도 기업명과 티커를 유지하고 글자 아이콘으로 전환한다', async () => {
+    const response = logoResponse();
+    response.metadata.symbol = 'NVDA';
+    response.metadata.providers.logoDev.ticker = reviewedMapping('NVDA');
+    response.metadata.providers.brandfetch.ticker = reviewedMapping('NVDA');
+    vi.mocked(api.companyLogo).mockResolvedValue(response);
     const { container } = render(
       <EventCompanyIdentity
         event={{ companyName: '엔비디아', stockCode: null, ticker: 'NVDA', market: 'NASDAQ' }}
       />,
     );
+    await waitFor(() =>
+      expect(container.querySelector('img')?.src).toContain('img.logo.dev/ticker/NVDA'),
+    );
     fireEvent.error(container.querySelector('img')!);
-    expect(container.querySelector('img')).toBeNull();
+    await waitFor(() =>
+      expect(container.querySelector('img')?.src).toContain('cdn.brandfetch.io/ticker/NVDA/'),
+    );
+    fireEvent.error(container.querySelector('img')!);
+    await waitFor(() => expect(container.querySelector('img')).toBeNull());
+    expect(api.companyLogoPermit).toHaveBeenCalledTimes(2);
     expect(screen.getByText('엔비디아')).toBeVisible();
     expect(screen.getByText('NVDA')).toBeVisible();
     expect(container.querySelector('.company-avatar')).toHaveTextContent('NV');
@@ -79,13 +133,14 @@ describe('거래계획 표시 의미', () => {
     officialUrl: 'https://dart.fss.or.kr/',
   } as EventSummary;
 
-  it('does not present D005 as an observed trade in compact or mobile views', () => {
+  it('does not present D005 as an observed trade in compact or mobile views', async () => {
     render(
       <MemoryRouter>
         <EventCompactRow event={plan} />
         <EventMobileCard event={plan} />
       </MemoryRouter>,
     );
+    await act(async () => undefined);
 
     expect(hasObservedOwnershipSemantics('D005')).toBe(false);
     expect(screen.queryByText('미분류')).not.toBeInTheDocument();

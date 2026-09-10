@@ -235,10 +235,11 @@ test('the ecosystem selects the explicit boot interpreter for every Node app', a
     if (override) environment.ORSEM_NODE_BIN = override;
     const { stdout } = await execute(process.execPath, ['-e', code], { env: environment });
     const apps = JSON.parse(stdout);
-    for (const name of ['orsem-api', 'orsem-worker', 'orsem-discord']) {
+    for (const name of ['orsem-api', 'orsem-discord']) {
       assert.equal(apps.find((app) => app.name === name).interpreter, override || process.execPath);
     }
     assert.equal(apps.find((app) => app.name === 'orsem-ollama').interpreter, 'none');
+    assert.equal(apps.find((app) => app.name === 'orsem-worker').interpreter, 'none');
   }
 });
 

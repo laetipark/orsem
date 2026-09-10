@@ -66,7 +66,7 @@ function View({ companyId = 'samsung', actor = session }: { companyId?: string; 
   );
 }
 async function open() {
-  const trigger = await screen.findByRole('button', { name: '관심그룹 2' });
+  const trigger = await screen.findByRole('button', { name: '관심그룹 설정' });
   trigger.focus();
   fireEvent.click(trigger);
   await screen.findByRole('checkbox', { name: /반도체/ });
@@ -86,7 +86,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-it('loads full membership before opening and counts selected read-only groups', async () => {
+it('loads full membership and shows a selected icon without a count', async () => {
   render(<View />);
   expect(screen.getByRole('button', { name: '관심그룹 확인 중' })).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: '관심그룹 추가' })).not.toBeInTheDocument();
@@ -124,7 +124,7 @@ it('submits additions and removals together then verifies the response before cl
     ],
   });
   expect(api.companyWatchlistMemberships).toHaveBeenCalledTimes(3);
-  expect(screen.getByRole('button', { name: '관심그룹 2' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: '관심그룹 설정' })).toBeInTheDocument();
 });
 
 it('cancel and Escape discard selections and restore trigger focus', async () => {
@@ -172,7 +172,7 @@ it('reconciles an ambiguous write from a fresh read without retrying PUT', async
   await waitFor(() => expect(screen.getByRole('checkbox', { name: /성장주/ })).toBeChecked());
   expect(screen.getByRole('alert')).toHaveTextContent('현재 등록 상태를 다시 확인');
   expect(screen.getByRole('button', { name: /^저장$/ })).toBeDisabled();
-  expect(screen.getByRole('button', { name: '관심그룹 3' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: '관심그룹 설정' })).toBeInTheDocument();
   expect(api.saveCompanyWatchlistMemberships).toHaveBeenCalledTimes(1);
 });
 
@@ -226,7 +226,7 @@ it('resets the dialog, draft and actor cache when the account or company changes
 
 it('allows Escape during a slow read and a late response never reopens the sheet', async () => {
   render(<View />);
-  const trigger = await screen.findByRole('button', { name: '관심그룹 2' });
+  const trigger = await screen.findByRole('button', { name: '관심그룹 설정' });
   let resolveRead!: (value: CompanyWatchlistMemberships) => void;
   vi.mocked(api.companyWatchlistMemberships).mockImplementationOnce(
     () =>

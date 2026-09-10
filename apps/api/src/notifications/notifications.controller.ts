@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   HttpCode,
   Param,
   Patch,
@@ -11,6 +12,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import {
+  companyNotificationInputSchema,
   notificationPreferencesSchema,
   notificationTestSchema,
   pushSubscriptionInputSchema,
@@ -38,6 +40,30 @@ export class NotificationsController {
   @Get('settings')
   settings(@Req() request: Request) {
     return this.notifications.settings(notificationOwner(request));
+  }
+
+  @Get('companies/:companyId')
+  @Header('Cache-Control', 'private, no-store')
+  companySettings(@Param('companyId') companyId: string, @Req() request: Request) {
+    return this.notifications.companySettings(
+      notificationOwner(request),
+      parseWith(z.uuid(), companyId),
+    );
+  }
+
+  @Patch('companies/:companyId')
+  @Header('Cache-Control', 'private, no-store')
+  @RateLimit(30)
+  updateCompanySettings(
+    @Param('companyId') companyId: string,
+    @Body() body: unknown,
+    @Req() request: Request,
+  ) {
+    return this.notifications.updateCompanySettings(
+      notificationOwner(request),
+      parseWith(z.uuid(), companyId),
+      parseWith(companyNotificationInputSchema, body),
+    );
   }
 
   @Patch('settings')

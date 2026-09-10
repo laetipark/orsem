@@ -50,6 +50,7 @@ export function pushPreferenceAllows(input: {
   topic: PushTopic;
   watchlistOnly: boolean;
   watchlisted: boolean;
+  companyEnabled?: boolean | null;
   filingType?: string | null;
   filingTypes?: readonly string[] | null;
 }): boolean {
@@ -63,7 +64,7 @@ export function pushPreferenceAllows(input: {
     !(input.filingTypes ?? ['D001', 'D002', 'D005']).includes(input.filingType)
   )
     return false;
-  return !input.watchlistOnly || input.watchlisted;
+  return input.companyEnabled ?? (!input.watchlistOnly || input.watchlisted);
 }
 
 function shortText(value: unknown, max: number): string {

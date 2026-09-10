@@ -42,13 +42,11 @@ NAVER는 공식 기사와 함께 원문 링크로 표시하며, 정기·종목�
 
 ## 기업 아이콘 출처
 
-로고 공급자는 토스나 기업 공식 사이트가 아닌 **AllInvestView Ticker Logos CDN**입니다. 무료이며 API 키·가입이 필요하지 않습니다. 브라우저는 `https://cdn.tickerlogos.com/{domain}`을 직접 요청하고 참조 정보를 보내지 않습니다. [공급자 안내](https://www.allinvestview.com/tools/ticker-logos/)를 기준으로 사용합니다.
+종목 로고는 **Logo.dev**를 기본 외부 공급자, **Brandfetch Logo API**를 선택적 보조 공급자로 사용합니다. 두 공급자 모두 기본 비활성 상태이며 공개용 키/Client ID와 무료 한도 설정이 충족되어야 요청합니다. 키가 없거나 로고가 실패하면 검수된 로컬 파일 또는 자체 텍스트·도형 아이콘으로 표시합니다. 과거 이미지 로드 기록을 기업 매핑 검수로 승인하거나 외부 이미지를 서버에서 다운로드하지 않습니다. 뉴스·시세 연결 설정은 별개입니다.
 
-현재 검증한 정적 목록은 NVIDIA `US:NVDA` → `https://cdn.tickerlogos.com/nvidia.com`, 삼성전자 보통주 `KR:005930` → `https://cdn.tickerlogos.com/samsung.com` 두 기업입니다. 각각 실제 로고가 담긴 128px PNG 응답을 브라우저에서 확인했습니다. 이미지 주소·출처·확인 날짜를 기록하며, 미등록·로딩 실패 시 글자로 대체합니다. 전체 티커 자동 연결이나 실시간 로고 검색은 하지 않습니다. 제공자의 검색 API는 응답 검증을 완료하지 못해 사용하지 않습니다.
+2026-09-10 확인한 [Logo.dev 가격표](https://www.logo.dev/pricing)는 무료 월 500,000 요청, [Brandfetch 가격표](https://brandfetch.com/developers/pricing)는 표의 월 1,000,000과 FAQ의 월 500,000이 불일치합니다. Brandfetch는 대시보드 확인 전 월 500,000 이하를 내부 상한으로 적용하고, 캐시 안내의 불일치도 더 제한적인 직접 브라우저 표시 조건을 따릅니다. 유료 구독·카드·자동 충전·초과 과금을 활성화하지 않습니다.
 
-로고를 표시하는 페이지마다 사용자에게 보이는 dofollow 링크가 필요합니다. Orsem은 공통 `AppShell` 하단에 [Logos by AllInvestView](https://www.allinvestview.com/tools/ticker-logos/)를 표시하고 `nofollow`·`sponsored`·`ugc`를 붙이지 않습니다. CDN 한도는 IP당 하루 20,000회, 10초당 최대 30회입니다. 한도 우회와 자동화된 대량 다운로드를 하지 않으며, 로고를 변형하거나 소유 기업의 보증·제휴를 암시하지 않습니다. [서비스 이용 조건](https://www.allinvestview.com/tools/ticker-logos/terms/)을 따릅니다.
-
-검토한 대안인 Logo.dev는 공개용 토큰이 필요하며 현재 연동하지 않습니다. [공식 티커 문서](https://www.logo.dev/docs/logo-images/ticker)는 한국 거래소 접미사 `.KQ`를 명시합니다. `.KS`를 포함한 개별 국내 종목 지원 여부와 응답은 별도 확인이 필요하며, 이를 검증된 운영 범위로 간주하지 않습니다.
+Logo.dev의 무료 상업용 [출처 표시 조건](https://www.logo.dev/docs/platform/attribution)은 로그인 기반 앱의 공개 안내 페이지 배치를 허용합니다. 앱 footer는 `/logo-sources`로 연결하고, 해당 공개 페이지 본문에 Logo.dev 직접 출처 링크를 제공합니다. Simple Icons와 Wikimedia Commons는 파일별 이용 조건·기업 매핑을 검수한 항목만 로컬 소스로 등록할 수 있습니다. URL 생성, 이미지 로드, 올바른 기업/상품 로고 검수는 별개로 기록합니다. 공급자 조건, 매핑, ETF 역할, OpenDART 홈페이지 후보 재사용, 실패 처리, 실제 표시 확인 표본과 남은 검수는 [종목 로고 운영 문서](STOCK_LOGOS.md)를 참고하세요.
 
 ## 공식 링크 규칙
 
