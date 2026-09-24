@@ -61,18 +61,18 @@ export class DashboardController {
   @Header('Cache-Control', 'private, no-store')
   async personalNews(@Req() request: Request) {
     const actor = groupActor(request).key;
-    const [page, provider] = await Promise.all([
-      this.data.personalNews(actor, newsAudienceForActor(groupActor(request))),
-      this.naver.feed({ scope: 'personal' }, actor).catch(() => null),
-    ]);
+    const provider = await this.naver.feed({ scope: 'personal' }, actor).catch(() => null);
+    const page = await this.data.personalNews(actor, newsAudienceForActor(groupActor(request)));
     return {
       ...page,
-      providerGroups: provider?.groups ?? [],
+      providerGroups: [],
+      providerResultSets: [],
       naver: provider
         ? {
             fetchedAt: provider.fetchedAt,
             status: provider.status,
             nextRequestAt: provider.nextRequestAt,
+            reason: provider.reason,
           }
         : null,
     };
@@ -247,6 +247,7 @@ export class NewsController {
           source: z
             .enum([
               'NEWS_RSS',
+              'NAVER',
               'IR',
               'SEC',
               'GDELT',
@@ -276,12 +277,9 @@ export class NewsController {
         ),
       query,
     );
-    const page = await this.data.listNews({
-      ...parsed,
-      audience: newsAudienceForActor(groupActor(request)),
-    });
     const include =
       !parsed.cursor &&
+      !parsed.q &&
       !parsed.source &&
       !parsed.publisher &&
       !parsed.sourceKind &&
@@ -289,22 +287,21 @@ export class NewsController {
     const provider = include
       ? await this.naver.feed(parsed, groupActor(request).key).catch(() => null)
       : null;
-    const term = parsed.q?.toLocaleLowerCase();
+    // A company request may collect new metadata; read after that transaction commits.
+    const page = await this.data.listNews({
+      ...parsed,
+      audience: newsAudienceForActor(groupActor(request)),
+    });
     return {
       ...page,
-      providerGroups:
-        provider?.groups.map((items) =>
-          term
-            ? items.filter((item) =>
-                `${item.title} ${item.description ?? ''}`.toLocaleLowerCase().includes(term),
-              )
-            : items,
-        ) ?? [],
+      providerGroups: [],
+      providerResultSets: [],
       naver: provider
         ? {
             fetchedAt: provider.fetchedAt,
             status: provider.status,
             nextRequestAt: provider.nextRequestAt,
+            reason: provider.reason,
           }
         : null,
     };

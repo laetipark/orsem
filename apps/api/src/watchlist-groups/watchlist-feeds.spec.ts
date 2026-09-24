@@ -165,7 +165,7 @@ test('group news permits read-only room members, returns all filters and scopes 
       limit: 20,
       companyIds: companies.map((company) => company.id),
       scope: 'company',
-      audience: 'MEMBER_UI',
+      audience: 'SHARED_ROOM',
     },
   ]);
   assert.deepEqual(providerCalls, [

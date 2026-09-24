@@ -433,6 +433,7 @@ export const sourceItemSchema = z.object({
     })
     .optional(),
   summaryLine: z.string().optional(),
+  summaryAllowed: z.boolean().optional(),
   translationStatus: z.enum(['PENDING', 'COMPLETED', 'FAILED', 'UNAVAILABLE']).optional(),
   id: idSchema,
   displayMode: z.enum(['INTERNAL_CONTENT', 'EXTERNAL_LINK']).optional(),

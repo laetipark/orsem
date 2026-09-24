@@ -7,7 +7,7 @@ import { newsFiltersSql, visibleNewsSql, representativeNewsSql } from './news-qu
 import { mapSourceItem } from './resource-mappers';
 import { publicDiscoveryStatus } from './connector-public-status';
 
-test('market selects Fed/BLS only and company filtering uses the multi-company relation', () => {
+test('market selects official sources and stored topics while company filtering uses relevance', () => {
   assert.match(newsFiltersSql('source', { scope: 'market' }), /IN \('federal-reserve', 'bls'\)/);
   assert.match(
     newsFiltersSql('source', { scope: 'company', companyId: 'company' }),
@@ -27,10 +27,10 @@ test('metadata visibility needs explicit rights but never a body or translation 
   assert.match(sql, /displayAllowed/);
   assert.doesNotMatch(sql, /content\.|translation|fullText/);
   assert.match(newsFiltersSql('source', {}), /APPROVED_PUBLISHER_METADATA/);
-  assert.match(newsFiltersSql('source', { asset: 'wti' }), /1 = 0/);
+  assert.match(newsFiltersSql('source', { asset: 'wti' }), /topicIds.*:newsAssetTopic/);
   assert.match(
     representativeNewsSql({}),
-    /duplicate.source IN \('GDELT','ALPACA_NEWS','MARKETAUX','ALPHAVANTAGE','FINNHUB'\)\) < \(source.source IN/,
+    /duplicate.source IN \('GDELT','ALPACA_NEWS','MARKETAUX','ALPHAVANTAGE','FINNHUB','NAVER'\)\) < \(source.source IN/,
   );
 });
 test('external metadata cards cannot expose a description, translation, or a fake body', () => {

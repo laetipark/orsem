@@ -133,29 +133,30 @@ export class WatchlistGroupsController {
     const selection = parsed.companyId
       ? { companyId: parsed.companyId }
       : { companyIds: selectedCompanies.map((company) => company.id) };
-    const [page, provider] = await Promise.all([
-      this.data.listNews({
-        ...parsed,
-        ...selection,
-        scope: 'company',
-        audience: newsAudienceForActor(actor),
-      }),
+    const provider =
       !parsed.cursor && selectedCompanies.length
-        ? this.naver.feed({ ...selection, scope: 'company' }, actor.key).catch(() => null)
-        : Promise.resolve(null),
-    ]);
+        ? await this.naver.feed({ ...selection, scope: 'company' }, actor.key).catch(() => null)
+        : null;
+    const page = await this.data.listNews({
+      ...parsed,
+      ...selection,
+      scope: 'company',
+      audience: group.kind === 'ROOM' ? 'SHARED_ROOM' : newsAudienceForActor(actor),
+    });
     return {
       ...page,
       group,
       companies,
       companyCount: selectedCompanies.length,
       asOf: new Date().toISOString(),
-      providerGroups: provider?.groups ?? [],
+      providerGroups: [],
+      providerResultSets: [],
       naver: provider
         ? {
             fetchedAt: provider.fetchedAt,
             status: provider.status,
             nextRequestAt: provider.nextRequestAt,
+            reason: provider.reason,
           }
         : null,
     };

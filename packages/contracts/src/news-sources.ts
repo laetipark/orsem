@@ -99,6 +99,26 @@ export const GDELT_METADATA_POLICY: NewsSourcePolicy = Object.freeze({
   checkedAt: '2026-09-06',
 });
 
+/** User-configured metadata retention for authenticated news readers; no article-body rights. */
+export const NAVER_NEWS_METADATA_POLICY: NewsSourcePolicy = Object.freeze({
+  policyVersion: 2,
+  policyId: 'naver-news-metadata-v1',
+  provider: 'NAVER',
+  rightsStatus: 'METADATA_ONLY',
+  rightsMode: RightsMode.LINK_ONLY,
+  metadataStorageAllowed: true,
+  summaryStorageAllowed: true,
+  displayAllowed: true,
+  aiAllowed: false,
+  translationAllowed: false,
+  fullTextStorageAllowed: false,
+  publicRedistributionAllowed: false,
+  notifyAllowed: false,
+  allowedAudiences: Object.freeze(['ADMIN_UI', 'MEMBER_UI'] as const),
+  policyUrl: 'https://developers.naver.com/docs/serviceapi/search/news/news.md',
+  checkedAt: '2026-09-24',
+});
+
 export function isGdeltDomainFilter(domain: string): boolean {
   return (
     domain.length <= 253 &&
@@ -341,6 +361,7 @@ export function getNewsIrSourceProfile(value: string): NewsIrSourceProfileDefini
 
 export function registeredNewsSourcePolicies(): readonly NewsSourcePolicy[] {
   return [
+    NAVER_NEWS_METADATA_POLICY,
     ...Object.values(NEWS_EXTERNAL_API_POLICIES),
     ...Object.values(NEWS_IR_SOURCE_PROFILES)
       .filter((profile) => profile.enabled)

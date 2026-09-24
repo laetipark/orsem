@@ -1162,7 +1162,7 @@ export class OrsemDataService {
       if (!query.companyIds.length)
         return { items: [], nextCursor: null, pageInfo: { nextCursor: null, hasMore: false } };
     }
-    if (query.asset)
+    if (query.asset && this.fixtureMode)
       return { items: [], nextCursor: null, pageInfo: { nextCursor: null, hasMore: false } };
     if (this.fixtureMode) {
       const filtered = this.fixtures.sourceItems
@@ -2512,7 +2512,7 @@ export class OrsemDataService {
         name: this.config.naverApiProvider === 'ncloud' ? 'NAVER Cloud 뉴스검색' : 'NAVER 뉴스검색',
         category: 'NEWS',
         configured: Boolean(this.config.naverClientId && this.config.naverClientSecret),
-        rightsMode: RightsMode.STORE_METADATA_ONLY,
+        rightsMode: RightsMode.LINK_ONLY,
         missing: 'NAVER 자격 증명이 없습니다.',
       },
       {

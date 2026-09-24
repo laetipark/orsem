@@ -15,6 +15,10 @@ import {
   type NaverSearchStatus,
   NAVER_ROLLING_LIMIT,
 } from './naver-news-budget.service';
+import {
+  NaverNewsPersistenceService,
+  type NaverNewsCollectionContext,
+} from './naver-news-persistence.service';
 
 export const NAVER_NEWS_FETCH = Symbol('NAVER_NEWS_FETCH');
 
@@ -56,6 +60,7 @@ export class NaverNewsSearchService {
     @Inject(NAVER_NEWS_FETCH)
     private readonly fetchImpl: typeof fetch = fetch,
     @Optional() private readonly budget?: NaverNewsBudgetService,
+    @Optional() private readonly persistence?: NaverNewsPersistenceService,
   ) {}
 
   status(): Promise<NaverSearchStatus> {
@@ -83,6 +88,7 @@ export class NaverNewsSearchService {
   async search(
     input: z.infer<typeof naverNewsSearchQuerySchema>,
     onRequest?: () => void,
+    context?: NaverNewsCollectionContext,
   ): Promise<NaverNewsSearchResult> {
     const { naverClientId, naverClientSecret, naverApiProvider } = this.config;
     if (!naverClientId || !naverClientSecret) {
@@ -116,7 +122,7 @@ export class NaverNewsSearchService {
         };
     const signal = AbortSignal.timeout(10_000);
     try {
-      // NAVER 결과는 이 요청에서만 전달합니다. DB·캐시·수집기·AI 의존성을 두지 않습니다.
+      // Only the provider's metadata is retained; linked full text is never fetched.
       // 리다이렉트를 거부해 다른 호스트로 인증 헤더가 전달되는 것도 방지합니다.
       onRequest?.();
       const response = await this.fetchImpl(url, {
@@ -175,7 +181,9 @@ export class NaverNewsSearchService {
         throw new BadGatewayException('네이버 뉴스 검색 응답을 확인할 수 없습니다.');
       }
       // 원래 순서와 문자열을 그대로 전달합니다. 강조 HTML과 URL은 화면에서 안전하게 표시합니다.
-      return { provider: 'NAVER', ...parsed.data };
+      const result = { provider: 'NAVER' as const, ...parsed.data };
+      await this.persistence?.persist(result, context);
+      return result;
     } catch (error) {
       if (error instanceof HttpException) throw error;
       if (signal.aborted || (error instanceof Error && error.name === 'TimeoutError')) {

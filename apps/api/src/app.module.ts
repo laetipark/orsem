@@ -47,6 +47,7 @@ import { NotificationsService } from './notifications/notifications.service';
 import { NaverNewsSearchController } from './news-search/naver-news-search.controller';
 import { NaverNewsSearchService } from './news-search/naver-news-search.service';
 import { NaverFocusNewsService } from './news-search/naver-focus-news.service';
+import { NaverNewsPersistenceService } from './news-search/naver-news-persistence.service';
 import { NaverNewsBudgetService } from './news-search/naver-news-budget.service';
 import { WatchlistGroupsController } from './watchlist-groups/watchlist-groups.controller';
 import { WatchlistGroupsService } from './watchlist-groups/watchlist-groups.service';
@@ -93,6 +94,7 @@ import { WatchlistGroupsService } from './watchlist-groups/watchlist-groups.serv
     SearchService,
     NaverNewsSearchService,
     NaverFocusNewsService,
+    NaverNewsPersistenceService,
     NaverNewsBudgetService,
     WatchlistGroupsService,
     WatchlistAccessService,

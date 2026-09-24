@@ -112,7 +112,7 @@ type Snapshot = {
   expiresAt: number;
 };
 
-/** Provider results stay unmodified in short-lived memory, never in DB, logs or AI. */
+/** Short-lived provider diagnostics; searchable metadata is persisted by the search service. */
 @Injectable()
 export class NaverFocusNewsService implements OnApplicationBootstrap, OnApplicationShutdown {
   private readonly snapshots = new Map<string, Snapshot>();
@@ -326,6 +326,11 @@ export class NaverFocusNewsService implements OnApplicationBootstrap, OnApplicat
             for (const [id, snapshot] of this.snapshots)
               if (id === company.id || snapshot.queryLabel === query) this.snapshots.delete(id);
             this.scheduleExpiry();
+          },
+          {
+            topicId: company.kind ? company.id : undefined,
+            kind: company.kind,
+            region: targetRegion(company),
           },
         );
         const fetched = Date.now();

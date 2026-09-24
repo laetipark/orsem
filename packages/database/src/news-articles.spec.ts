@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { RightsMode } from '@orsem/contracts';
+import { NAVER_NEWS_METADATA_POLICY, RightsMode } from '@orsem/contracts';
 import type { EntityManager, QueryRunner } from 'typeorm';
 import { NewsArticleEntity, SourceItemEntity } from './entities';
 import {
@@ -149,6 +149,24 @@ test('a stored v2 approval cannot authorize reads after its current registered p
   });
   assert.equal(hasReadableNewsMetadata(source()), true);
   assert.equal(hasReadableNewsMetadata(row), false);
+});
+
+test('NAVER metadata joins the canonical article only with its current registered metadata policy', async () => {
+  const row = source({
+    source: 'NAVER',
+    rightsMode: RightsMode.LINK_ONLY,
+    sourcePolicyJson: NAVER_NEWS_METADATA_POLICY,
+  });
+  const manager = {
+    getRepository: (entity: unknown) =>
+      entity === NewsArticleEntity
+        ? { findOneBy: async () => ({ id: 'official-article' }) }
+        : { update: async () => undefined },
+  } as unknown as EntityManager;
+  assert.equal(hasReadableNewsMetadata(source({ source: 'NAVER' })), false);
+  assert.equal(hasReadableNewsMetadata(row), true);
+  await attachNewsArticle(manager, row);
+  assert.equal(row.newsArticleId, 'official-article');
 });
 
 test('title migration adds a nullable indexed attribute without regrouping, deleting or making title unique', async () => {

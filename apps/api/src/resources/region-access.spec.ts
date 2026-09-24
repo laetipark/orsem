@@ -221,7 +221,7 @@ test('RSS news source filtering precedes limit and cursor in every fixture regio
       .length,
     3,
   );
-  for (const source of ['NAVER', 'unknown', 'news_rss', ['NEWS_RSS', 'NAVER']]) {
+  for (const source of ['unknown', 'news_rss', ['NEWS_RSS', 'NAVER']]) {
     await assert.rejects(
       () => controller.list({ source }, { session: { memberId: 'member' } } as never),
       (error: unknown) => error instanceof HttpException && error.getStatus() === 400,
@@ -262,7 +262,11 @@ test('RSS news SQL combines source, global feed region and cursor predicates bef
   for (const region of ['kr', 'us'] as const) {
     await data.listNews({ source: 'NEWS_RSS', region, limit: 6, cursor });
     const query = captured.at(-1)!;
-    assert.match(query.sql, /`source`\.`source` NOT LIKE 'NAVER%'/u);
+    assert.match(
+      query.sql,
+      /`source`\.`source` NOT IN \('MARKETAUX','ALPHAVANTAGE','FINNHUB','NAVER'\)/u,
+    );
+    assert.match(query.sql, /naver-news-metadata-v1/u);
     assert.match(query.sql, /NOT EXISTS \(SELECT 1 FROM source_items duplicate/u);
     assert.ok(query.values.includes('NEWS_RSS'));
     assert.match(query.sql, /JSON_EXTRACT\(`source`\.`raw_metadata_json`, '\$\.marketRegion'\)/u);

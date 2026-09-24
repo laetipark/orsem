@@ -32,7 +32,7 @@ export function originalNewsPublisher(source: SourceItemEntity): string | null {
 export function hasReadableNewsMetadata(source: SourceItemEntity): boolean {
   const policy = source.sourcePolicyJson;
   return (
-    source.source !== 'NAVER' &&
+    (source.source !== 'NAVER' || policy?.policyVersion === 2) &&
     isNewsDisplayAllowed(policy) &&
     policy?.rightsMode === source.rightsMode &&
     (policy.policyVersion !== 2 ||
@@ -92,7 +92,7 @@ export async function attachNewsArticle(
   source: SourceItemEntity,
   options: AttachNewsArticleOptions = {},
 ): Promise<void> {
-  if (source.source === 'NAVER') return;
+  if (source.source === 'NAVER' && !hasReadableNewsMetadata(source)) return;
   source.normalizedTitleHash = normalizedNewsTitleHash(source.title);
   const sourceRepository = manager.getRepository(SourceItemEntity);
   await sourceRepository.update(source.id, { normalizedTitleHash: source.normalizedTitleHash });

@@ -94,6 +94,20 @@ export function mapSourceItem(
     row.sourcePolicyJson?.policyVersion === 2 && !isNewsSummaryStorageAllowed(row.sourcePolicyJson)
       ? null
       : (news?.description ?? metadata.description);
+  const description = ['GDELT', 'ALPACA_NEWS'].includes(row.source)
+    ? null
+    : publicNewsDescription(row.rightsMode, providedDescription, row.sourcePolicyJson);
+  const original = metadata.providerOriginal;
+  const providerOriginal =
+    row.source === 'NAVER' &&
+    description !== null &&
+    original &&
+    typeof original === 'object' &&
+    ['title', 'description', 'link', 'originallink', 'pubDate'].every(
+      (key) => typeof (original as Record<string, unknown>)[key] === 'string',
+    )
+      ? (original as NonNullable<SourceItem['providerOriginal']>)
+      : undefined;
   return {
     id: row.id,
     displayMode: 'EXTERNAL_LINK',
@@ -149,9 +163,10 @@ export function mapSourceItem(
       },
       row.sourcePolicyJson?.aiAllowed === true && row.sourcePolicyJson?.displayAllowed === true,
     ),
-    description: ['GDELT', 'ALPACA_NEWS'].includes(row.source)
-      ? null
-      : publicNewsDescription(row.rightsMode, providedDescription, row.sourcePolicyJson),
+    description,
+    summaryAllowed: description !== null,
+    ...(providerOriginal ? { providerOriginal } : {}),
+    ...(typeof metadata.collectedAt === 'string' ? { collectedAt: metadata.collectedAt } : {}),
     translation: ['GDELT', 'ALPACA_NEWS'].includes(row.source) ? null : publicNewsTranslation(row),
     sourceName: row.sourceName,
     author: row.author,

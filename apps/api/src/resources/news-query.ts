@@ -71,7 +71,6 @@ export function eventAudienceSql(alias: string, audience: NewsAudience = 'MEMBER
 }
 export function newsFiltersSql(alias: string, query: NewsFilters): string {
   const clauses = [
-    `${alias}.source NOT LIKE 'NAVER%'`,
     newsAudienceSql(alias, query.audience),
     `JSON_EXTRACT(${alias}.source_policy_json, '$.metadataStorageAllowed') = true`,
     `JSON_EXTRACT(${alias}.source_policy_json, '$.displayAllowed') = true`,
@@ -96,9 +95,14 @@ export function newsFiltersSql(alias: string, query: NewsFilters): string {
           AND (selected_relevance.source_item_id=${alias}.id OR (${alias}.news_article_id IS NOT NULL AND selected_source.news_article_id=${alias}.news_article_id)))`
         : '1 = 0',
     );
-  if (query.asset) clauses.push('1 = 0'); // Asset feeds are transient Naver snapshots only.
+  if (query.asset)
+    clauses.push(
+      `JSON_CONTAINS(JSON_EXTRACT(${alias}.raw_metadata_json, '$.topicIds'), :newsAssetTopic)`,
+    );
   if (query.scope === 'market')
-    clauses.push(`${newsPublisherSql(alias)} IN ('federal-reserve', 'bls')`);
+    clauses.push(
+      `(${newsPublisherSql(alias)} IN ('federal-reserve', 'bls') OR JSON_CONTAINS(JSON_EXTRACT(${alias}.raw_metadata_json, '$.topicKinds'), '"MARKET"'))`,
+    );
   if (query.scope === 'company')
     clauses.push(companyRelevanceSql(alias, false, false, query.audience));
   if (query.source) clauses.push(`${alias}.source = :newsSource`);
@@ -120,6 +124,7 @@ export function newsFilterParameters(query: NewsFilters): Record<string, unknown
     newsCompanyId: query.companyId,
     newsCompanyIds: query.companyIds,
     newsSource: query.source,
+    newsAssetTopic: query.asset ? JSON.stringify(`topic:${String(query.asset)}`) : undefined,
     newsKind: query.sourceKind,
     newsPublisher: query.publisher,
     newsQuery: query.q ? literalSearchPattern(query.q) : undefined,
@@ -150,8 +155,8 @@ export function representativeNewsSql(query: NewsFilters, sourceAlias = 'source'
   return `NOT EXISTS (SELECT 1 FROM source_items duplicate WHERE ${sourceAlias}.news_article_id IS NOT NULL
     AND duplicate.news_article_id = ${sourceAlias}.news_article_id AND ${newsFiltersSql('duplicate', query)}
     AND ${metadataNewsSql('duplicate')}
-    AND ((duplicate.source IN ('GDELT','ALPACA_NEWS','MARKETAUX','ALPHAVANTAGE','FINNHUB')) < (${sourceAlias}.source IN ('GDELT','ALPACA_NEWS','MARKETAUX','ALPHAVANTAGE','FINNHUB'))
-      OR ((duplicate.source IN ('GDELT','ALPACA_NEWS','MARKETAUX','ALPHAVANTAGE','FINNHUB')) = (${sourceAlias}.source IN ('GDELT','ALPACA_NEWS','MARKETAUX','ALPHAVANTAGE','FINNHUB')) AND
+    AND ((duplicate.source IN ('GDELT','ALPACA_NEWS','MARKETAUX','ALPHAVANTAGE','FINNHUB','NAVER')) < (${sourceAlias}.source IN ('GDELT','ALPACA_NEWS','MARKETAUX','ALPHAVANTAGE','FINNHUB','NAVER'))
+      OR ((duplicate.source IN ('GDELT','ALPACA_NEWS','MARKETAUX','ALPHAVANTAGE','FINNHUB','NAVER')) = (${sourceAlias}.source IN ('GDELT','ALPACA_NEWS','MARKETAUX','ALPHAVANTAGE','FINNHUB','NAVER')) AND
         (duplicate.first_observed_at < ${sourceAlias}.first_observed_at OR
          (duplicate.first_observed_at = ${sourceAlias}.first_observed_at AND duplicate.id < ${sourceAlias}.id)))))`;
 }

@@ -11,7 +11,7 @@ import type { GroupActor } from '../watchlist-groups/watchlist-access.service';
 export const newsAudienceForActor = (actor: GroupActor): NewsAudience =>
   actor.kind === 'ADMIN' ? 'ADMIN_UI' : 'MEMBER_UI';
 
-export const PRIVATE_NEWS_PROVIDERS = ['MARKETAUX', 'ALPHAVANTAGE', 'FINNHUB'] as const;
+export const PRIVATE_NEWS_PROVIDERS = ['MARKETAUX', 'ALPHAVANTAGE', 'FINNHUB', 'NAVER'] as const;
 export const PRIVATE_NEWS_PROFILES = [
   'nvidia-ir-press',
   'broadcom-ir-news',
