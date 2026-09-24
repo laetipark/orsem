@@ -6,7 +6,14 @@ import {
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { AlertStatus, isSupportedFilingType, type Event, type Region } from '@orsem/contracts';
+import {
+  AlertStatus,
+  disclosureTypeLabels,
+  displayDisclosureText,
+  isSupportedFilingType,
+  type Event,
+  type Region,
+} from '@orsem/contracts';
 import {
   AlertDeliveryEntity,
   AlertEntity,
@@ -649,7 +656,14 @@ function formatMessengerEvents(heading: string, events: Event[]): string {
     const company = event.company?.nameKo ?? '회사 미확인';
     const date = botKst(event.filing?.rceptDate ?? event.firstObservedAt);
     const url = event.filing?.officialUrl ? `\n${event.filing.officialUrl}` : '';
-    return `• ${company} · ${event.canonicalEventType}\n${event.summary}\n${date}${url}`;
+    const type = event.filing?.detailType;
+    const label =
+      type && isSupportedFilingType(type)
+        ? disclosureTypeLabels[type]
+        : event.canonicalEventType === 'NEWS'
+          ? '뉴스'
+          : '공시';
+    return `• ${company} · ${label}\n${displayDisclosureText(event.summary)}\n${date}${url}`;
   });
   return [heading, ...rows, '관찰 정보이며 단독 매매 신호가 아닙니다.'].join('\n');
 }

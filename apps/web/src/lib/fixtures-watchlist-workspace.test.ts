@@ -349,7 +349,7 @@ it('group filings retain source dates and return only official documents for the
       filingDate: '2026-09-03',
       publishedAt: null,
       firstObservedAt: '2026-09-03T06:12:18.000Z',
-      url: 'https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260903000001',
+      url: expect.stringMatching(/^\/events\//),
     });
   } finally {
     group.companyIds = original;

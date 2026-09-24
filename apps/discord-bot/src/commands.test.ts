@@ -8,12 +8,14 @@ describe('Discord message formatting', () => {
         {
           company: '예시전자',
           type: 'D002',
-          summary: '대표이사 장내매수 원문 확인',
+          summary: '대표이사 장내매수 D002 원문 확인',
           observedAt: '2026-09-03 10:10 KST',
         },
       ],
     });
     expect(text).toContain('단독 매매 신호가 아닙니다');
+    expect(text).toContain('임원·주요주주 보유');
+    expect(text).not.toContain('D002');
   });
 
   it('renders an operational timestamp', () => {

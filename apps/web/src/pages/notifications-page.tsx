@@ -55,13 +55,13 @@ const topicOptions = [
   {
     id: 'FILINGS',
     label: '새 공시',
-    description: '새로 접수된 공식 공시를 확인합니다.',
+    description: '새 공시의 분석이 완료되면 결과를 받습니다.',
     icon: FileText,
   },
   {
     id: 'ANALYSIS',
     label: '분석 완료',
-    description: '공시의 분류와 분석 결과가 준비되면 받습니다.',
+    description: '공시의 분석 결과가 준비되면 받습니다. 새 공시 알림과 중복 발송하지 않습니다.',
     icon: FileCheck2,
   },
   {

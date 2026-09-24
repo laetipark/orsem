@@ -6,7 +6,7 @@
   height: 42px;
   flex-shrink: 0;
   overflow: hidden;
-  border: 1px solid var(--border);
+  border: 0;
   border-radius: 11px;
   color: var(--teal);
   background: var(--teal-soft);

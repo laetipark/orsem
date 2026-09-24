@@ -14,12 +14,12 @@ from .policy import (
     TYPES,
     can_process,
     canonical_report_name,
-    should_deliver,
     submission,
     update_classification,
 )
 from .primitives import OpenDartApiError
 from .storage import insert, one, save, select, update
+from .summary import DISCLOSURE_LABELS
 
 
 async def enqueue_backfill(ctx, payload: dict) -> int:
@@ -420,12 +420,13 @@ class OpenDartIngestion:
                     if filing["effectiveState"] == "SUPERSEDED"
                     else "OPEN",
                     "evidenceGrade": "A",
-                    "summary": f"[{filing['detailType']} 공시 감지] {company_name} — {filing['reportName']} (원문 분석 중)",
+                    "summary": f"[{DISCLOSURE_LABELS[filing['detailType']]}] {company_name} — {filing['reportName']} (분석 중)",
                     "dedupeKey": dedupe,
                     "metadataJson": {
                         "rceptNo": filing["rceptNo"],
                         "detailType": filing["detailType"],
                         "phase": "DETECTED",
+                        "suppressAlerts": suppress,
                     },
                 },
             )
@@ -440,47 +441,6 @@ class OpenDartIngestion:
                     "provenanceJson": {"source": "OPENDART", "phase": "LIST"},
                 },
             )
-        if suppress or not should_deliver(filing):
-            return
-        key = event["id"] + ":WEB:detected:v1"
-        if await one(tx, "alerts", "idempotency_key=:key", {"key": key}):
-            return
-        payload = {
-            "phase": "DETECTED",
-            "filingId": filing["id"],
-            "detailType": filing["detailType"],
-            "companyName": company_name,
-            "reportName": filing["reportName"],
-            "rceptNo": filing["rceptNo"],
-            "rceptDate": filing["rceptDate"],
-            "officialUrl": f"https://dart.fss.or.kr/dsaf001/main.do?rcpNo={filing['rceptNo']}",
-            "message": "원문 분석 중이며 투자 매매 신호가 아닙니다.",
-        }
-        alert = await insert(
-            tx,
-            "alerts",
-            {
-                "eventClusterId": event["id"],
-                "idempotencyKey": key,
-                "status": "PENDING",
-                "alertVersion": 1,
-                "payloadJson": payload,
-            },
-        )
-        await insert(
-            tx,
-            "alert_outbox",
-            {
-                "alertId": alert["id"],
-                "channel": "WEB",
-                "idempotencyKey": key,
-                "status": "PENDING",
-                "payload": payload,
-                "availableAt": utcnow(),
-                "attempts": 0,
-                "lastError": None,
-            },
-        )
 
     async def link_correction(self, tx, filing: dict, company_id: str) -> None:
         candidates = await select(

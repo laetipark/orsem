@@ -55,6 +55,7 @@ export async function filingAlertIsEligible(
   if (!filing || (rceptNo && filing.rceptNo !== rceptNo)) return false;
   if (event && !memberships.some((item) => item.itemId === filing.id)) return false;
   if (filing.source !== 'OPENDART') return true;
+  if (event?.metadataJson?.['suppressAlerts'] === true) return false;
 
   // Recheck the current title too: old persisted classifications can predate the fix.
   const classification = classifyOpenDartFiling({
@@ -84,7 +85,6 @@ export async function filingAlertIsEligible(
     event.canonicalEventType !== EventType.CORRECTION
   )
     return false;
-  if (payload['phase'] === 'DETECTED') return true;
   if (payload['phase'] !== 'PARSED' || !filing.activeParseRunId) return false;
   const parseRunId =
     text(payload['parseRunId']) ?? /:parsed:([a-f0-9-]{36}):/u.exec(alert.idempotencyKey)?.[1];
@@ -115,6 +115,9 @@ export async function filingAlertIsEligible(
     run.status === ParseStatus.SUCCEEDED &&
     run.validationStatus === 'PASSED' &&
     run.resultJson?.['projectionApplied'] === true &&
+    run.resultJson?.['suppressAlerts'] !== true &&
+    (run.resultJson?.['staging'] as Record<string, unknown> | undefined)?.['mode'] !==
+      'OFFLINE_INACTIVE' &&
     event?.metadataJson?.['parseRunId'] === run.id &&
     resultType === run.resultType &&
     sourceConfirmed &&

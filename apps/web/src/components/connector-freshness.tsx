@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { naverBudgetAvailable } from '../lib/naver-news';
 import { formatKst, formatLag } from '../lib/format';
+import { displayDomainText } from '../lib/domain-labels';
 import { RightsBadge } from './domain-badges';
 import { Badge, Button, Card, CardContent, CardHeader, ErrorState, LoadingState } from './ui';
 import type { SourceFreshness, NaverNewsStatus } from '../types';
@@ -185,7 +186,9 @@ export function ConnectorFreshness({ isAdmin }: { isAdmin: boolean }) {
                       {['sec', 'gdelt'].includes(source.id.toLowerCase()) &&
                       source.requestAttempted !== undefined &&
                       source.message ? (
-                        <p className="connector-source__message">{source.message}</p>
+                        <p className="connector-source__message">
+                          {displayDomainText(source.message)}
+                        </p>
                       ) : null}
                       {['sec', 'gdelt'].includes(source.id.toLowerCase()) && source.nextRetryAt ? (
                         <p className="connector-source__message">

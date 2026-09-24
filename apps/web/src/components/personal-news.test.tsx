@@ -65,7 +65,7 @@ function filing(index: number): PersonalFiling {
     filingDate: '2026-09-06',
     publishedAt: null,
     firstObservedAt: asOf,
-    url: `https://www.sec.gov/example/${index}`,
+    url: `/events/filing-${index}`,
     relatedCompanies: [],
   };
 }
@@ -110,6 +110,11 @@ it.each([
   render(panel());
   if (tab === '공시') fireEvent.click(screen.getByRole('tab', { name: tab }));
   expect(await screen.findByText(`관심 ${tab} 1`)).toBeVisible();
+  if (tab === '공시') {
+    const link = screen.getByRole('link', { name: /관심 공시 1 · SEC/ });
+    expect(link).toHaveAttribute('href', '/events/filing-1');
+    expect(link).not.toHaveAttribute('target');
+  }
   expect(screen.getAllByRole('listitem')).toHaveLength(size);
   expect(screen.getByText(`총 13건 · 1–${size}건`)).toBeVisible();
   expect(screen.getByRole('button', { name: '이전 소식' })).toBeDisabled();

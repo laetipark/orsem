@@ -1293,7 +1293,7 @@ function fixtureFilings(companyIds: readonly string[]): PersonalFiling[] {
         filingDate: event.rceptDate,
         publishedAt: event.publishedAt,
         firstObservedAt: event.firstObservedAt,
-        url: event.officialUrl,
+        url: `/events/${encodeURIComponent(event.id)}`,
         relatedCompanies: companies
           .filter((company) => company.id === event.companyId)
           .map(({ id, nameKo, nameEn, stockCode, ticker, market }) => ({
@@ -1619,16 +1619,15 @@ export async function fixtureRequest<T>(path: string, init?: RequestInit): Promi
         title: event.title,
         translation: null,
         subtitle: `${event.companyName} · ${event.detailType}`,
-        url: details.get(event.id)?.officialUrl ?? '',
-        external: true,
+        url: `/events/${encodeURIComponent(event.id)}`,
+        external: false,
         companyId: event.companyId,
         source: event.detailType === 'SEC' ? 'SEC' : 'OPENDART',
         rightsMode: event.rightsMode,
         publishedAt: event.publishedAt,
         rceptDate: event.rceptDate,
         firstObservedAt: event.firstObservedAt,
-      }))
-      .filter((item) => item.url.startsWith('https://')) as SearchItem[];
+      })) as SearchItem[];
     const news: SearchItem[] = fixtureNewsSeeds
       .filter(approvedFixtureNews)
       .filter(() => !url.searchParams.has('asset'))

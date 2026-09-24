@@ -146,7 +146,8 @@ test('예시에서도 티커 검색과 그룹별 한도, 공시 날짜와 출처
   assert.equal(result.filings[0]?.publishedAt, null);
   assert.equal(result.filings[0]?.firstObservedAt, original.firstObservedAt);
   assert.equal(result.filings[0]?.rightsMode, RightsMode.OFFICIAL_PUBLIC_DATA);
-  assert.match(result.filings[0]!.url, /^https:\/\/dart\.fss\.or\.kr\//u);
+  assert.equal(result.filings[0]!.url, `/events/${original.id}`);
+  assert.equal(result.filings[0]!.external, false);
   assert.deepEqual((await controller.search({ q: '검색결과없음' })).hasMore, {
     companies: false,
     news: false,
@@ -487,7 +488,8 @@ test('실제 TypeORM SQL은 입력을 바인딩하고 원문·권리 제한 데�
   assert.equal(sec?.firstObservedAt, now.toISOString());
   assert.equal(sec?.translation, null);
   for (const item of [...result.news, ...result.filings]) {
-    assert.ok(item.external);
+    assert.equal(item.external, item.type === 'NEWS');
+    if (item.type === 'FILING') assert.equal(item.url, `/events/${item.id}`);
     if (item.type === 'NEWS') assert.equal(item.description, '공급자가 제공한 요약');
     assert.ok(!('rawMetadataJson' in item));
     assert.ok(!('rawObjectUri' in item));

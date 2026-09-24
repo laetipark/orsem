@@ -193,7 +193,8 @@ async def test_receipt_enrichment_reuse_preserves_projection_ids_and_dates():
                 )
                 assert len(outbox) == 1
                 alerts = await select(tx, "alerts", "event_cluster_id=:id", {"id": event["id"]})
-                assert len(alerts) == 2
+                assert len(alerts) == 1
+                assert alerts[0]["payloadJson"]["phase"] == "PARSED"
                 raise Rollback()
     finally:
         await db.close()

@@ -26,7 +26,7 @@ def delivery_payload(alert, payload):
     )[:1900]
     return {
         "alertId": alert["id"],
-        "operation": "FOLLOW_UP" if phase == "PARSED" else "SEND",
+        "operation": "SEND",
         "stage": "ENRICHED" if phase == "PARSED" else "DETECTED",
         "content": content or "오르셈 새 관찰 이벤트",
         "externalMessageId": None,

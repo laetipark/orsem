@@ -5,6 +5,7 @@ import { Activity, Clock3, DatabaseZap, RefreshCw, ServerCog } from 'lucide-reac
 import { api } from '../lib/api';
 import { COMPACT_LAYOUT_QUERY, useMediaQuery } from '../lib/use-media-query';
 import { formatKst, formatLag, formatNumber } from '../lib/format';
+import { displayDomainText } from '../lib/domain-labels';
 import type { OperationRun } from '../types';
 import { DataTable } from '../components/data-table';
 import { RightsBadge } from '../components/domain-badges';
@@ -55,7 +56,7 @@ function RunCards({ items }: { items: OperationRun[] }) {
       {items.map((run) => (
         <article className="operation-run" key={run.id}>
           <header>
-            <strong>{run.job}</strong>
+            <strong>{displayDomainText(run.job)}</strong>
             <RunStatus status={run.status} />
           </header>
           <dl>
@@ -123,7 +124,7 @@ export function OperationsPage() {
         header: '작업',
         cell: ({ row }) => (
           <div className="table-job">
-            <strong>{row.original.job}</strong>
+            <strong>{displayDomainText(row.original.job)}</strong>
             <span>{row.original.source}</span>
           </div>
         ),
@@ -240,7 +241,7 @@ export function OperationsPage() {
               </CardHeader>
               <CardContent>
                 <h2>{source.name}</h2>
-                <p>{source.message}</p>
+                <p>{displayDomainText(source.message ?? '')}</p>
                 <div className="source-health-meta">
                   <span>
                     <Clock3 size={14} /> {formatKst(source.lastSuccessAt)}

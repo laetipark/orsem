@@ -1,3 +1,4 @@
+import { disclosureTypeLabels, displayDisclosureText } from '@orsem/contracts';
 import type { DisclosureType, Priority } from '../types';
 
 export const priorityLabels: Record<Priority, string> = {
@@ -8,11 +9,7 @@ export const priorityLabels: Record<Priority, string> = {
 };
 
 export const disclosureLabels: Record<DisclosureType, string> = {
-  D001: '대량보유 공시',
-  D002: '임원·주요주주 보유',
-  D003: '의결권 위임 권유',
-  D004: '공개매수',
-  D005: '주식 거래계획',
+  ...disclosureTypeLabels,
   NEWS: '뉴스 후보',
   SEC: 'SEC 공시 접수',
 };
@@ -27,9 +24,9 @@ export const disclosureDescriptions: Partial<Record<DisclosureType, string>> = {
 
 // Use only for application explanations and labels. Source quotes and stored fields stay intact.
 export function displayDomainText(value: string): string {
-  return value.replace(
-    /(?<![\p{L}\p{N}_])(?:P[1-4]|D00[1-5])(?![\p{L}\p{N}_])/gu,
-    (code) => priorityLabels[code as Priority] ?? disclosureLabels[code as DisclosureType] ?? code,
+  return displayDisclosureText(value).replace(
+    /(?<![\p{L}\p{N}_])P[1-4](?![\p{L}\p{N}_])/gu,
+    (code) => priorityLabels[code as Priority],
   );
 }
 

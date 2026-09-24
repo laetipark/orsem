@@ -267,6 +267,7 @@ a:focus-visible,
   width: 42px;
   height: 42px;
   padding: 0;
+  border: 0;
 }
 .button > svg {
   flex-shrink: 0;

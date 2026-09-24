@@ -97,6 +97,15 @@ test('pending parsed alerts cannot reuse superseded, legacy, partial, or unappli
       c.run.resultJson!.projectionApplied = false;
     },
     (c: ReturnType<typeof context>) => {
+      c.event.metadataJson!.suppressAlerts = true;
+    },
+    (c: ReturnType<typeof context>) => {
+      c.run.resultJson!.suppressAlerts = true;
+    },
+    (c: ReturnType<typeof context>) => {
+      c.run.resultJson!.staging = { mode: 'OFFLINE_INACTIVE' };
+    },
+    (c: ReturnType<typeof context>) => {
       c.run.extractorType = 'D005';
     },
     (c: ReturnType<typeof context>) => {
@@ -142,11 +151,11 @@ test('title, event family, payload type, and receipt membership must agree', asy
   }
 });
 
-test('detection does not require a parsed result; non-filing news and operations remain independent', async () => {
+test('detection alerts wait for analysis; non-filing news and operations remain independent', async () => {
   const c = context();
   c.alert.payloadJson.phase = 'DETECTED';
   c.filing.activeParseRunId = null;
-  assert.equal(await filingAlertIsEligible(c.manager, c.alert), true);
+  assert.equal(await filingAlertIsEligible(c.manager, c.alert), false);
   c.tables.set(EventClusterItemEntity, []);
   c.alert.payloadJson = { phase: 'NEWS' };
   assert.equal(await filingAlertIsEligible(c.manager, c.alert), true);

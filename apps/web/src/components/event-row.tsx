@@ -2,6 +2,7 @@ import { ArrowRight, Clock3 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import type { EventSummary } from '../types';
 import { formatDate, formatKst } from '../lib/format';
+import { displayDomainText } from '../lib/domain-labels';
 import { CompanyAvatar } from './company-avatar';
 import { TranslatedText } from './translated-text';
 import {
@@ -66,7 +67,7 @@ export function EventCompactRow({ event }: { event: EventSummary }) {
           translation={event.translation}
         />
       ) : (
-        <p>{event.summary}</p>
+        <p>{displayDomainText(event.summary)}</p>
       )}
       <div className="event-row__meta">
         {hasObservedOwnershipSemantics(event.detailType) ? (
@@ -111,7 +112,7 @@ export function EventMobileCard({ event }: { event: EventSummary }) {
           translation={event.translation}
         />
       ) : (
-        <p>{event.summary}</p>
+        <p>{displayDomainText(event.summary)}</p>
       )}
       <dl className="inline-facts">
         {hasObservedOwnershipSemantics(event.detailType) ? (

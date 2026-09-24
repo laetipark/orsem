@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from ..core import utcnow
 from .lifecycle import (
     assert_document_kind,
@@ -15,6 +13,7 @@ from .matches import dismiss_stale_reviews, link_candidates, link_existing_candi
 from .policy import EVENT_TYPES, assert_type_invariant, should_deliver, source_review
 from .primitives import OpenDartPayloadError
 from .storage import insert, one, save, select
+from .summary import parsed_summary
 
 
 def cut(value, maximum):
@@ -289,27 +288,6 @@ async def apply_summary_only(tx, filing: dict, crosscheck: dict) -> None:
     await save(tx, table, report)
 
 
-def parsed_summary(parsed: dict) -> str:
-    kind = parsed["detailType"]
-    reporter = parsed.get("reporterName")
-    if kind == "D005":
-        first: dict[str, Any] = next(iter(parsed["planItems"]), {})
-        return f"[D005 거래 예정] {reporter if reporter is not None else '신고자 확인 필요'} — {first.get('methodRaw') or '방법 확인 필요'} {first.get('quantity') if first.get('quantity') is not None else '수량 확인 필요'}"
-    if kind == "D001":
-        return f"[D001 5% 대량보유 변동] {reporter if reporter is not None else '보고자 확인 필요'} — {parsed.get('reportReasonRaw') if parsed.get('reportReasonRaw') is not None else '사유 확인 필요'}"
-    if kind == "D003":
-        return f"[의결권 대리행사 권유] {parsed.get('solicitorName') if parsed.get('solicitorName') is not None else '권유자 확인 필요'} — 주주총회 {parsed.get('meetingDate') or '일자 확인 필요'}, 안건 {len(parsed['agendas'])}건"
-    if kind == "D004":
-        return f"[공개매수 {'결과' if parsed['documentKind'] == 'RESULT' else '문서'}] {parsed.get('offerorName') if parsed.get('offerorName') is not None else '공개매수자 확인 필요'} — {parsed.get('targetCompanyName') if parsed.get('targetCompanyName') is not None else '대상회사 확인 필요'}"
-    first = next(iter(parsed["transactions"]), {})
-    market = (
-        "시장거래 확인"
-        if first.get("nature") in ("MARKET_BUY", "MARKET_SELL")
-        else "비시장성 또는 미확정 변동"
-    )
-    return f"[D002 소유변동 확인] {reporter if reporter is not None else '신고자 확인 필요'} — {first.get('methodRaw') or '방법 확인 필요'} {first.get('quantity') if first.get('quantity') is not None else '수량 확인 필요'} ({market})"
-
-
 async def materialize_event(
     tx,
     filing: dict,
@@ -351,6 +329,14 @@ async def materialize_event(
         )
     key = "opendart:filing:" + filing["id"]
     event = await one(tx, "event_clusters", "dedupe_key=:key", {"key": key})
+    prior_metadata = (event or {}).get("metadataJson") or {}
+    run_suppressed = (run.get("resultJson") or {}).get("suppressAlerts") is True or (
+        (run.get("resultJson") or {}).get("staging") or {}
+    ).get("mode") == "OFFLINE_INACTIVE"
+    # Preserve how this receipt was first observed. A suppressed maintenance run
+    # must not permanently mute a receipt originally discovered by the live poll.
+    receipt_suppressed = prior_metadata.get("suppressAlerts", suppress_alerts or run_suppressed)
+    suppress_alerts = suppress_alerts or receipt_suppressed is True or run_suppressed
     kind = parsed["detailType"]
     dates = (
         [row["eventDate"] for row in parsed["changes"]]
@@ -381,7 +367,9 @@ async def materialize_event(
         if status == "SUCCEEDED"
         else "REVIEW_REQUIRED"
     )
-    summary = parsed_summary(parsed)
+    company = await one(tx, "companies", "id=:id", {"id": filing["companyId"]})
+    company_name = (company or {}).get("nameKo") or (company or {}).get("nameEn")
+    summary = parsed_summary(parsed, company_name)
     event = event or {
         "companyId": filing["companyId"],
         "firstObservedAt": filing["firstObservedAt"],
@@ -397,6 +385,8 @@ async def materialize_event(
             "evidenceGrade": "A",
             "summary": summary,
             "metadataJson": {
+                **prior_metadata,
+                "suppressAlerts": receipt_suppressed,
                 "rceptNo": filing["rceptNo"],
                 "detailType": filing["detailType"],
                 "phase": "PARSED",
@@ -426,7 +416,12 @@ async def materialize_event(
                 "provenanceJson": {"source": "OPENDART", "phase": "DOCUMENT"},
             },
         )
-    if suppress_alerts or not should_deliver(filing):
+    if (
+        suppress_alerts
+        or status != "SUCCEEDED"
+        or run.get("validationStatus") != "PASSED"
+        or not should_deliver(filing)
+    ):
         return
     key = f"{event['id']}:WEB:parsed:{run_id}:{status}:v1"
     if await one(tx, "alerts", "idempotency_key=:key", {"key": key}):
@@ -438,6 +433,7 @@ async def materialize_event(
         "detailType": filing["detailType"],
         "rceptNo": filing["rceptNo"],
         "reportName": filing["reportName"],
+        "companyName": company_name,
         "summary": summary,
         "parseStatus": status,
         "evidenceGrade": "A",

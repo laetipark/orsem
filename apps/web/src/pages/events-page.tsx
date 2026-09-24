@@ -8,7 +8,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { api, type EventFilters } from '../lib/api';
 import { COMPACT_LAYOUT_QUERY, useMediaQuery } from '../lib/use-media-query';
 import { formatDate, formatKst } from '../lib/format';
-import { disclosureLabels, priorityLabels } from '../lib/domain-labels';
+import { disclosureLabels, displayDomainText, priorityLabels } from '../lib/domain-labels';
 import type { EventSummary } from '../types';
 import { RegionTabs, parseRegion } from '../components/region-tabs';
 import { DataTable } from '../components/data-table';
@@ -128,7 +128,11 @@ export function EventsPage() {
             </span>
             <TranslatedText
               title={row.original.title}
-              description={row.original.summary}
+              description={
+                row.original.detailType === 'NEWS'
+                  ? row.original.summary
+                  : displayDomainText(row.original.summary)
+              }
               translation={row.original.detailType === 'NEWS' ? row.original.translation : null}
             />
           </Link>

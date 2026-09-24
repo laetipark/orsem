@@ -100,6 +100,8 @@ async def filing_alert_is_eligible(db, alert):
         return False
     if filing["source"] != "OPENDART":
         return True
+    if event and (event.get("metadataJson") or {}).get("suppressAlerts") is True:
+        return False
     kind = filing.get("canonicalType")
     classification = classify_filing(
         filing["reportName"],
@@ -116,8 +118,6 @@ async def filing_alert_is_eligible(db, alert):
         return False
     if event and event["canonicalEventType"] not in (EVENT_TYPES[kind], "CORRECTION"):
         return False
-    if payload.get("phase") == "DETECTED":
-        return True
     if payload.get("phase") != "PARSED" or not filing.get("activeParseRunId"):
         return False
     match = re.search(r":parsed:([a-f0-9-]{36}):", alert["idempotencyKey"])
@@ -152,6 +152,8 @@ async def filing_alert_is_eligible(db, alert):
         and run["status"] == "SUCCEEDED"
         and run["validationStatus"] == "PASSED"
         and result.get("projectionApplied") is True
+        and result.get("suppressAlerts") is not True
+        and (result.get("staging") or {}).get("mode") != "OFFLINE_INACTIVE"
         and event
         and (event.get("metadataJson") or {}).get("parseRunId") == run["id"]
         and result_type == run.get("resultType")

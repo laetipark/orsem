@@ -392,5 +392,14 @@ class DeferredProjection:
                                 "resolvedAt": None,
                             },
                         )
-                await materialize_event(tx, locked, parsed, locked_run["id"], status, False, True)
+                await materialize_event(
+                    tx,
+                    locked,
+                    parsed,
+                    locked_run["id"],
+                    status,
+                    current_result.get("suppressAlerts") is True
+                    or (current_result.get("staging") or {}).get("mode") == "OFFLINE_INACTIVE",
+                    True,
+                )
                 return summary(True)

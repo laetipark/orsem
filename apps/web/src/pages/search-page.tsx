@@ -131,7 +131,9 @@ export function SearchPage() {
         <Search size={21} aria-hidden="true" />
         <div>
           <h2>‘{query}’ 검색 결과</h2>
-          <p>수집된 종목 정보와 뉴스·공시에서 찾습니다. 뉴스와 공시는 원문으로 연결됩니다.</p>
+          <p>
+            수집된 종목 정보와 뉴스·공시에서 찾습니다. 공시는 서비스 내 상세 페이지에서 확인합니다.
+          </p>
         </div>
       </div>
       <RegionTabs />

@@ -92,7 +92,7 @@ async def test_company_override_is_persisted_isolated_and_rechecked_at_delivery(
                         "canonicalEventType": "INSIDER_OWNERSHIP",
                         "companyId": company["id"],
                         "firstObservedAt": now,
-                        "state": "DETECTED",
+                        "state": "VERIFIED",
                         "evidenceGrade": "OFFICIAL",
                         "summary": "test",
                         "dedupeKey": identifier(),
@@ -106,7 +106,7 @@ async def test_company_override_is_persisted_isolated_and_rechecked_at_delivery(
                         "idempotencyKey": identifier(),
                         "status": "PENDING",
                         "alertVersion": 1,
-                        "payloadJson": {"phase": "DETECTED", "companyName": "test"},
+                        "payloadJson": {"phase": "PARSED", "companyName": "test"},
                         "createdAt": now,
                     },
                 )

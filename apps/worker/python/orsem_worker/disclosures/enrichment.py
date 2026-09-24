@@ -347,6 +347,7 @@ class FilingEnrichment:
                                 "rawDocumentId": document["id"],
                                 "queuedDetailType": job["detailType"],
                                 "projectionApplied": projection_applied,
+                                "suppressAlerts": job.get("suppressAlerts", False),
                                 **(
                                     {"protectedActiveParseRunId": locked.get("activeParseRunId")}
                                     if not projection_applied

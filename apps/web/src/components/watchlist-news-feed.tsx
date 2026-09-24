@@ -1,7 +1,7 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api';
 import { watchlistAccessDenied } from '../lib/watchlist-access';
 import { formatDate, formatKst } from '../lib/format';
@@ -185,7 +185,7 @@ export function WatchlistNewsFeed({
         <ul className="personal-filings">
           {filings.data.items.map((item) => (
             <li key={item.id}>
-              <a href={item.url} target="_blank" rel="noopener noreferrer">
+              <Link to={item.url}>
                 <strong>{item.title}</strong>
                 <small>
                   {item.relatedCompanies.map((c) => c.nameKo || c.nameEn || c.ticker).join(' · ')} ·{' '}
@@ -194,7 +194,7 @@ export function WatchlistNewsFeed({
                     ? `접수 ${formatDate(item.filingDate)}`
                     : `수집 ${formatKst(item.firstObservedAt)}`}
                 </small>
-              </a>
+              </Link>
             </li>
           ))}
         </ul>

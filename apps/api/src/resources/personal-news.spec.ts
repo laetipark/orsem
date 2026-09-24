@@ -179,6 +179,8 @@ test('raw personal filings use session identity and include unparsed filings thr
   const result = await service.personalFilings('MEMBER:mine');
   assert.equal(result.items.length, 2);
   assert.equal(result.items[0]!.title, '분석 전 원본');
+  assert.equal(result.items[0]!.url, '/events/dart');
+  assert.equal(result.items[1]!.url, '/events/sec');
   assert.equal(result.items[1]!.relatedCompanies.length, 1);
   assert.equal(result.items[1]!.relatedCompanies[0]!.id, 'mine');
   const dart = calls.find((call) => call.sql.includes('FROM filings f'))!;

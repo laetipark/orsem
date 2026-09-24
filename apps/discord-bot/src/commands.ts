@@ -1,4 +1,5 @@
 import { SlashCommandBuilder } from 'discord.js';
+import { displayDisclosureText } from '@orsem/contracts';
 
 export const orsemCommand = new SlashCommandBuilder()
   .setName('orsem')
@@ -77,7 +78,7 @@ export function formatRecent(value: RecentResponse, heading = '최근 중요 이
   const rows = value.items.map((item) => {
     const url = safeUrl(item.url);
     const link = url ? ` · 공식 원문 <${url}>` : '';
-    return `• **${line(item.company, 60)}** · ${line(item.type, 40)}\n  ${line(item.summary, 160)}\n  ${formatKst(item.observedAt)}${link}`;
+    return `• **${line(item.company, 60)}** · ${line(displayDisclosureText(item.type), 40)}\n  ${line(displayDisclosureText(item.summary), 160)}\n  ${formatKst(item.observedAt)}${link}`;
   });
   return [`**${heading}**`, ...rows, '_관찰 정보이며 단독 매매 신호가 아닙니다._'].join('\n');
 }

@@ -12,7 +12,9 @@ describe('display-only domain terminology', () => {
 
   it('preserves adjacent identifiers while labeling all supported disclosure domains', () => {
     const value = 'XP1 P10 P2_label D00100 한P3 D002공시 D003 D004 D099';
-    expect(displayDomainText(value)).toBe(value.replace('D003 D004', '의결권 위임 권유 공개매수'));
+    expect(displayDomainText(value)).toBe(
+      'XP1 P10 P2_label D00100 한P3 임원·주요주주 보유공시 의결권 위임 권유 공개매수 D099',
+    );
     expect(displayDomainText('(P4) [D005]')).toBe('(일반 뉴스) [주식 거래계획]');
   });
 });

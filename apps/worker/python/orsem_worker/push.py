@@ -24,6 +24,11 @@ def recent(at, now):
         return False
 
 
+def topic_enabled(topics, topic):
+    # New-filing subscriptions are delivered once the analysis is ready.
+    return topic in topics or (topic == "ANALYSIS" and "FILINGS" in topics)
+
+
 def preference_allows(
     *,
     owner_key,
@@ -42,7 +47,7 @@ def preference_allows(
         return False
     if topic == "TEST":
         return True
-    if topic not in topics:
+    if not topic_enabled(topics, topic):
         return False
     if topic == "OPERATIONS":
         return owner_key.startswith("ADMIN:")
@@ -53,7 +58,7 @@ def preference_allows(
     return company_enabled if company_enabled is not None else (not watchlist_only or watchlisted)
 
 
-def alert_topic(alert, event, submission_kind):
+def alert_topic(alert, event, submission_kind, source=None):
     if alert["status"] == "CANCELLED":
         return None
     phase = (alert.get("payloadJson") or {}).get("phase")
@@ -62,7 +67,7 @@ def alert_topic(alert, event, submission_kind):
     if (
         not event
         or event["state"] in ("CANCELLED", "SUPERSEDED")
-        or phase not in ("DETECTED", "PARSED")
+        or (phase != "PARSED" and not (phase == "DETECTED" and source == "SEC"))
     ):
         return None
     if event["canonicalEventType"] == "CORRECTION" or submission_kind in (
@@ -90,8 +95,10 @@ def alert_message(alert, topic):
     payload = alert.get("payloadJson") or {}
     company = short_text(payload.get("companyName"), 30)
     summary = short_text(payload.get("summary"), 160) or short_text(payload.get("reportName"), 160)
+    signal = re.match(r"^(?:\[(?:매수신호|매도신호)\]\s*)+", summary)
+    label = signal[0].strip() if signal and topic == "ANALYSIS" else labels[topic]
     return {
-        "title": f"오름셈 · {labels[topic]}" + (f" · {company}" if company else ""),
+        "title": f"오르셈 · {label}" + (f" · {company}" if company else ""),
         "body": "연결 상태가 변경되었습니다. 운영 화면에서 확인해 주세요."
         if topic == "OPERATIONS"
         else summary or "새 관찰 결과를 확인해 주세요.",
@@ -102,7 +109,7 @@ def alert_message(alert, topic):
 
 def news_message(news):
     return {
-        "title": "오름셈 · 새 뉴스",
+        "title": "오르셈 · 새 뉴스",
         "body": short_text(news["title"], 160),
         "url": "/search?type=news&q=" + quote(short_text(news["title"], 100), safe="~()*!.'-"),
         "tag": f"news-{news['id']}",
@@ -181,8 +188,41 @@ class PushFanout:
         if not await filing_alert_is_eligible(db, alert):
             return None, None, None
         event, _, filing = await alert_filing_context(db, alert)
+        source_name = filing.get("source") if filing else None
+        metadata = (event or {}).get("metadataJson") or {}
+        if not filing and metadata.get("source") == "SEC":
+            # SEC receipts are SOURCE_ITEM memberships rather than FilingEntity rows.
+            # Verify that membership and its current notification rights at fan-out
+            # and final delivery; metadata alone must not authorize a notification.
+            source_id = metadata.get("sourceItemId")
+            if not isinstance(source_id, str) or not source_id:
+                return None, None, None
+            membership = await one(
+                db,
+                "event_cluster_items",
+                "event_cluster_id=:event AND item_type='SOURCE_ITEM' AND item_id=:source",
+                {"event": event["id"], "source": source_id},
+            )
+            source = (
+                await one(db, "source_items", "id=:id", {"id": source_id}) if membership else None
+            )
+            policy = (source or {}).get("sourcePolicyJson") or {}
+            if (
+                not source
+                or source.get("source") != "SEC"
+                or source.get("rightsMode") != "OFFICIAL_PUBLIC_DATA"
+                or policy.get("policyVersion") == 2
+                or policy.get("notifyAllowed") is False
+            ):
+                return None, None, None
+            source_name = "SEC"
         return (
-            alert_topic(alert, event, filing.get("submissionKind") if filing else None),
+            alert_topic(
+                alert,
+                event,
+                filing.get("submissionKind") if filing else None,
+                source_name,
+            ),
             event.get("companyId") if event else None,
             (filing.get("canonicalType") or filing.get("detailType")) if filing else None,
         )
@@ -257,7 +297,7 @@ class PushFanout:
     ):
         created = 0
         for preference in await select(db, "notification_preferences", "enabled=1"):
-            if topic not in preference["topicsJson"]:
+            if not topic_enabled(preference["topicsJson"], topic):
                 continue
             for subscription in await select(
                 db, "push_subscriptions", "owner_key=:owner", {"owner": preference["ownerKey"]}

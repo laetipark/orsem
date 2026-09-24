@@ -1,7 +1,7 @@
 import { newsItems } from '../lib/news-feed';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useId, useState } from 'react';
-import { useOutletContext } from 'react-router-dom';
+import { Link, useOutletContext } from 'react-router-dom';
 import { api } from '../lib/api';
 import { formatDate, formatKst } from '../lib/format';
 import { COMPACT_LAYOUT_QUERY, useMediaQuery } from '../lib/use-media-query';
@@ -97,7 +97,7 @@ export function PersonalNews() {
               <ul className="personal-filings">
                 {filingItems.slice(offset, offset + pageSize).map((item) => (
                   <li key={item.id}>
-                    <a href={item.url} target="_blank" rel="noopener noreferrer">
+                    <Link to={item.url}>
                       <strong>{item.title}</strong>
                       <small>
                         {item.relatedCompanies
@@ -108,7 +108,7 @@ export function PersonalNews() {
                           ? `접수 ${formatDate(item.filingDate)}`
                           : `수집 ${formatKst(item.firstObservedAt)}`}
                       </small>
-                    </a>
+                    </Link>
                   </li>
                 ))}
               </ul>

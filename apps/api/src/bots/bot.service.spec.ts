@@ -93,6 +93,13 @@ test('Messenger commands always include a human-readable message', async () => {
     query: '',
   });
   assert.equal(typeof result.message, 'string');
+  const recent = await service.executeCommand(device, {
+    deviceId: 'fixture-device',
+    command: 'recent',
+    query: '',
+  });
+  assert.match(String(recent.message), /임원·주요주주 보유/u);
+  assert.doesNotMatch(String(recent.message), /D00[1-5]|INSIDER_OWNERSHIP|TRADE_PLAN/u);
 });
 
 test('bot pull cancels old cancelled alerts before leasing while preserving operational deliveries', async () => {

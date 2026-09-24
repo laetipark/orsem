@@ -53,7 +53,7 @@
 - `POST /auth/login`, `POST /auth/logout`, `GET /auth/session`
 - `GET /dashboard`
 - `GET /search?q=...&limit=5` — 저장된 종목, 표시가 허용된 뉴스 제목·제공 요약, 국내외 공시 메타데이터 통합 검색
-- `GET /events`, `GET /events/:id`
+- `GET /events`, `GET /events/:id` — 상세는 이벤트 ID 외에 OpenDART 공시 ID와 SEC 소스 ID도 받습니다. 연결된 분석 이벤트가 없으면 수집된 공시의 분석 대기 상태와 출처 정보를 반환합니다.
 - `GET /filings`, `GET /filings/:id` — 메타데이터
 - `GET /companies`, `GET /companies/:id`, `GET /companies/:id/timeline`
 - `GET /companies/:id/live-price` — 캐시에 있는 최신 토스 시세와 신선도 상태 반환
@@ -98,7 +98,7 @@
 - 종목은 기업 식별자, 한글·영문명, 별칭으로 검색하고 `/companies/:id`로 연결합니다.
 - 뉴스는 제목과 연결된 기업으로 검색하고 `url`의 원문을 새 탭으로 엽니다(`external: true`). `description`, `relatedCompanies`, `translationStatus`를 제공하며 본문이나 번역 준비 여부로 뉴스 노출을 막지 않습니다. SEC 공시는 공시 그룹에 포함합니다.
 - 뉴스는 현재 원문·출처·권리 조건에 맞는 완료된 한국어 번역 제목으로도 검색합니다. 조회가 번역 작업을 실행하지는 않습니다.
-- 공시는 제목, 접수번호, 기업으로 검색합니다. 국내 공시는 DART, 미국 공시는 SEC의 공식 원문 URL로 연결합니다.
+- 공시는 제목, 접수번호, 기업으로 검색합니다. 국내외 공시의 `url`은 서비스 내 `/events/:id` 상세 경로이며 `external: false`입니다. 공식 원문 URL은 상세 응답의 `officialUrl`과 출처 정보에서 확인할 수 있습니다.
 
 검색 응답에는 메타데이터만 포함하며 기사·공시 본문을 반환하지 않습니다. 뉴스는 소스의 메타데이터 저장·표시 정책과 제공자 허용 목록을 적용합니다. 검토되지 않은 GDELT·Alpaca News 요약이나 번역을 추가로 노출하지 않습니다. `NO_REDISTRIBUTION` 항목, 자격 증명이 포함된 URL, HTTP(S)가 아닌 URL은 제외합니다. 웹의 종목·뉴스·공시 탭은 받은 결과를 분류해 보여주며 API에 `type` 필터를 전달하지 않습니다.
 
@@ -140,7 +140,7 @@
 - `GET /watchlist`: 위 월간 목록의 호환 읽기 경로입니다. 기존 수동 `POST /watchlist`, `PATCH /watchlist/:id`, `DELETE /watchlist/:id`는 410을 반환합니다. 개인·공유방 그룹 API는 그대로 유지합니다.
 - `GET /dashboard/personal-news`, `GET /dashboard/personal-filings`: 세션 소유자의 개인 그룹 합집합. 쿼리로 다른 사용자를 지정할 수 없고 응답은 private/no-store입니다. 공시는 분석 전 원본도 포함합니다.
 - `GET /watchlist-groups/:id/news?companyId=...&limit=20&cursor=...`: 세션 소유 개인 그룹 또는 참여 중인 공유방 그룹의 뉴스입니다. 종목 관리 권한 없이 읽을 수 있으며, `companyId`를 생략하면 그룹 전체 최대 200종목을 집계합니다. 뉴스 페이지에 `group`, 전체 그룹의 순서 있는 `companies`, 현재 필터의 `companyCount`, `asOf`를 추가합니다. 그룹 밖 종목 필터는 400, 접근 불가능한 그룹은 404입니다.
-- `GET /watchlist-groups/:id/filings?companyId=...`: 같은 접근권한과 기업 필터로 최신 원본 공시 최대 8건을 반환합니다. `{group, companies, companyCount, asOf, items}` 형식이며 DART와 SEC의 접수·발표 날짜, 최초 수집 시각, 원문 주소를 유지합니다. 두 그룹 소식 응답은 private/no-store입니다.
+- `GET /watchlist-groups/:id/filings?companyId=...`: 같은 접근권한과 기업 필터로 최신 원본 공시 최대 8건을 반환합니다. `{group, companies, companyCount, asOf, items}` 형식이며 DART와 SEC의 접수·발표 날짜와 최초 수집 시각을 유지합니다. `url`은 서비스 내 공시 상세 경로이고 공식 원문 주소는 상세에서 제공합니다. 두 그룹 소식 응답은 private/no-store입니다.
 - `GET /news?scope=company&companyIds=UUID,UUID`: 현재 브라우저의 최근조회 목록처럼 여러 기업의 관련 뉴스 합집합을 가져옵니다. 서로 다른 UUID 최대 20개를 받으며 `companyId`나 `asset`과 함께 사용할 수 없습니다. 명시적인 빈 `companyIds=`는 빈 결과를 반환합니다. 그룹·최근조회 배열은 이미 유효한 네이버 스냅샷만 읽고 기업별 신규 검색을 시작하지 않습니다. 단일 `companyId` 필터만 기존 온디맨드 검색을 사용할 수 있습니다.
 
 `GET /news`의 DB `items`와 `nextCursor`는 저장된 기사 페이지입니다. 첫 페이지의 선택적 `providerGroups`는 네이버의 회사·시장·자산별 제공 순서이며 `naver`에 수집·갱신·다음 요청 상태가 있습니다. 화면은 이를 최신순으로 병합하되 각 공급자 목록 안의 순서를 보존합니다. 임시 기사는 DB cursor를 소비하지 않습니다. 각 네이버 항목에는 `expiresAt`, `collectedAt`, 변경하지 않은 원본 필드 `providerOriginal`이 있습니다. 관련 종목은 원제목과 제공 요약의 명확한 기업명·별칭으로 확인하며 검색 대상 종목이라는 이유만으로 부여하지 않습니다. 회사·주제 검색은 하나의 정기 순환 작업에서 15분마다 최대 10개를 처리하고 기존 무료 호출 한도를 공유합니다. 네이버 결과는 만료되는 메모리에서만 취급하며 DB·로그·AI에 저장하지 않습니다. 필터가 특정 공식 소스·출판사를 지정하면 해당하지 않는 네이버 결과는 포함하지 않습니다.

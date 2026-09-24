@@ -39,6 +39,8 @@ import {
   hasParseTypeInvariant,
   largeHoldingSchema,
   isSupportedFilingType,
+  formatDisclosureSummary,
+  displayDisclosureText,
   type Region,
   type CandleSource,
   type Company,
@@ -137,6 +139,7 @@ import {
 } from './resource-mappers';
 
 import { readDisclosureFacts, candidateDisclosureEvidence } from './disclosure-facts';
+import { unclusteredDisclosure } from './unclustered-disclosure';
 
 function parsedSourceMatchesRun(
   run: Pick<ParseRunEntity, 'rawSha256'>,
@@ -562,7 +565,7 @@ export class OrsemDataService {
             : filing?.detailType === 'D004'
               ? '공개매수 조건과 결과를 구분합니다. 청약·예정 수량을 실제 취득으로 계산하지 않습니다.'
               : filing?.detailType === 'D005'
-                ? '거래계획은 실제 체결을 의미하지 않으며 D002 등 후속 공시 확인이 필요합니다.'
+                ? '거래계획은 실제 체결을 의미하지 않으며 임원·주요주주 소유변동 등 후속 공시 확인이 필요합니다.'
                 : '공시 제출일과 실제 사건 발생일은 다를 수 있습니다.',
         '이 정보는 소유·지배구조 관측 자료이며 자동 매수·매도 추천이 아닙니다.',
       ],
@@ -673,7 +676,7 @@ export class OrsemDataService {
         time: event.rceptDate,
         kind: 'FILING',
         eventId: event.id,
-        label: `F · ${event.detailType} 공시`,
+        label: `F · ${displayDisclosureText(event.detailType)}`,
         detailType: event.detailType,
       });
     }
@@ -1081,20 +1084,61 @@ export class OrsemDataService {
 
   async getEvent(id: string, audience: NewsAudience = 'MEMBER_UI'): Promise<Event> {
     if (this.fixtureMode) {
-      const event = this.fixtures.events.find((item) => item.id === id);
-      if (!event) throw new NotFoundException('이벤트를 찾을 수 없습니다.');
-      return mapFixtureEvent(event);
+      const event = this.fixtures.events.find(
+        (item) =>
+          item.id === id ||
+          item.filing?.id === id ||
+          item.sourceItems.some((source) => source.source === 'SEC' && source.id === id),
+      );
+      if (event) return mapFixtureEvent(event);
+      const filing = this.fixtures.filings.find((item) => item.id === id);
+      const source = this.fixtures.sourceItems.find(
+        (item) =>
+          item.id === id &&
+          item.source === 'SEC' &&
+          item.rightsMode === RightsMode.OFFICIAL_PUBLIC_DATA,
+      );
+      if (filing || source) return unclusteredDisclosure(filing ?? null, source ?? null, null);
+      throw new NotFoundException('이벤트를 찾을 수 없습니다.');
     }
     const row = await this.source()
       .getRepository(EventClusterEntity)
       .createQueryBuilder('event')
-      .where('event.id = :id', { id })
+      .where(
+        `(event.id = :id OR EXISTS (SELECT 1 FROM event_cluster_items linked_disclosure
+        WHERE linked_disclosure.event_cluster_id=event.id AND linked_disclosure.item_id=:id
+        AND (linked_disclosure.item_type='FILING' OR (linked_disclosure.item_type='SOURCE_ITEM'
+          AND EXISTS (SELECT 1 FROM source_items linked_source WHERE linked_source.id=linked_disclosure.item_id AND linked_source.source='SEC')))))`,
+        { id },
+      )
       .andWhere(eventAudienceSql('event', audience))
       .getOne();
-    if (!row) throw new NotFoundException('이벤트를 찾을 수 없습니다.');
+    if (!row) {
+      const filing = await this.source()
+        .getRepository(FilingEntity)
+        .findOneBy({ id, source: 'OPENDART' });
+      if (filing) return unclusteredDisclosure(await this.getFiling(id), null, null);
+      const source = await this.source()
+        .getRepository(SourceItemEntity)
+        .findOneBy({ id, source: 'SEC', rightsMode: RightsMode.OFFICIAL_PUBLIC_DATA });
+      if (
+        source &&
+        sourcePolicyAllowsDisplay(source, ['OFFICIAL_DISCLOSURE'], undefined, audience)
+      ) {
+        const company = source.companyId
+          ? await this.source().getRepository(CompanyEntity).findOneBy({ id: source.companyId })
+          : null;
+        return unclusteredDisclosure(
+          null,
+          mapSourceItem(source),
+          company ? mapCompany(company) : null,
+        );
+      }
+      throw new NotFoundException('이벤트를 찾을 수 없습니다.');
+    }
     const memberships = await this.source()
       .getRepository(EventClusterItemEntity)
-      .findBy({ eventClusterId: id, itemType: 'FILING' });
+      .findBy({ eventClusterId: row.id, itemType: 'FILING' });
     for (const membership of memberships) {
       const filing = await this.source()
         .getRepository(FilingEntity)
@@ -2738,7 +2782,7 @@ export class OrsemDataService {
         filingDate: dateOnly(row.filingDate),
         publishedAt: instant(row.publishedAt ?? null),
         firstObservedAt: instant(row.firstObservedAt),
-        url: row.url,
+        url: `/events/${encodeURIComponent(row.id)}`,
         relatedCompanies: companies.filter(
           (c: { id: string }) =>
             c.id === row.companyId ||
@@ -3505,7 +3549,9 @@ export class OrsemDataService {
       return;
     }
     if (relation.relationType !== FilingRelationType.EXECUTION_CANDIDATE) {
-      throw new BadRequestException('CONFIRMED 처리는 D005-D002 실행 후보에만 사용할 수 있습니다.');
+      throw new BadRequestException(
+        '확정 처리는 거래계획과 실제 소유변동의 실행 후보에만 사용할 수 있습니다.',
+      );
     }
 
     const filingIds = [relation.fromFilingId, relation.toFilingId].sort();
@@ -3524,7 +3570,9 @@ export class OrsemDataService {
       execution.detailType !== 'D002' ||
       planFiling.detailType !== 'D005'
     ) {
-      throw new BadRequestException('D002 실행 공시와 D005 계획 공시의 방향이 올바르지 않습니다.');
+      throw new BadRequestException(
+        '소유변동 공시와 거래계획 공시의 연결 방향이 올바르지 않습니다.',
+      );
     }
     if (
       execution.effectiveState !== EffectiveFilingState.ACTIVE ||
@@ -3762,7 +3810,9 @@ export class OrsemDataService {
         (filing) => filing.id === relation.toFilingId && filing.detailType === 'D005',
       );
       if (!execution || !planFiling) {
-        throw new BadRequestException('실행 후보 공시의 D002-D005 방향이 올바르지 않습니다.');
+        throw new BadRequestException(
+          '실행 후보의 소유변동 공시와 거래계획 공시 연결 방향이 올바르지 않습니다.',
+        );
       }
       const reports = await manager
         .getRepository(InsiderReportEntity)
@@ -4319,7 +4369,12 @@ export class OrsemDataService {
           : row.state,
       evidenceGrade: row.evidenceGrade,
       classificationResult: parse?.classificationResult ?? null,
-      summary: requiresParseReview ? `원문 검증 대기 — ${filingRow!.reportName}` : row.summary,
+      summary: requiresParseReview
+        ? `원문 검증 대기 — ${filingRow!.reportName}`
+        : (formatDisclosureSummary(
+            parse?.resultJson?.parsed,
+            company?.nameKo ?? filing?.company.nameKo,
+          ) ?? row.summary),
       company: company ? mapCompany(company) : null,
       filing,
       sourceItems,

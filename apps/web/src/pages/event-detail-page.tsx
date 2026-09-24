@@ -85,7 +85,9 @@ export function EventDetailPage() {
             </Link>
             <TranslatedText
               title={data.title}
-              description={data.summary}
+              description={
+                data.detailType === 'NEWS' ? data.summary : displayDomainText(data.summary)
+              }
               translation={showTranslation ? data.translation : null}
               heading="h2"
             />
