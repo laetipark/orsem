@@ -25,6 +25,19 @@ function signal(row: Row): string | null {
   return null;
 }
 
+export type DisclosureSignal = 'BUY' | 'SELL' | 'MIXED' | 'NONE';
+
+/** Transaction evidence only; ownership increases and future plans are not purchases. */
+export function disclosureSignal(value: unknown): DisclosureSignal {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return 'NONE';
+  const parsed = value as Row;
+  if (parsed.detailType !== 'D002') return 'NONE';
+  const signals = new Set(rows(parsed.transactions).map(signal));
+  const buy = signals.has('매수신호');
+  const sell = signals.has('매도신호');
+  return buy && sell ? 'MIXED' : buy ? 'BUY' : sell ? 'SELL' : 'NONE';
+}
+
 function transactionSummary(items: Row[], planned = false): string {
   const groups = new Map<
     string,
@@ -77,12 +90,13 @@ export function formatDisclosureSummary(
   ].join(' ');
   if (kind === 'D002') {
     const transactions = rows(parsed.transactions);
-    const signals = new Set(transactions.map(signal));
-    const label = ['매수신호', '매도신호']
-      .filter((item) => signals.has(item))
-      .map((item) => `[${item}]`)
-      .join(' ');
-    return join(label || '[소유변동]', company, identity, transactionSummary(transactions));
+    const label = {
+      BUY: '[매수신호]',
+      SELL: '[매도신호]',
+      MIXED: '[매수신호] [매도신호]',
+      NONE: '[소유변동]',
+    }[disclosureSignal(parsed)];
+    return join(label, company, identity, transactionSummary(transactions));
   }
   if (kind === 'D004') {
     const label = parsed.documentKind === 'RESULT' ? '공개매수 결과' : '공개매수 문서';

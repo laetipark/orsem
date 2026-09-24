@@ -4,6 +4,7 @@ import { newsAudienceAllows, newsAudienceSql, type NewsAudience } from './news-a
 import { publicSourceUrl } from '../common/news-url';
 import { publicDiscoveryStatus } from './connector-public-status';
 import { ingestionFreshness } from './ingestion-freshness';
+import { confirmedFilingsForCompanies } from './confirmed-filings';
 import { NaverNewsBudgetService } from '../news-search/naver-news-budget.service';
 import { NaverFocusNewsService } from '../news-search/naver-focus-news.service';
 import { verifyManualNewsSources } from './manual-news-translation';
@@ -2746,92 +2747,9 @@ export class OrsemDataService {
     const asOf = new Date().toISOString();
     // These companies were resolved from an authorized server-side scope. A personal
     // union can span several 200-stock groups, so it has no single-group size cap.
-    const ids = companies.map((company) => company.id);
     if (this.fixtureMode) return { asOf, companyCount: companies.length, items: [] };
     if (!companies.length) return { asOf, companyCount: 0, items: [] };
-    const mine = ids.map(() => '?').join(',');
-    const [dart, sec] = await Promise.all([
-      this.source().query(
-        `SELECT f.id, f.company_id companyId, f.rcept_no externalId, f.report_name title,
-        f.rcept_date filingDate, f.first_observed_at firstObservedAt FROM filings f
-        WHERE f.source='OPENDART' AND f.company_id IN (${mine}) ORDER BY f.rcept_date DESC, f.id DESC LIMIT 12`,
-        ids,
-      ),
-      this.source().query(
-        `SELECT s.id, s.company_id companyId, s.external_id externalId, s.title, s.url,
-        JSON_UNQUOTE(JSON_EXTRACT(s.raw_metadata_json, '$.filingDate')) filingDate,
-        s.published_at publishedAt, s.first_observed_at firstObservedAt FROM source_items s
-        WHERE s.source='SEC' AND s.rights_mode='OFFICIAL_PUBLIC_DATA' AND (s.company_id IN (${mine}) OR EXISTS
-          (SELECT 1 FROM news_source_companies r WHERE r.source_item_id=s.id AND r.company_id IN (${mine})))
-        ORDER BY COALESCE(CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(s.raw_metadata_json, '$.filingDate')) REGEXP '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$' THEN JSON_UNQUOTE(JSON_EXTRACT(s.raw_metadata_json, '$.filingDate')) END,s.published_at,s.first_observed_at) DESC, s.id DESC LIMIT 12`,
-        [...ids, ...ids],
-      ),
-    ]);
-    const relations = sec.length
-      ? await this.source().query(
-          `SELECT source_item_id sourceId, company_id companyId FROM news_source_companies WHERE source_item_id IN (${sec.map(() => '?').join(',')})`,
-          sec.map((r: { id: string }) => r.id),
-        )
-      : [];
-    const instant = (value: Date | string | null) => (value ? new Date(value).toISOString() : null);
-    const dateOnly = (value: unknown) =>
-      typeof value === 'string' &&
-      /^\d{4}-\d{2}-\d{2}$/u.test(value) &&
-      Number.isFinite(Date.parse(value)) &&
-      new Date(value).toISOString().slice(0, 10) === value
-        ? value
-        : null;
-    const rows = [
-      ...dart.map((row: Record<string, unknown>) => ({
-        ...row,
-        source: 'OPENDART',
-        url: `https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${row.externalId}`,
-      })),
-      ...sec.map((row: Record<string, unknown>) => ({ ...row, source: 'SEC' })),
-    ] as Array<{
-      id: string;
-      source: 'OPENDART' | 'SEC';
-      externalId: string;
-      companyId: string | null;
-      title: string;
-      url: string;
-      filingDate: string | null;
-      publishedAt?: string | Date | null;
-      firstObservedAt: string | Date;
-    }>;
-    const unique = new Map<string, (typeof rows)[number]>();
-    for (const row of rows)
-      if (
-        (row.source === 'OPENDART' && /^\d{14}$/u.test(row.externalId)) ||
-        (row.source === 'SEC' && /^https:\/\/(?:www\.)?sec\.gov\//iu.test(row.url))
-      )
-        unique.set(`${row.source}:${row.externalId}`, row);
-    const items = [...unique.values()]
-      .map((row) => ({
-        id: `${row.source}:${row.id}`,
-        source: row.source,
-        externalId: row.externalId,
-        title: row.title,
-        filingDate: dateOnly(row.filingDate),
-        publishedAt: instant(row.publishedAt ?? null),
-        firstObservedAt: instant(row.firstObservedAt),
-        url: `/events/${encodeURIComponent(row.id)}`,
-        relatedCompanies: companies.filter(
-          (c: { id: string }) =>
-            c.id === row.companyId ||
-            relations.some(
-              (r: { sourceId: string; companyId: string }) =>
-                r.sourceId === row.id && r.companyId === c.id,
-            ),
-        ),
-      }))
-      .sort(
-        (a, b) =>
-          (b.filingDate ?? b.publishedAt ?? b.firstObservedAt ?? '').localeCompare(
-            a.filingDate ?? a.publishedAt ?? a.firstObservedAt ?? '',
-          ) || b.id.localeCompare(a.id),
-      )
-      .slice(0, 8);
+    const items = await confirmedFilingsForCompanies(this.source(), companies);
     return { asOf, companyCount: companies.length, items };
   }
 
