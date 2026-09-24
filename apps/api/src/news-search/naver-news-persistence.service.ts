@@ -108,7 +108,16 @@ export class NaverNewsPersistenceService {
           .setLock('pessimistic_write')
           .getOneOrFail();
         const metadata = source.rawMetadataJson ?? {};
-        const related = companies.filter((company) => ids.includes(company.id));
+        const relevance = manager.getRepository(NewsSourceCompanyEntity);
+        const existing = await relevance.find({ where: { sourceItemId: source.id } });
+        // Reviews and other explicit evidence survive later metadata refreshes unchanged.
+        const preservedIds = new Set(
+          existing
+            .filter((relation) => relation.matchMethod !== 'TITLE_SUMMARY_ALIAS')
+            .map((relation) => relation.companyId),
+        );
+        const relatedIds = [...new Set([...preservedIds, ...ids])];
+        const related = companies.filter((company) => relatedIds.includes(company.id));
         const tickers = related.flatMap((company) =>
           [company.stockCode || company.ticker].filter((ticker): ticker is string =>
             Boolean(ticker),
@@ -122,7 +131,7 @@ export class NaverNewsPersistenceService {
           sourceName: '네이버 뉴스',
           sourceKind: 'AGGREGATOR',
           sourcePolicyJson: { ...NAVER_NEWS_METADATA_POLICY },
-          companyId: related.length === 1 ? related[0]!.id : null,
+          companyId: relatedIds.length === 1 ? relatedIds[0]! : null,
           publishedAt: Number.isFinite(timestamp) ? new Date(timestamp) : null,
           processedAt: observedAt,
           rawHash,
@@ -166,11 +175,11 @@ export class NaverNewsPersistenceService {
           },
           ['sourceItemId'],
         );
-        const relevance = manager.getRepository(NewsSourceCompanyEntity);
-        await relevance.delete({ sourceItemId: source.id });
-        if (ids.length)
+        await relevance.delete({ sourceItemId: source.id, matchMethod: 'TITLE_SUMMARY_ALIAS' });
+        const automaticIds = ids.filter((companyId) => !preservedIds.has(companyId));
+        if (automaticIds.length)
           await relevance.insert(
-            ids.map((companyId) => ({
+            automaticIds.map((companyId) => ({
               sourceItemId: source.id,
               companyId,
               inputHash: rawHash,

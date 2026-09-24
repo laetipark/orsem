@@ -43,7 +43,7 @@ const result: NaverNewsSearchResult = {
   items: [raw],
 };
 
-function persistence() {
+function persistence(companies = [company]) {
   const sources = new Map<string, SourceItemEntity>();
   const news = new Map<string, Partial<NewsItemEntity>>();
   const links: Array<Partial<NewsSourceCompanyEntity>> = [];
@@ -84,14 +84,14 @@ function persistence() {
     where: () => companyQuery,
     orderBy: () => companyQuery,
     setLock: () => companyQuery,
-    getMany: async () => [company],
+    getMany: async () => companies,
   };
   const manager = {
     queryRunner: { isTransactionActive: true },
     getRepository: (entity: unknown) => {
       if (entity === SourceItemEntity) return sourceRepository;
       if (entity === CompanyEntity)
-        return { find: async () => [company], createQueryBuilder: () => companyQuery };
+        return { find: async () => companies, createQueryBuilder: () => companyQuery };
       if (entity === NewsArticleEntity)
         return { findOneBy: async () => ({ id: 'existing-article-from-newsroom' }) };
       if (entity === NewsItemEntity)
@@ -100,10 +100,28 @@ function persistence() {
         };
       assert.equal(entity, NewsSourceCompanyEntity);
       return {
-        delete: async () => {
-          links.length = 0;
+        find: async ({ where }: { where: { sourceItemId: string } }) =>
+          links.filter((link) => link.sourceItemId === where.sourceItemId),
+        delete: async (criteria: { sourceItemId: string; matchMethod?: string }) => {
+          for (let index = links.length - 1; index >= 0; index--)
+            if (
+              links[index]!.sourceItemId === criteria.sourceItemId &&
+              (!criteria.matchMethod || links[index]!.matchMethod === criteria.matchMethod)
+            )
+              links.splice(index, 1);
         },
-        insert: async (values: Partial<NewsSourceCompanyEntity>[]) => links.push(...values),
+        insert: async (values: Partial<NewsSourceCompanyEntity>[]) => {
+          for (const value of values)
+            assert.equal(
+              links.some(
+                (link) =>
+                  link.sourceItemId === value.sourceItemId && link.companyId === value.companyId,
+              ),
+              false,
+              'source/company unique key must not replace a preserved relationship',
+            );
+          links.push(...values);
+        },
       };
     },
   };
@@ -173,6 +191,87 @@ test('a search query alone cannot assign a company and unsafe article links are 
   });
   assert.equal(sources.size, 1);
 });
+
+test('repeat ingestion preserves reviewed matching and unmatched company links without changing their evidence', async () => {
+  const manuallyLinkedCompany = Object.assign(new CompanyEntity(), company, {
+    id: '22222222-2222-4222-a222-222222222222',
+    nameKo: '현대자동차',
+    nameEn: 'Hyundai Motor',
+    stockCode: '005380',
+  });
+  const { service, sources, news, links } = persistence([company, manuallyLinkedCompany]);
+  await service.persist(result);
+  const source = [...sources.values()][0]!;
+  const firstObservedAt = source.firstObservedAt;
+  const reviewedAt = new Date('2026-09-24T02:00:00Z');
+  const matching = Object.assign(links[0]!, {
+    id: 'matching-reviewed-link',
+    matchMethod: 'MANUAL_REVIEW',
+    inputHash: 'reviewed-matching-hash',
+    matcherVersion: 1,
+    createdAt: reviewedAt,
+    updatedAt: reviewedAt,
+  });
+  const unmatched = {
+    ...matching,
+    id: 'unmatched-reviewed-link',
+    companyId: manuallyLinkedCompany.id,
+    inputHash: 'reviewed-unmatched-hash',
+  };
+  const foreignSource = { ...matching, sourceItemId: 'another-source' };
+  links.push(unmatched, foreignSource);
+  const before = structuredClone(links);
+  const reviewAudit = { sourceHash: source.rawHash, reviewedAt: reviewedAt.toISOString() };
+  source.rawMetadataJson = {
+    ...source.rawMetadataJson,
+    manualCompanyIds: [company.id, manuallyLinkedCompany.id],
+    newsReview: reviewAudit,
+  };
+
+  await service.persist({ ...result, items: [{ ...raw, description: '업데이트된 제공 요약' }] });
+  assert.deepEqual(links, before);
+  assert.equal(source.companyId, null);
+  assert.equal(news.get(source.id)?.companyId, null);
+  assert.deepEqual(news.get(source.id)?.tickersJson, ['005930', '005380']);
+  assert.deepEqual(source.rawMetadataJson?.tickers, ['005930', '005380']);
+  assert.deepEqual(source.rawMetadataJson?.manualCompanyIds, [
+    company.id,
+    manuallyLinkedCompany.id,
+  ]);
+  assert.deepEqual(source.rawMetadataJson?.newsReview, reviewAudit);
+  assert.equal(source.firstObservedAt, firstObservedAt);
+  assert.equal(source.newsArticleId, 'existing-article-from-newsroom');
+});
+
+for (const matchMethod of ['MANUAL_REVIEW', 'EXPLICIT_ID'])
+  test(`refresh replaces only automatic links and uses the surviving ${matchMethod} company as primary`, async () => {
+    const manuallyLinkedCompany = Object.assign(new CompanyEntity(), company, {
+      id: '22222222-2222-4222-a222-222222222222',
+      nameKo: '현대자동차',
+      nameEn: 'Hyundai Motor',
+      stockCode: '005380',
+    });
+    const { service, sources, news, links } = persistence([company, manuallyLinkedCompany]);
+    await service.persist(result);
+    const source = [...sources.values()][0]!;
+    const reviewed = {
+      sourceItemId: source.id,
+      companyId: manuallyLinkedCompany.id,
+      matchMethod,
+      inputHash: 'reviewed-hash',
+      matcherVersion: 1,
+    };
+    links.push(reviewed);
+    await service.persist({
+      ...result,
+      items: [{ ...raw, title: '국제 금값 동향', description: '제공 요약' }],
+    });
+    assert.deepEqual(links, [reviewed]);
+    assert.equal(source.companyId, manuallyLinkedCompany.id);
+    assert.equal(news.get(source.id)?.companyId, manuallyLinkedCompany.id);
+    assert.deepEqual(source.rawMetadataJson?.tickers, ['005380']);
+    assert.deepEqual(news.get(source.id)?.tickersJson, ['005380']);
+  });
 
 test('new NAVER metadata approval does not approve legacy records, bots, rooms, AI or article bodies', () => {
   const policy = NAVER_NEWS_METADATA_POLICY;
