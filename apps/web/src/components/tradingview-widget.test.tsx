@@ -40,9 +40,9 @@ it('loads the official Web Component and keeps the source link when the script f
   const { container } = render(
     <ThemeProvider>
       <TradingViewWidget
-        symbol="FRED:SP500"
-        name="S&P500"
-        sourceUrl="https://www.tradingview.com/symbols/FRED-SP500/"
+        symbol="FRED:NDQCOM"
+        name="나스닥종합"
+        sourceUrl="https://www.tradingview.com/symbols/FRED-NDQCOM/"
       />
     </ThemeProvider>,
   );
@@ -50,16 +50,16 @@ it('loads the official Web Component and keeps the source link when the script f
   const script = document.querySelector<HTMLScriptElement>(tickerScriptSelector)!;
   expect(script.type).toBe('module');
   expect(script.src).toBe('https://widgets.tradingview-widget.com/w/en/tv-mini-chart.js');
-  expect(container.querySelector('tv-mini-chart')).toHaveAttribute('symbol', 'FRED:SP500');
+  expect(container.querySelector('tv-mini-chart')).toHaveAttribute('symbol', 'FRED:NDQCOM');
   expect(container.querySelector('iframe')).toBeNull();
   fireEvent.error(script);
   await waitFor(() =>
     expect(screen.getByRole('status')).toHaveTextContent('현재 지수 위젯을 이용할 수 없습니다'),
   );
   expect(container.querySelector('tv-mini-chart')).toBeNull();
-  expect(screen.getByRole('link', { name: 'S&P500 by TradingView' })).toHaveAttribute(
+  expect(screen.getByRole('link', { name: '나스닥종합 by TradingView' })).toHaveAttribute(
     'href',
-    'https://www.tradingview.com/symbols/FRED-SP500/',
+    'https://www.tradingview.com/symbols/FRED-NDQCOM/',
   );
 });
 
@@ -68,9 +68,9 @@ it('shares one module across StrictMode, concurrent symbols and remounts while l
     <StrictMode>
       <ThemeProvider>
         <TradingViewWidget
-          symbol="FRED:SP500"
-          name="S&P500"
-          sourceUrl="https://www.tradingview.com/symbols/FRED-SP500/"
+          symbol="FRED:NDQCOM"
+          name="나스닥종합"
+          sourceUrl="https://www.tradingview.com/symbols/FRED-NDQCOM/"
         />
         <TradingViewWidget
           symbol="FRED:NDQCOM"
@@ -114,9 +114,9 @@ it('updates theme attributes without replacing the quote element or loading the 
     <ThemeProvider>
       <ThemeToggle />
       <TradingViewWidget
-        symbol="FRED:SP500"
-        name="S&P500"
-        sourceUrl="https://www.tradingview.com/symbols/FRED-SP500/"
+        symbol="FRED:NDQCOM"
+        name="나스닥종합"
+        sourceUrl="https://www.tradingview.com/symbols/FRED-NDQCOM/"
       />
     </ThemeProvider>,
   );
@@ -137,9 +137,9 @@ it('shows a source fallback if the module never registers the element', async ()
   render(
     <ThemeProvider>
       <TradingViewWidget
-        symbol="FRED:SP500"
-        name="S&P500"
-        sourceUrl="https://www.tradingview.com/symbols/FRED-SP500/"
+        symbol="FRED:NDQCOM"
+        name="나스닥종합"
+        sourceUrl="https://www.tradingview.com/symbols/FRED-NDQCOM/"
       />
     </ThemeProvider>,
   );
@@ -148,7 +148,7 @@ it('shows a source fallback if the module never registers the element', async ()
     await vi.advanceTimersByTimeAsync(15_000);
   });
   expect(screen.getByRole('status')).toHaveTextContent('현재 지수 위젯을 이용할 수 없습니다');
-  expect(screen.getByRole('link', { name: 'S&P500 by TradingView' })).toBeVisible();
+  expect(screen.getByRole('link', { name: '나스닥종합 by TradingView' })).toBeVisible();
   expect(document.querySelectorAll(tickerScriptSelector)).toHaveLength(1);
 });
 

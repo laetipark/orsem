@@ -193,7 +193,7 @@ export class MarketsService {
           health.find(
             (row) =>
               row.connector ===
-              (instrument.provider === 'TRADINGVIEW'
+              (instrument.provider === 'TRADINGVIEW' || instrument.provider === 'FRED'
                 ? ''
                 : MARKET_CONNECTOR_IDS[instrument.provider]),
           ),
@@ -296,7 +296,7 @@ export class MarketsService {
             row.connector ===
             MARKET_CONNECTOR_IDS[instrument.provider as keyof typeof MARKET_CONNECTOR_IDS],
         )
-      : source && instrument.provider !== 'TRADINGVIEW'
+      : source && instrument.provider !== 'TRADINGVIEW' && instrument.provider !== 'FRED'
         ? await source
             .getRepository(ConnectorHealthEntity)
             .findOneBy({ connector: MARKET_CONNECTOR_IDS[instrument.provider] })

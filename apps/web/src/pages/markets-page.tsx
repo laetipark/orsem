@@ -8,7 +8,7 @@ import { MarketValue } from '../components/market-value';
 import { MarketChart } from '../components/market-chart';
 import { AssetNews, isNewsAsset } from '../components/asset-news';
 import { RegionTabs, useRegion } from '../components/region-tabs';
-import { TradingViewWidget } from '../components/tradingview-widget';
+import { MarketWidget } from '../components/market-widget';
 import {
   Badge,
   Button,
@@ -56,15 +56,18 @@ export function MarketDetailPage() {
     enabled: Boolean(item && item.displayKind === 'NATIVE'),
     staleTime: 60_000,
   });
+  const hasFredChart = item?.displayKind === 'WIDGET' && item.widgetSymbol === 'FRED:SP500';
   const availableRanges = useMemo(
     () =>
-      item?.displayKind === 'WIDGET'
-        ? []
-        : availableHistoryRanges(
-            history.data?.points ?? [],
-            history.data?.asOf ?? new Date().toISOString(),
-          ),
-    [item?.displayKind, history.data],
+      hasFredChart
+        ? (['1m', '3m', '1y'] as const)
+        : item?.displayKind === 'WIDGET'
+          ? []
+          : availableHistoryRanges(
+              history.data?.points ?? [],
+              history.data?.asOf ?? new Date().toISOString(),
+            ),
+    [hasFredChart, item?.displayKind, history.data],
   );
   const activeRange = availableRanges.includes(range) ? range : '1m';
   const points = useMemo(
@@ -124,7 +127,7 @@ export function MarketDetailPage() {
               {item.message ?? '현재 새 시세를 확인할 수 없어 마지막 관측값을 표시합니다.'}
             </p>
           ) : null}
-          {item.displayKind === 'NATIVE' ? (
+          {item.displayKind === 'NATIVE' || hasFredChart ? (
             <div className="market-chart-toolbar">
               <span>
                 {kind}
@@ -153,10 +156,8 @@ export function MarketDetailPage() {
           ) : null}
           {item.displayKind === 'WIDGET' && item.widgetSymbol ? (
             <div>
-              <p className="market-page-note">
-                FRED 경유 일별 종가입니다. 실시간 시세와 다르며 상세 차트는 일봉으로 제공합니다.
-              </p>
-              <TradingViewWidget
+              <p className="market-page-note">{item.description}</p>
+              <MarketWidget
                 detail
                 range={activeRange}
                 symbol={item.widgetSymbol}

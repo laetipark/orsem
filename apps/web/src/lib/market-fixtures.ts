@@ -59,8 +59,8 @@ const seeds: Array<
     category: 'INDEX',
     currency: null,
     unit: 'pt',
-    provider: 'TRADINGVIEW',
-    symbol: 'FRED:SP500',
+    provider: 'FRED',
+    symbol: 'SP500',
     historyKind: 'close',
     value: '0',
   },
@@ -163,18 +163,21 @@ const seeds: Array<
 ];
 
 export const marketFixtures: MarketQuote[] = seeds.map((seed, index) => {
-  const widget = seed.provider === 'TRADINGVIEW';
+  const widget = seed.provider === 'TRADINGVIEW' || seed.provider === 'FRED';
   const value = Number(seed.value);
   return {
     ...seed,
     value: widget ? null : seed.value,
-    sourceUrl: widget
-      ? `https://www.tradingview.com/symbols/${seed.symbol.replace(':', '-')}/`
-      : 'https://example.com/development-fixture',
-    attribution: widget ? 'TradingView' : `${seed.provider} · 개발용 예시`,
+    sourceUrl:
+      seed.provider === 'FRED'
+        ? 'https://fred.stlouisfed.org/series/SP500'
+        : widget
+          ? `https://www.tradingview.com/symbols/${seed.symbol.replace(':', '-')}/`
+          : 'https://example.com/development-fixture',
+    attribution: widget ? seed.provider : `${seed.provider} · 개발용 예시`,
     rightsMode: 'PRIVATE_DISPLAY_ONLY',
     displayKind: widget ? 'WIDGET' : 'NATIVE',
-    widgetSymbol: widget ? seed.symbol : null,
+    widgetSymbol: seed.provider === 'FRED' ? 'FRED:SP500' : widget ? seed.symbol : null,
     description:
       seed.id === 'wti' ? 'Cushing WTI 현물 · 일별 관측' : `${seed.name} 개발용 모의 데이터`,
     status: widget ? 'EMBEDDED' : seed.id === 'silver' ? 'STALE' : 'AVAILABLE',

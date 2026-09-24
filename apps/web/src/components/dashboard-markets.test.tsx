@@ -7,8 +7,8 @@ import type { MarketHistory } from '../types';
 import { MarketOverview } from './market-overview';
 import { DashboardMarkets, useDashboardMarketRegion } from './dashboard-markets';
 
-vi.mock('./tradingview-widget', () => ({
-  TradingViewWidget: ({
+vi.mock('./market-widget', () => ({
+  MarketWidget: ({
     symbol,
     name,
     sourceUrl,

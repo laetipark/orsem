@@ -1,7 +1,7 @@
 import { createElement, useEffect, useRef, useState } from 'react';
 import { useTheme } from '../theme';
 
-const allowedSymbols = new Set(['SP:SPX', 'NASDAQ:IXIC', 'FRED:SP500', 'FRED:NDQCOM']);
+const allowedSymbols = new Set(['SP:SPX', 'NASDAQ:IXIC', 'FRED:NDQCOM']);
 const singleTickerTag = 'tv-mini-chart';
 const singleTickerScript = 'https://widgets.tradingview-widget.com/w/en/tv-mini-chart.js';
 const widgetLoadTimeoutMs = 15_000;
@@ -38,7 +38,7 @@ function loadSingleTicker(): Promise<void> {
   return ready;
 }
 
-interface WidgetProps {
+export interface WidgetProps {
   symbol: string;
   name: string;
   sourceUrl: string;

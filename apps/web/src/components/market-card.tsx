@@ -15,7 +15,7 @@ import type { MarketQuote, MarketHistory } from '../types';
 import { MarketSparkline } from './market-sparkline';
 import { Badge } from './ui';
 import { MarketValue } from './market-value';
-import { TradingViewWidget } from './tradingview-widget';
+import { MarketWidget } from './market-widget';
 
 const categoryIcons = {
   INDEX: ChartNoAxesCombined,
@@ -94,7 +94,7 @@ export function MarketCard({
         <ArrowUpRight size={15} aria-hidden="true" />
       </Link>
       {item.displayKind === 'WIDGET' && item.widgetSymbol ? (
-        <TradingViewWidget
+        <MarketWidget
           symbol={item.widgetSymbol}
           name={item.name}
           sourceUrl={item.sourceUrl}

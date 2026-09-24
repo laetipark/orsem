@@ -57,15 +57,15 @@
     "category": "INDEX",
     "currency": null,
     "unit": "pt",
-    "provider": "TRADINGVIEW",
-    "symbol": "FRED:SP500",
-    "sourceUrl": "https://www.tradingview.com/symbols/FRED-SP500/",
-    "attribution": "TradingView · FRED · S&P Dow Jones Indices",
+    "provider": "FRED",
+    "symbol": "SP500",
+    "sourceUrl": "https://fred.stlouisfed.org/series/SP500",
+    "attribution": "FRED · S&P Dow Jones Indices",
     "rightsMode": "LINK_ONLY",
     "displayKind": "WIDGET",
     "widgetSymbol": "FRED:SP500",
     "historyKind": "close",
-    "description": "S&P500 원지수 일별 종가 · FRED 경유 · 장중 시세가 아닙니다."
+    "description": "S&P500 원지수 일별 종가 · FRED 공식 그래프 · 장중 시세가 아닙니다."
   },
   {
     "id": "nasdaq",
