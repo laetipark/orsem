@@ -11,6 +11,8 @@ import { DatabaseRuntimeService } from '../persistence/database-runtime.service'
 
 export const NAVER_ROLLING_INTERVAL_MS = 15 * 60_000;
 export const NAVER_ROLLING_LIMIT = 10;
+export const NAVER_FREE_VERIFICATION_MAX_MS = 30 * 24 * 60 * 60_000;
+const EXPIRY_WARNING_MS = 7 * 24 * 60 * 60_000;
 const BUDGET_STREAM = 'SEARCH_BUDGET';
 type BudgetQuery = (sql: string, parameters: unknown[]) => Promise<unknown>;
 
@@ -29,6 +31,10 @@ export interface NaverSearchStatus {
   automaticAllowed: boolean;
   mode: 'ON_DEMAND';
   freeUntil: string | null;
+  freeVerifiedAt: string | null;
+  freePeriodStatus: 'UNVERIFIED' | 'VALID' | 'EXPIRING' | 'EXPIRED' | 'INVALID';
+  warning: string | null;
+  reasonCode: string | null;
   dailyLimit: number;
   monthlyLimit: number;
   remainingToday: number | null;
@@ -49,17 +55,46 @@ export class NaverNewsBudgetService {
   private policy(now: Date): NaverSearchStatus {
     const configured = Boolean(this.config.naverClientId && this.config.naverClientSecret);
     const { month } = naverUsagePeriod(now);
-    const free = Boolean(
-      this.config.naverNewsFreeUntil &&
-      Date.parse(this.config.naverNewsFreeUntil) > now.getTime() &&
-      this.config.naverNewsFreeMonth === month &&
-      this.config.naverNewsFreeRequests > 0,
-    );
+    const until = Date.parse(this.config.naverNewsFreeUntil ?? '');
+    const verifiedAt = Date.parse(this.config.naverNewsFreeVerifiedAt ?? '');
+    const hasVerification = Boolean(this.config.naverNewsFreeVerifiedAt);
+    // Explicit verification is bounded independently of calendar-month counter resets.
+    // Old installations retain their existing, stricter same-month approval until upgraded.
+    const invalid =
+      hasVerification &&
+      (!Number.isFinite(verifiedAt) ||
+        !Number.isFinite(until) ||
+        verifiedAt > now.getTime() ||
+        until <= verifiedAt ||
+        until - verifiedAt > NAVER_FREE_VERIFICATION_MAX_MS);
+    const expired = Number.isFinite(until) && until <= now.getTime();
+    const free =
+      !invalid &&
+      !expired &&
+      Number.isFinite(until) &&
+      (hasVerification || this.config.naverNewsFreeMonth === month) &&
+      this.config.naverNewsFreeRequests > 0;
+    const expiring = free && until - now.getTime() <= EXPIRY_WARNING_MS;
+    const freePeriodStatus: NaverSearchStatus['freePeriodStatus'] = invalid
+      ? 'INVALID'
+      : expired
+        ? 'EXPIRED'
+        : free
+          ? expiring
+            ? 'EXPIRING'
+            : 'VALID'
+          : 'UNVERIFIED';
     return {
       configured,
       automaticAllowed: configured && free,
       mode: 'ON_DEMAND',
       freeUntil: this.config.naverNewsFreeUntil ?? null,
+      freeVerifiedAt: this.config.naverNewsFreeVerifiedAt ?? null,
+      freePeriodStatus,
+      warning: expiring
+        ? 'NAVER 뉴스 검색의 무료 이용 확인 기간이 7일 이내에 만료됩니다. 무료 이용 조건을 다시 확인해 주세요.'
+        : null,
+      reasonCode: !configured ? 'UNCONFIGURED' : free ? null : `FREE_${freePeriodStatus}`,
       dailyLimit: this.config.naverNewsDailyLimit,
       monthlyLimit: Math.min(this.config.naverNewsMonthlyLimit, this.config.naverNewsFreeRequests),
       remainingToday: null,
@@ -69,9 +104,13 @@ export class NaverNewsBudgetService {
       nextRequestAt: null,
       reason: !configured
         ? 'NAVER 뉴스 검색 인증이 설정되지 않았습니다.'
-        : !free
-          ? '이번 달 무료 이용 조건과 호출 가능량 확인이 필요합니다.'
-          : null,
+        : invalid
+          ? 'NAVER 무료 이용 확인 시각과 만료 시각을 확인해 주세요. 확인 기간은 최대 30일입니다.'
+          : expired
+            ? 'NAVER 뉴스 검색의 무료 이용 확인 기간이 만료되어 검색을 중단했습니다. 운영자가 무료 이용 조건과 호출 가능량을 다시 확인해야 합니다.'
+            : !free
+              ? '이번 달 무료 이용 조건과 호출 가능량 확인이 필요합니다.'
+              : null,
     };
   }
 
@@ -149,6 +188,12 @@ export class NaverNewsBudgetService {
             ? new Date(reservations[0]! + NAVER_ROLLING_INTERVAL_MS).toISOString()
             : null,
         automaticAllowed: remainingToday > 0 && remainingMonth > 0 && remainingWindow > 0,
+        reasonCode:
+          remainingToday === 0 || remainingMonth === 0
+            ? 'BUDGET_EXHAUSTED'
+            : remainingWindow === 0
+              ? 'RATE_LIMITED'
+              : null,
         reason:
           remainingToday === 0 || remainingMonth === 0
             ? 'NAVER 뉴스 검색의 무료 호출 한도에 도달했습니다.'
@@ -160,6 +205,7 @@ export class NaverNewsBudgetService {
       return {
         ...result,
         automaticAllowed: false,
+        reasonCode: 'USAGE_UNAVAILABLE',
         reason: '뉴스 검색 사용량을 확인하지 못했습니다.',
       };
     }
@@ -168,7 +214,10 @@ export class NaverNewsBudgetService {
   async reserve(now?: Date): Promise<void> {
     const initialPolicy = this.policy(now ?? new Date());
     if (!initialPolicy.automaticAllowed)
-      throw new ServiceUnavailableException(initialPolicy.reason!);
+      throw new ServiceUnavailableException({
+        code: initialPolicy.reasonCode,
+        message: initialPolicy.reason!,
+      });
     const connector = this.connector();
     try {
       await this.database.requireDataSource().transaction(async (manager) => {
@@ -186,7 +235,11 @@ export class NaverNewsBudgetService {
         if (!checkpoints.length) throw new Error('Reservation lock missing');
         const reservedAt = now ?? new Date();
         const policy = this.policy(reservedAt);
-        if (!policy.automaticAllowed) throw new ServiceUnavailableException(policy.reason!);
+        if (!policy.automaticAllowed)
+          throw new ServiceUnavailableException({
+            code: policy.reasonCode,
+            message: policy.reason!,
+          });
         const { day, firstDay } = naverUsagePeriod(reservedAt);
         const reservations = await this.reservations(
           checkpoints[0]?.metadataJson,
@@ -235,9 +288,10 @@ export class NaverNewsBudgetService {
       });
     } catch (error) {
       if (error instanceof HttpException) throw error;
-      throw new ServiceUnavailableException(
-        '뉴스 검색 사용량을 확인하지 못해 요청을 중단했습니다.',
-      );
+      throw new ServiceUnavailableException({
+        code: 'USAGE_UNAVAILABLE',
+        message: '뉴스 검색 사용량을 확인하지 못해 요청을 중단했습니다.',
+      });
     }
     // Failed or lost requests remain counted. No search terms or provider results are stored.
   }

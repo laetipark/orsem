@@ -3,12 +3,16 @@ import { resolveNewsReview, type NewsReviewInput } from './news-review';
 import { newsAudienceAllows, newsAudienceSql, type NewsAudience } from './news-access';
 import { publicSourceUrl } from '../common/news-url';
 import { publicDiscoveryStatus } from './connector-public-status';
+import { ingestionFreshness } from './ingestion-freshness';
+import { NaverNewsBudgetService } from '../news-search/naver-news-budget.service';
+import { NaverFocusNewsService } from '../news-search/naver-focus-news.service';
 import { verifyManualNewsSources } from './manual-news-translation';
 import {
   BadRequestException,
   Inject,
   Injectable,
   NotFoundException,
+  Optional,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import {
@@ -265,6 +269,8 @@ export class OrsemDataService {
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     private readonly database: DatabaseRuntimeService,
     private readonly fixtures: FixtureStoreService,
+    @Optional() private readonly naverBudget?: NaverNewsBudgetService,
+    @Optional() private readonly naverFocus?: NaverFocusNewsService,
   ) {}
 
   get fixtureMode(): boolean {
@@ -2377,17 +2383,21 @@ export class OrsemDataService {
     const rows = await this.source()
       .getRepository(ConnectorHealthEntity)
       .find({ order: { connector: 'ASC' } });
-    return rows.map((row) => ({
-      connector: row.connector,
-      status: row.status,
-      message: row.message,
-      ...(['sec', 'gdelt', 'alpaca_news'].includes(row.connector.toLowerCase())
-        ? publicDiscoveryStatus(row)
-        : {}),
-      lastSuccessAt: dateToIso(row.lastSuccessAt),
-      lastFailureAt: dateToIso(row.lastFailureAt),
-      checkedAt: row.checkedAt.toISOString(),
-    }));
+    return rows.map((row) => {
+      const freshness = ingestionFreshness(row);
+      return {
+        connector: row.connector,
+        status: freshness.status,
+        message: freshness.message ?? row.message,
+        ...(['sec', 'gdelt', 'alpaca_news'].includes(row.connector.toLowerCase())
+          ? publicDiscoveryStatus({ ...row, status: freshness.status })
+          : {}),
+        lastSuccessAt: dateToIso(row.lastSuccessAt),
+        lastFailureAt: dateToIso(row.lastFailureAt),
+        checkedAt: row.checkedAt.toISOString(),
+        ...(freshness.freshnessState === 'STALE' ? { message: freshness.message } : {}),
+      };
+    });
   }
 
   async hasCompatibleIrSources(): Promise<boolean> {
@@ -2437,6 +2447,8 @@ export class OrsemDataService {
     const byName = new Map(persisted.map((item) => [item.connector.toLowerCase(), item]));
     const now = new Date().toISOString();
     const irConfigured = await this.hasCompatibleIrSources();
+    const naverStatus = await this.naverBudget?.status();
+    const naverCollection = this.naverFocus?.collectionStatus();
     const definitions = [
       {
         id: 'opendart',
@@ -2528,18 +2540,29 @@ export class OrsemDataService {
           (['toss', 'gdelt'].includes(definition.id) && !definition.configured)
             ? undefined
             : byName.get(definition.id);
-        const lastSuccessAt = health?.lastSuccessAt ?? null;
+        const lastSuccessAt =
+          definition.id === 'naver'
+            ? (naverCollection?.lastSuccessAt ?? null)
+            : (health?.lastSuccessAt ?? null);
         return {
           id: definition.id,
           name: definition.name,
           category: definition.category,
           status:
-            health?.status ??
-            (definition.id === 'naver' || (definition.id === 'gdelt' && !definition.configured)
-              ? ConnectorStatus.DISABLED
-              : definition.configured
-                ? ConnectorStatus.DEGRADED
-                : ConnectorStatus.UNCONFIGURED),
+            definition.id === 'naver' && naverStatus
+              ? !naverStatus.configured
+                ? ConnectorStatus.UNCONFIGURED
+                : !naverStatus.automaticAllowed
+                  ? ConnectorStatus.DEGRADED
+                  : lastSuccessAt && Date.now() - Date.parse(lastSuccessAt) <= 45 * 60_000
+                    ? ConnectorStatus.HEALTHY
+                    : ConnectorStatus.DEGRADED
+              : (health?.status ??
+                (definition.id === 'naver' || (definition.id === 'gdelt' && !definition.configured)
+                  ? ConnectorStatus.DISABLED
+                  : definition.configured
+                    ? ConnectorStatus.DEGRADED
+                    : ConnectorStatus.UNCONFIGURED)),
           lastSuccessAt,
           lagSeconds: lastSuccessAt
             ? Math.max(0, Math.floor((Date.now() - Date.parse(lastSuccessAt)) / 1000))
@@ -2547,13 +2570,23 @@ export class OrsemDataService {
           rightsMode: definition.rightsMode,
           message:
             definition.id === 'naver' && definition.configured
-              ? '별도 화면에서 수동 검색합니다. 정기 수집과 상태 점검은 사용하지 않습니다.'
+              ? (naverStatus?.reason ??
+                '기업과 시장 주제를 순환 검색합니다. 대상별 검색 시각을 확인하세요.')
               : health
                 ? health.message
                 : definition.configured
                   ? '설정됨; 아직 성공 상태가 기록되지 않았습니다.'
                   : definition.missing,
           checkedAt: health?.checkedAt ?? now,
+          ...(definition.id === 'naver' && naverStatus
+            ? {
+                reasonCode: naverStatus.reasonCode,
+                freeUntil: naverStatus.freeUntil,
+                freeVerifiedAt: naverStatus.freeVerifiedAt,
+                warning: naverStatus.warning,
+                nextRetryAt: naverStatus.nextRequestAt,
+              }
+            : {}),
           ...(['sec', 'gdelt', 'alpaca_news'].includes(definition.id) && health
             ? {
                 httpStatus: health.httpStatus ?? null,

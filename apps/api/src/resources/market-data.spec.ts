@@ -156,7 +156,7 @@ test('missing Toss credentials produce an explicit empty state without loading h
   assert.equal(queries.length, 0);
 });
 
-test('NAVER manual search ignores stale collection health and never claims a recent collection', async () => {
+test('NAVER scheduled search ignores legacy persisted health without current in-memory evidence', async () => {
   const { data } = dataService(
     [],
     loadAppConfig({
@@ -181,7 +181,7 @@ test('NAVER manual search ignores stale collection health and never claims a rec
   const naver = (await data.connectorSourceViews()).find((source) => source.id === 'naver');
   assert.equal(naver?.name, 'NAVER Cloud 뉴스검색');
   assert.equal(naver?.status, ConnectorStatus.DISABLED);
-  assert.match(String(naver?.message), /수동 검색/);
+  assert.match(String(naver?.message), /순환 검색/);
   assert.equal(naver?.lastSuccessAt, null);
 });
 

@@ -125,6 +125,11 @@ test('free allowance caps the app budget and exhausted day/month blocks requests
     automaticAllowed: true,
     mode: 'ON_DEMAND',
     freeUntil: '2026-09-07T00:00:00Z',
+    freeVerifiedAt: null,
+    freePeriodStatus: 'EXPIRING',
+    warning:
+      'NAVER 뉴스 검색의 무료 이용 확인 기간이 7일 이내에 만료됩니다. 무료 이용 조건을 다시 확인해 주세요.',
+    reasonCode: null,
     dailyLimit: 10,
     monthlyLimit: 9,
     remainingToday: 7,
@@ -326,5 +331,66 @@ test('malformed durable window fails closed rather than resetting the request al
       db.writes.filter((item) => item.sql.startsWith('INSERT INTO api_usage_counters')).length,
       0,
     );
+  }
+});
+
+test('explicit verification remains valid across KST month turnover while quota counters reset separately', async () => {
+  const db = database();
+  const service = new NaverNewsBudgetService(
+    config({
+      ...generous,
+      NAVER_NEWS_FREE_VERIFIED_AT: '2026-09-24T00:00:00Z',
+      NAVER_NEWS_FREE_UNTIL: '2026-10-24T00:00:00Z',
+      NAVER_NEWS_FREE_MONTH: '2026-09',
+    }),
+    db.value,
+  );
+  const before = new Date('2026-09-30T14:59:59Z');
+  const after = new Date('2026-09-30T15:00:00Z');
+  await service.reserve(before);
+  const status = await service.status(after);
+  assert.equal(status.automaticAllowed, true);
+  assert.equal(status.freePeriodStatus, 'VALID');
+  assert.equal(status.warning, null);
+  assert.equal(status.remainingMonth, 200);
+  assert.equal(status.remainingWindow, 9);
+  await service.reserve(after);
+  assert.equal((await service.status(after)).remainingMonth, 199);
+});
+
+test('verification warns at seven days, expires exactly on time and never permits an unbounded or future approval', async () => {
+  const approved = {
+    NAVER_NEWS_FREE_VERIFIED_AT: '2026-09-01T00:00:00Z',
+    NAVER_NEWS_FREE_UNTIL: '2026-10-01T00:00:00Z',
+  };
+  const service = new NaverNewsBudgetService(config(approved), database().value);
+  const warning = await service.status(new Date('2026-09-24T00:00:00Z'));
+  assert.equal(warning.automaticAllowed, true);
+  assert.equal(warning.freePeriodStatus, 'EXPIRING');
+  assert.ok(warning.warning);
+  const expired = await service.status(new Date('2026-10-01T00:00:00Z'));
+  assert.equal(expired.automaticAllowed, false);
+  assert.equal(expired.reasonCode, 'FREE_EXPIRED');
+  assert.match(expired.reason!, /만료/u);
+  for (const extra of [
+    {
+      NAVER_NEWS_FREE_VERIFIED_AT: '2026-09-07T00:00:00Z',
+      NAVER_NEWS_FREE_UNTIL: '2026-09-08T00:00:00Z',
+    },
+    {
+      NAVER_NEWS_FREE_VERIFIED_AT: '2026-09-01T00:00:00Z',
+      NAVER_NEWS_FREE_UNTIL: '2026-10-01T00:00:00.001Z',
+    },
+    {
+      NAVER_NEWS_FREE_VERIFIED_AT: '2026-09-06T00:00:00Z',
+      NAVER_NEWS_FREE_UNTIL: '2026-09-06T00:00:00Z',
+    },
+    { NAVER_NEWS_FREE_VERIFIED_AT: '2026-09-01T00:00:00Z', NAVER_NEWS_FREE_UNTIL: '' },
+  ]) {
+    const db = database();
+    const invalid = new NaverNewsBudgetService(config(extra), db.value);
+    assert.equal((await invalid.status(now)).reasonCode, 'FREE_INVALID');
+    await assert.rejects(() => invalid.reserve(now));
+    assert.equal(db.writes.length, 0);
   }
 });

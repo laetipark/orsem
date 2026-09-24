@@ -22,7 +22,9 @@ const statusLabels: Record<SourceFreshness['status'], string> = {
 export function naverStatusLabel(status: NaverNewsStatus | undefined, failed: boolean): string {
   if (!status) return failed ? '연결 확인 실패' : '연결 확인 중';
   if (!status.configured) return '미설정';
+  if (status.freePeriodStatus === 'EXPIRED') return '무료 조건 재확인 필요';
   if (status.remainingToday === 0 || status.remainingMonth === 0) return '검색 한도 소진';
+  if (status.remainingWindow === 0 && status.nextRequestAt) return '다음 검색 대기';
   return naverBudgetAvailable(status) ? '자동 수집 가능' : '검색 일시 중단';
 }
 
@@ -69,6 +71,7 @@ export function ConnectorFreshness({ isAdmin }: { isAdmin: boolean }) {
     queryFn: ({ signal }) => api.naverNewsStatus(signal),
     enabled: sources.data?.items.some((source) => source.id.toLowerCase() === 'naver') ?? false,
     staleTime: 30_000,
+    refetchInterval: 60_000,
     retry: false,
     refetchOnWindowFocus: false,
   });
@@ -178,14 +181,21 @@ export function ConnectorFreshness({ isAdmin }: { isAdmin: boolean }) {
                                     ? '무료 검색 이용 조건을 확인해야 합니다.'
                                     : '검색 연결 상태를 확인 중입니다.')}
                           </p>
+                          {naver.data?.nextRequestAt ? (
+                            <p>다음 요청 가능 {formatKst(naver.data.nextRequestAt)}</p>
+                          ) : null}
+                          {isAdmin && naver.data?.freeUntil ? (
+                            <p>무료 조건 확인 기한 {formatKst(naver.data.freeUntil)}</p>
+                          ) : null}
+                          {isAdmin && naver.data?.warning ? (
+                            <p role="status">{naver.data.warning}</p>
+                          ) : null}
                           <Link className="text-link" to="/news">
                             시장 뉴스 <ArrowUpRight size={13} />
                           </Link>
                         </div>
                       ) : null}
-                      {['sec', 'gdelt'].includes(source.id.toLowerCase()) &&
-                      source.requestAttempted !== undefined &&
-                      source.message ? (
+                      {source.id.toLowerCase() !== 'naver' && source.message ? (
                         <p className="connector-source__message">
                           {displayDomainText(source.message)}
                         </p>

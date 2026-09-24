@@ -116,6 +116,13 @@ const schema = z
     naverApiProvider: z.enum(['developers', 'ncloud']).default('developers'),
     naverClientId: optionalString,
     naverClientSecret: optionalString,
+    naverNewsFreeVerifiedAt: optionalString.refine(
+      (value) =>
+        !value ||
+        (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value) &&
+          Number.isFinite(Date.parse(value))),
+      { message: 'NAVER_NEWS_FREE_VERIFIED_AT must be an ISO instant' },
+    ),
     naverNewsFreeUntil: optionalString.refine(
       (value) =>
         !value ||
@@ -293,6 +300,7 @@ export function loadAppConfig(environment: NodeJS.ProcessEnv = process.env): App
     naverApiProvider: environment.NAVER_API_PROVIDER,
     naverClientId: environment.NAVER_CLIENT_ID,
     naverClientSecret: environment.NAVER_CLIENT_SECRET,
+    naverNewsFreeVerifiedAt: environment.NAVER_NEWS_FREE_VERIFIED_AT,
     naverNewsFreeUntil: environment.NAVER_NEWS_FREE_UNTIL,
     naverNewsFreeMonth: environment.NAVER_NEWS_FREE_MONTH,
     naverNewsFreeRequests: environment.NAVER_NEWS_FREE_REQUESTS,

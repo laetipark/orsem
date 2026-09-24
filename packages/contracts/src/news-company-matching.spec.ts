@@ -4,6 +4,7 @@ import {
   createNewsCompanyMatcher,
   newsBadgeCompanyAliases,
   newsCompanyAliases,
+  NEWS_MATCHER_VERSION,
   type NewsBadgeCompanyNames,
 } from './news-company-matching';
 
@@ -46,6 +47,46 @@ test('automatic news badges exclude ordinary-word unlisted companies without cha
     createNewsCompanyMatcher(newsCompanyAliases(unlisted))(summary),
     unlisted.map((company) => company.id).sort(),
   );
+});
+
+test('v2 rejects ordinary NEW/NICE words while retaining full names and Korean registry names', () => {
+  const companies = [
+    {
+      ...samsung,
+      id: 'new',
+      nameKo: 'NEW',
+      nameEn: 'Next Entertainment World',
+      stockCode: '160550',
+      market: 'KOSDAQ',
+    },
+    { ...samsung, id: 'nice', nameKo: 'NICE', nameEn: 'NICE Holdings', stockCode: '034310' },
+    { ...samsung, id: 'naver', nameKo: 'NAVER', nameEn: 'NAVER Corporation', stockCode: '035420' },
+    { ...samsung, id: 'nhn', nameKo: 'NHN', nameEn: 'NHN Corporation', stockCode: '181710' },
+  ];
+  const match = createNewsCompanyMatcher(newsCompanyAliases(companies));
+  assert.equal(NEWS_MATCHER_VERSION, 2);
+  assert.deepEqual(match('New York opens a new facility with nice results'), []);
+  assert.deepEqual(match('NEW investment and NICE outlook'), []);
+  assert.deepEqual(match('Next Entertainment World earnings'), ['new']);
+  assert.deepEqual(match('NICE Holdings earnings'), ['nice']);
+  assert.deepEqual(match('NAVER and NHN earnings'), ['naver', 'nhn']);
+  assert.deepEqual(match('NEW(160550) and KRX:034310 earnings'), ['new', 'nice']);
+});
+
+test('registry symbols require their own exchange and accept the KRX umbrella', () => {
+  const match = createNewsCompanyMatcher(newsCompanyAliases([samsung, nvidia]));
+  assert.deepEqual(match('NYSE:NVDA and NASDAQ:005930 and KOSDAQ:005930'), []);
+  assert.deepEqual(match('NOTNASDAQ:NVDA'), []);
+  assert.deepEqual(match('NASDAQ:NVDA and KRX:005930'), ['nvidia', 'samsung']);
+  assert.deepEqual(match('KOSPI:005930 and $NVDA'), ['nvidia', 'samsung']);
+  const extra = createNewsCompanyMatcher(
+    newsCompanyAliases([nvidia], [{ companyId: 'nvidia', alias: 'NVX', aliasType: 'TICKER' }]),
+  );
+  assert.deepEqual(extra('NYSE:NVX'), []);
+  assert.deepEqual(extra('NASDAQ:NVX'), ['nvidia']);
+  const umbrella = createNewsCompanyMatcher(newsCompanyAliases([{ ...samsung, market: 'KRX' }]));
+  assert.deepEqual(umbrella('KOSPI:005930'), ['samsung']);
+  assert.deepEqual(umbrella('NASDAQ:005930'), []);
 });
 
 test('badges require a current listing, a supported exchange, and a valid security symbol', () => {

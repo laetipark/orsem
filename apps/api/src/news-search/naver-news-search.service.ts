@@ -10,7 +10,11 @@ import {
 } from '@nestjs/common';
 import { z } from 'zod';
 import { APP_CONFIG, type AppConfig } from '../config/app-config';
-import { NaverNewsBudgetService } from './naver-news-budget.service';
+import {
+  NaverNewsBudgetService,
+  type NaverSearchStatus,
+  NAVER_ROLLING_LIMIT,
+} from './naver-news-budget.service';
 
 export const NAVER_NEWS_FETCH = Symbol('NAVER_NEWS_FETCH');
 
@@ -54,17 +58,24 @@ export class NaverNewsSearchService {
     @Optional() private readonly budget?: NaverNewsBudgetService,
   ) {}
 
-  status() {
+  status(): Promise<NaverSearchStatus> {
     if (this.budget) return this.budget.status();
     return Promise.resolve({
       configured: Boolean(this.config.naverClientId && this.config.naverClientSecret),
       automaticAllowed: false,
       mode: 'ON_DEMAND' as const,
       freeUntil: null,
+      freeVerifiedAt: null,
+      freePeriodStatus: 'UNVERIFIED' as const,
+      warning: null,
+      reasonCode: 'USAGE_UNAVAILABLE',
       dailyLimit: this.config.naverNewsDailyLimit,
       monthlyLimit: this.config.naverNewsMonthlyLimit,
       remainingToday: null,
       remainingMonth: null,
+      rollingLimit: NAVER_ROLLING_LIMIT,
+      remainingWindow: null,
+      nextRequestAt: null,
       reason: '뉴스 검색 사용량 확인이 필요합니다.',
     });
   }

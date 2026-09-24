@@ -84,10 +84,16 @@ export interface NaverNewsStatus {
   automaticAllowed: boolean;
   mode: 'ON_DEMAND';
   freeUntil: string | null;
+  freeVerifiedAt?: string | null;
+  freePeriodStatus?: 'UNVERIFIED' | 'VALID' | 'EXPIRING' | 'EXPIRED' | 'INVALID';
+  warning?: string | null;
+  reasonCode?: string | null;
   dailyLimit: number;
   monthlyLimit: number;
   remainingToday: number | null;
   remainingMonth: number | null;
+  remainingWindow?: number | null;
+  nextRequestAt?: string | null;
   reason: string | null;
 }
 

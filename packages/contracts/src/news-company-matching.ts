@@ -1,10 +1,11 @@
 import { companyRegion } from './region';
 
-export const NEWS_MATCHER_VERSION = 1;
+export const NEWS_MATCHER_VERSION = 2;
 export interface NewsCompanyAlias {
   companyId: string;
   alias: string;
   aliasType: string;
+  market?: string | null;
 }
 export interface CompanyNames {
   id: string;
@@ -12,6 +13,7 @@ export interface CompanyNames {
   nameEn: string | null;
   ticker: string | null;
   stockCode: string | null;
+  market?: string | null;
 }
 
 export interface NewsBadgeCompanyNames extends CompanyNames {
@@ -56,15 +58,22 @@ const AMBIGUOUS_NAMES = new Set([
   'visa',
   'oracle',
   'amazon',
+  'new',
+  'nice',
   '삼성',
   '현대',
   '기아',
 ]);
 
+export function isAmbiguousNewsCompanyName(value: string): boolean {
+  return AMBIGUOUS_NAMES.has(value.normalize('NFKC').trim().toLowerCase());
+}
+
 export function newsCompanyAliases(
   companies: readonly CompanyNames[],
   extras: readonly NewsCompanyAlias[] = [],
 ): NewsCompanyAlias[] {
+  const markets = new Map(companies.map((company) => [company.id, company.market]));
   return companies
     .flatMap((company) => [
       ...[company.nameKo, company.nameEn].flatMap((name) => {
@@ -82,10 +91,17 @@ export function newsCompanyAliases(
           .map((alias) => ({ companyId: company.id, alias, aliasType: 'COMPANY_NAME' }));
       }),
       ...[company.ticker, company.stockCode].flatMap((alias) =>
-        alias ? [{ companyId: company.id, alias, aliasType: 'SYMBOL' }] : [],
+        alias
+          ? [{ companyId: company.id, alias, aliasType: 'SYMBOL', market: company.market }]
+          : [],
       ),
     ])
-    .concat(extras);
+    .concat(
+      extras.map((alias) => ({
+        ...alias,
+        market: markets.get(alias.companyId) ?? alias.market,
+      })),
+    );
 }
 
 /** Exact title evidence only. Query terms, article language and publishers do not imply relevance. */
@@ -105,6 +121,7 @@ export function createNewsCompanyMatcher(
     folded: string;
     symbol: boolean;
     explicitSymbol: boolean;
+    market?: string | null;
     expression?: RegExp;
   }
   // Prefix buckets avoid compiling/executing every company's Unicode regex for every title.
@@ -124,7 +141,7 @@ export function createNewsCompanyMatcher(
     seen.add(exactKey);
     if (
       !symbol &&
-      (AMBIGUOUS_NAMES.has(alias.toLowerCase()) || (!/[가-힣]/u.test(alias) && alias.length < 3))
+      (isAmbiguousNewsCompanyName(alias) || (!/[가-힣]/u.test(alias) && alias.length < 3))
     )
       continue;
     const folded = fold(alias);
@@ -137,6 +154,7 @@ export function createNewsCompanyMatcher(
       folded,
       symbol,
       explicitSymbol: item.aliasType === 'EXPLICIT_SYMBOL',
+      market: item.market,
     });
     index.set(key, bucket);
     widths.add(width);
@@ -145,10 +163,19 @@ export function createNewsCompanyMatcher(
   const expressionFor = (item: PreparedAlias): RegExp => {
     if (item.expression) return item.expression;
     const escaped = item.alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const exchanges = item.market
+      ? companyRegion(item.market) === 'kr'
+        ? item.market === 'KRX'
+          ? 'KRX|KOSPI|KOSDAQ|KONEX'
+          : ['KRX', item.market].join('|')
+        : companyRegion(item.market) === 'us'
+          ? item.market
+          : '(?!)'
+      : 'NASDAQ|NYSE|AMEX|KRX|KOSPI|KOSDAQ|KONEX';
     item.expression = item.symbol
       ? new RegExp(
           // Badge-only symbols need a cashtag/exchange; parentheses often contain acronyms (DX).
-          `(?:\\$|${item.explicitSymbol ? '' : '\\(|'}(?:NASDAQ|NYSE|AMEX|KRX)\\s*:\\s*)${escaped}(?=$|[^\\p{L}\\p{N}])`,
+          `(?:\\$|${item.explicitSymbol ? '' : '\\(|'}(?<![\\p{L}\\p{N}])(?:${exchanges})\\s*:\\s*)${escaped}(?=$|[^\\p{L}\\p{N}])`,
           'gu',
         )
       : /[가-힣]/u.test(item.alias)

@@ -8,10 +8,17 @@ import {
   createNewsCompanyMatcher,
   newsBadgeCompanyAliases,
   newsCompanyIdsSchema,
+  isAmbiguousNewsCompanyName,
 } from '@orsem/contracts';
 import { activeActorSql } from '../watchlist-groups/watchlist-access.service';
 import { MARKET_LEADER_COMPANIES_SQL } from '@orsem/database';
-import { Inject, Injectable, OnApplicationBootstrap, OnApplicationShutdown } from '@nestjs/common';
+import {
+  HttpException,
+  Inject,
+  Injectable,
+  OnApplicationBootstrap,
+  OnApplicationShutdown,
+} from '@nestjs/common';
 import { APP_CONFIG, type AppConfig } from '../config/app-config';
 import { DatabaseRuntimeService } from '../persistence/database-runtime.service';
 import { NaverNewsSearchService, type NaverNewsSearchResult } from './naver-news-search.service';
@@ -27,17 +34,58 @@ type FocusCompany = {
   stockCode?: string | null;
   ticker?: string | null;
   isListed?: boolean | number | string;
+  region?: 'kr' | 'us' | 'global';
+  kind?: 'MARKET' | 'ASSET';
 };
 export const NAVER_NEWS_TOPICS = [
-  { id: 'topic:equities', name: '증시' },
-  { id: 'topic:rates', name: '금리' },
-  { id: 'topic:fx', name: '환율' },
-  { id: 'topic:gold', name: '국제 금값' },
-  { id: 'topic:silver', name: '국제 은값' },
-  { id: 'topic:wti', name: 'WTI 유가' },
-  { id: 'topic:btc', name: '비트코인' },
-  { id: 'topic:eth', name: '이더리움' },
+  { id: 'topic:kr-equities', name: '국내 증시', region: 'kr', kind: 'MARKET' },
+  { id: 'topic:kr-rates', name: '한국은행 기준금리', region: 'kr', kind: 'MARKET' },
+  { id: 'topic:kr-fx', name: '원달러 환율', region: 'kr', kind: 'MARKET' },
+  { id: 'topic:us-equities', name: '미국 증시', region: 'us', kind: 'MARKET' },
+  { id: 'topic:us-rates', name: '미국 연준 금리', region: 'us', kind: 'MARKET' },
+  { id: 'topic:us-economy', name: '미국 경제', region: 'us', kind: 'MARKET' },
+  { id: 'topic:gold', name: '국제 금값', region: 'global', kind: 'ASSET' },
+  { id: 'topic:silver', name: '국제 은값', region: 'global', kind: 'ASSET' },
+  { id: 'topic:wti', name: 'WTI 유가', region: 'global', kind: 'ASSET' },
+  { id: 'topic:btc', name: '비트코인', region: 'global', kind: 'ASSET' },
+  { id: 'topic:eth', name: '이더리움', region: 'global', kind: 'ASSET' },
 ] as const;
+export interface NaverProviderResultSet {
+  queryId: string;
+  queryLabel: string;
+  region: 'kr' | 'us' | 'global';
+  kind: 'COMPANY' | 'MARKET' | 'ASSET';
+  fetchedAt: string | null;
+  expiresAt: string | null;
+  status: 'AVAILABLE' | 'UNCONFIGURED' | 'LIMIT_REACHED' | 'PAUSED' | 'UNAVAILABLE' | 'PENDING';
+  reason: string | null;
+  items: NaverNewsSearchResult['items'];
+  total: number | null;
+  start: number | null;
+  display: number | null;
+  lastBuildDate: string | null;
+}
+const targetRegion = (company: FocusCompany): NaverProviderResultSet['region'] =>
+  company.region ??
+  (['KRX', 'KOSPI', 'KOSDAQ', 'KONEX'].includes(company.market ?? '') ? 'kr' : 'us');
+export function naverCompanySearchTerm(company: FocusCompany): string | null {
+  const names = [company.nameKo ?? company.name, company.nameEn];
+  for (const name of names) {
+    const value = name?.normalize('NFKC').trim();
+    if (value && value.length <= 120 && !isAmbiguousNewsCompanyName(value)) return value;
+  }
+  if (
+    ['KRX', 'KOSPI', 'KOSDAQ', 'KONEX'].includes(company.market ?? '') &&
+    /^[0-9A-Z]{6}$/u.test(company.stockCode ?? '')
+  )
+    return `KRX:${company.stockCode}`;
+  if (
+    ['NASDAQ', 'NYSE', 'AMEX'].includes(company.market ?? '') &&
+    /^[A-Z][A-Z0-9.-]{0,14}$/u.test(company.ticker ?? '')
+  )
+    return `${company.market}:${company.ticker}`;
+  return null;
+}
 const plainEvidence = (value: string) =>
   value
     .replace(/<[^>]*>/gu, '')
@@ -57,7 +105,12 @@ const plainEvidence = (value: string) =>
           : parseInt(entity.slice(2, -1), 10);
       return number > 0 && number <= 0x10ffff ? String.fromCodePoint(number) : ' ';
     });
-type Snapshot = { result: NaverNewsSearchResult; fetchedAt: string; expiresAt: number };
+type Snapshot = {
+  result: NaverNewsSearchResult;
+  queryLabel: string;
+  fetchedAt: string;
+  expiresAt: number;
+};
 
 /** Provider results stay unmodified in short-lived memory, never in DB, logs or AI. */
 @Injectable()
@@ -66,10 +119,18 @@ export class NaverFocusNewsService implements OnApplicationBootstrap, OnApplicat
   private readonly inFlight = new Map<string, Promise<void>>();
   private readonly nextAttempt = new Map<string, number>();
   private timer?: ReturnType<typeof setInterval>;
+  private expiryTimer?: ReturnType<typeof setTimeout>;
   private running: Promise<void> | null = null;
   private stopped = false;
-  private cursor = 0;
+  private companyCursor = 0;
+  private topicCursor = 0;
+  private companyTurn = true;
   private failure: string | null = null;
+  private sharedFailure: string | null = null;
+  private readonly targetFailures = new Map<string, string>();
+  private readonly targetIds = new Set<string>(NAVER_NEWS_TOPICS.map((topic) => topic.id));
+  private lastSuccessAt: string | null = null;
+  private lastAttemptAt: string | null = null;
   private companyIndex: {
     expiresAt: number;
     companies: FocusCompany[];
@@ -116,10 +177,47 @@ export class NaverFocusNewsService implements OnApplicationBootstrap, OnApplicat
   async onApplicationShutdown() {
     this.stopped = true;
     if (this.timer) clearInterval(this.timer);
+    if (this.expiryTimer) clearTimeout(this.expiryTimer);
     await this.running;
     await Promise.allSettled(this.inFlight.values());
     this.snapshots.clear();
     this.nextAttempt.clear();
+    this.targetFailures.clear();
+    this.companyIndex = null;
+  }
+  private scheduleExpiry() {
+    if (this.expiryTimer) clearTimeout(this.expiryTimer);
+    if (this.stopped || !this.snapshots.size) return;
+    const next = Math.min(...[...this.snapshots.values()].map((snapshot) => snapshot.expiresAt));
+    this.expiryTimer = setTimeout(
+      () => {
+        for (const [id, snapshot] of this.snapshots)
+          if (snapshot.expiresAt <= Date.now()) this.snapshots.delete(id);
+        this.scheduleExpiry();
+      },
+      Math.max(0, next - Date.now()),
+    );
+    this.expiryTimer.unref();
+  }
+  collectionStatus() {
+    const available = [...this.snapshots].filter(([, snapshot]) => snapshot.expiresAt > Date.now());
+    const availableIds = new Set(available.map(([id]) => id));
+    const failedTargets = [...this.targetFailures.keys()].filter(
+      (id) => this.targetIds.has(id) && !availableIds.has(id),
+    ).length;
+    return {
+      lastSuccessAt: this.lastSuccessAt,
+      lastAttemptAt: this.lastAttemptAt,
+      availableTargets: available.length,
+      pendingTargets: Math.max(0, this.targetIds.size - available.length - failedTargets),
+      failedTargets,
+      reason:
+        this.sharedFailure ??
+        this.failure ??
+        (failedTargets
+          ? '일부 검색 결과를 불러오지 못했습니다. 다음 주기에 다시 확인합니다.'
+          : null),
+    };
   }
   refresh(): Promise<void> {
     if (this.running) return this.running;
@@ -149,28 +247,43 @@ export class NaverFocusNewsService implements OnApplicationBootstrap, OnApplicat
     if (this.stopped || this.config.fixtureMode) return;
     const status = await this.search.status();
     if (!status.automaticAllowed) return;
-    const companies: FocusCompany[] = [...(await this.companies()), ...NAVER_NEWS_TOPICS];
+    const companies = await this.companies();
+    this.targetIds.clear();
+    for (const target of [...companies, ...NAVER_NEWS_TOPICS]) this.targetIds.add(target.id);
     this.failure = null;
+    this.sharedFailure = null;
 
     // Round-robin cap leaves the existing shared free budget in control.
     const count = Math.min(
-      companies.length,
+      companies.length + NAVER_NEWS_TOPICS.length,
       10,
       status.remainingToday ?? 0,
       status.remainingMonth ?? 0,
       'remainingWindow' in status ? (status.remainingWindow ?? 0) : 10,
     );
+    const visited = new Set<string>();
     for (let index = 0; index < count && !this.stopped; index++) {
-      const company = companies[this.cursor++ % companies.length]!;
+      // Alternate the two lanes, so a large watchlist cannot starve market/asset topics.
+      const companyAvailable = companies.some((item) => !visited.has(item.id));
+      const topicAvailable = NAVER_NEWS_TOPICS.some((item) => !visited.has(item.id));
+      const useCompany = companyAvailable && (this.companyTurn || !topicAvailable);
+      const lane: readonly FocusCompany[] = useCompany ? companies : NAVER_NEWS_TOPICS;
+      let company: FocusCompany;
+      do {
+        company = lane[(useCompany ? this.companyCursor++ : this.topicCursor++) % lane.length]!;
+      } while (visited.has(company.id));
+      visited.add(company.id);
+      this.companyTurn = !useCompany;
       await this.ensure(
         company,
         Math.min(
           24 * 60 * 60_000,
-          Math.max(1, Math.ceil(companies.length / 10)) * NAVER_FOCUS_INTERVAL_MS,
+          Math.max(1, Math.ceil(lane.length / (companies.length ? 5 : 10))) *
+            NAVER_FOCUS_INTERVAL_MS,
         ),
         true,
       );
-      if (this.failure) break;
+      if (this.sharedFailure) break;
     }
   }
   private ensure(
@@ -188,31 +301,75 @@ export class NaverFocusNewsService implements OnApplicationBootstrap, OnApplicat
     )
       return Promise.resolve();
     const task = (async () => {
-      this.nextAttempt.set(company.id, Date.now() + NAVER_FOCUS_INTERVAL_MS);
       const status = await this.search.status();
-      if (!status.automaticAllowed || this.stopped) return;
+      if (!status.automaticAllowed || this.stopped) {
+        this.sharedFailure = status.reason;
+        return;
+      }
       this.nextAttempt.set(company.id, Date.now() + NAVER_FOCUS_INTERVAL_MS);
+      this.targetIds.add(company.id);
+      const query = company.kind ? company.name : naverCompanySearchTerm(company);
+      if (!query) {
+        this.targetFailures.set(
+          company.id,
+          '명확한 회사명이나 종목코드를 확인하지 못해 검색을 보류했습니다.',
+        );
+        return;
+      }
       try {
-        const result = await this.search.search({ q: company.name, start: 1, sort: 'date' }, () =>
-          this.snapshots.delete(company.id),
+        const result = await this.search.search(
+          { q: query, start: 1, sort: 'date' },
+          () => {
+            this.lastAttemptAt = new Date(Date.now()).toISOString();
+            // The next request supersedes every cached occurrence of this query, even when
+            // multiple share classes use the same registry name.
+            for (const [id, snapshot] of this.snapshots)
+              if (id === company.id || snapshot.queryLabel === query) this.snapshots.delete(id);
+            this.scheduleExpiry();
+          },
         );
         const fetched = Date.now();
+        this.lastSuccessAt = new Date(fetched).toISOString();
         this.snapshots.set(company.id, {
           result,
+          queryLabel: query,
           fetchedAt: new Date(fetched).toISOString(),
           expiresAt: fetched + ttl,
         });
-        this.failure = null;
-      } catch {
-        this.failure = '네이버 뉴스를 잠시 불러오지 못했습니다.';
+        this.targetFailures.delete(company.id);
+        this.sharedFailure = null;
+      } catch (error) {
+        const response = error instanceof HttpException ? error.getResponse() : null;
+        const code =
+          response && typeof response === 'object' && 'code' in response ? response.code : null;
+        const shared =
+          error instanceof HttpException &&
+          (error.getStatus() === 429 ||
+            ['NAVER_AUTH_INVALID', 'NAVER_ACCESS_DENIED', 'USAGE_UNAVAILABLE'].includes(
+              String(code),
+            ) ||
+            String(code).startsWith('FREE_'));
+        const reason =
+          code === 'NAVER_AUTH_INVALID'
+            ? '네이버 뉴스 검색 인증 키를 확인해 주세요.'
+            : code === 'NAVER_ACCESS_DENIED'
+              ? '네이버 뉴스 검색 API의 이용 권한을 확인해 주세요.'
+              : shared
+                ? '네이버 뉴스 검색의 사용량 또는 무료 이용 조건을 확인해 주세요.'
+                : '네이버 뉴스를 잠시 불러오지 못했습니다.';
+        this.targetFailures.set(company.id, reason);
+        if (shared) this.sharedFailure = reason;
       }
       for (const [id, time] of this.nextAttempt) if (time < Date.now()) this.nextAttempt.delete(id);
       for (const [id, entry] of this.snapshots)
         if (entry.expiresAt <= Date.now()) this.snapshots.delete(id);
       while (this.snapshots.size > 1000) this.snapshots.delete(this.snapshots.keys().next().value!);
+      while (this.targetFailures.size > 1000)
+        this.targetFailures.delete(this.targetFailures.keys().next().value!);
+      this.scheduleExpiry();
     })()
       .catch(() => {
-        this.failure = '네이버 연결 상태를 확인하지 못했습니다.';
+        this.targetFailures.set(company.id, '네이버 연결 상태를 확인하지 못했습니다.');
       })
       .finally(() => this.inFlight.delete(company.id));
     this.inFlight.set(company.id, task);
@@ -233,9 +390,12 @@ export class NaverFocusNewsService implements OnApplicationBootstrap, OnApplicat
     if (this.config.fixtureMode)
       return {
         groups: [] as SourceItem[][],
+        resultSets: [] as NaverProviderResultSet[],
+        providerStatus: null,
         fetchedAt: null,
         status: 'UNCONFIGURED',
         nextRequestAt: null,
+        reason: null,
       };
     const db = this.database.requireDataSource();
     const base =
@@ -265,18 +425,65 @@ export class NaverFocusNewsService implements OnApplicationBootstrap, OnApplicat
         input.region === 'all' ||
         matchesRegion(c.market as Parameters<typeof matchesRegion>[0], input.region),
     );
+    const topics = NAVER_NEWS_TOPICS.filter(
+      (topic) =>
+        !input.region ||
+        input.region === 'all' ||
+        topic.region === 'global' ||
+        topic.region === input.region,
+    );
     const targets: FocusCompany[] = input.asset
       ? NAVER_NEWS_TOPICS.filter((topic) => topic.id === `topic:${input.asset}`)
       : input.scope === 'market'
-        ? NAVER_NEWS_TOPICS.slice(0, 3)
+        ? topics.filter((topic) => topic.kind === 'MARKET')
         : input.companyId ||
             input.companyIds !== undefined ||
             input.scope === 'personal' ||
             input.scope === 'company'
           ? selected
-          : [...selected, ...NAVER_NEWS_TOPICS];
+          : [...selected, ...topics];
     // Only opening a specific company can initiate an on-demand provider request.
     if (input.companyId && selected[0]) await this.ensure(selected[0]);
+    const providerStatus = await this.search.status();
+    if (!providerStatus.configured) this.snapshots.clear();
+    const limitReached =
+      providerStatus.remainingToday === 0 ||
+      providerStatus.remainingMonth === 0 ||
+      providerStatus.remainingWindow === 0;
+    const resultSets: NaverProviderResultSet[] = targets.map((target) => {
+      const cached = this.snapshots.get(target.id);
+      const snapshot = cached && cached.expiresAt > Date.now() ? cached : undefined;
+      const targetFailure = this.targetFailures.get(target.id);
+      return {
+        queryId: target.id,
+        queryLabel:
+          snapshot?.queryLabel ??
+          (target.kind ? target.name : naverCompanySearchTerm(target)) ??
+          target.name,
+        region: targetRegion(target),
+        kind: target.kind ?? 'COMPANY',
+        fetchedAt: snapshot?.fetchedAt ?? null,
+        expiresAt: snapshot ? new Date(snapshot.expiresAt).toISOString() : null,
+        status: snapshot
+          ? 'AVAILABLE'
+          : !providerStatus.configured
+            ? 'UNCONFIGURED'
+            : !providerStatus.automaticAllowed
+              ? limitReached
+                ? 'LIMIT_REACHED'
+                : 'PAUSED'
+              : targetFailure || this.sharedFailure || this.failure
+                ? 'UNAVAILABLE'
+                : 'PENDING',
+        reason: providerStatus.reason ?? targetFailure ?? this.sharedFailure ?? this.failure,
+        // Provider sequence and exact strings are independent of optional relevance badges.
+        items: snapshot?.result.items.map((item) => ({ ...item })) ?? [],
+        total: snapshot?.result.total ?? null,
+        start: snapshot?.result.start ?? null,
+        display: snapshot?.result.display ?? null,
+        lastBuildDate: snapshot?.result.lastBuildDate ?? null,
+      };
+    });
     const groups: SourceItem[][] = [];
     let fetchedAt: string | null = null;
     const relevance = await this.relevanceIndex();
@@ -334,11 +541,7 @@ export class NaverFocusNewsService implements OnApplicationBootstrap, OnApplicat
               translated: false,
               translationStatus: 'UNAVAILABLE',
               displayMode: 'EXTERNAL_LINK',
-              marketRegion: company.id.startsWith('topic:')
-                ? 'global'
-                : ['KRX', 'KOSPI', 'KOSDAQ', 'KONEX'].includes(company.market ?? '')
-                  ? 'kr'
-                  : 'us',
+              marketRegion: targetRegion(company),
               relatedCompanies: related.map((c) => ({
                 id: c.id,
                 nameKo: c.nameKo ?? c.name,
@@ -353,22 +556,37 @@ export class NaverFocusNewsService implements OnApplicationBootstrap, OnApplicat
       );
     }
     const next = input.companyId ? this.nextAttempt.get(input.companyId) : null;
-    const providerStatus = await this.search.status();
     const budgetNext = 'nextRequestAt' in providerStatus ? providerStatus.nextRequestAt : null;
-    const nextAt = Math.max(next ?? 0, budgetNext ? Date.parse(budgetNext) : 0);
+    // A local retry delay cannot reopen an expired allowance or repair a usage-check failure.
+    const nextAt =
+      providerStatus.automaticAllowed || limitReached
+        ? Math.max(next ?? 0, budgetNext ? Date.parse(budgetNext) : 0)
+        : 0;
     return {
       groups,
+      resultSets,
+      providerStatus,
       fetchedAt,
       status: fetchedAt
-        ? 'AVAILABLE'
+        ? resultSets.some((set) => set.status !== 'AVAILABLE')
+          ? 'PARTIAL'
+          : 'AVAILABLE'
         : !providerStatus.configured
           ? 'UNCONFIGURED'
           : !providerStatus.automaticAllowed
-            ? 'LIMIT_REACHED'
-            : this.failure
+            ? limitReached
+              ? 'LIMIT_REACHED'
+              : 'PAUSED'
+            : resultSets.some((set) => set.status === 'UNAVAILABLE')
               ? 'UNAVAILABLE'
               : 'PENDING',
       nextRequestAt: nextAt ? new Date(nextAt).toISOString() : null,
+      reason:
+        providerStatus.reason ??
+        this.sharedFailure ??
+        this.failure ??
+        resultSets.find((set) => set.status === 'UNAVAILABLE')?.reason ??
+        null,
     };
   }
   async company(companyId: string, actorKey?: string) {
@@ -389,15 +607,17 @@ export class NaverFocusNewsService implements OnApplicationBootstrap, OnApplicat
     const available = focus ? this.snapshots.get(companyId) : undefined;
     return {
       focus,
-      intervalMinutes:
-        Math.max(1, Math.ceil((companies.length + NAVER_NEWS_TOPICS.length) / 10)) * 15,
+      intervalMinutes: Math.max(1, Math.ceil(companies.length / 5)) * 15,
       fetchedAt: available?.fetchedAt ?? null,
       expiresAt: available ? new Date(available.expiresAt).toISOString() : null,
       result: available?.result ?? null,
       reason:
         status.reason ??
         (focus && !available
-          ? (this.failure ?? '대상 종목 순서대로 다음 정기 검색을 기다리고 있습니다.')
+          ? (this.targetFailures.get(companyId) ??
+            this.sharedFailure ??
+            this.failure ??
+            '대상 종목 순서대로 다음 정기 검색을 기다리고 있습니다.')
           : null),
     };
   }

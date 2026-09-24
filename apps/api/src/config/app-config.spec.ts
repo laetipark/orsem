@@ -25,6 +25,16 @@ test('NAVER API provider is explicitly selected and rejects unknown endpoints', 
   );
 });
 
+test('NAVER free-condition verification requires an ISO instant with a time zone', () => {
+  assert.equal(
+    loadAppConfig({ NODE_ENV: 'test', NAVER_NEWS_FREE_VERIFIED_AT: '2026-09-24T09:00:00+09:00' })
+      .naverNewsFreeVerifiedAt,
+    '2026-09-24T09:00:00+09:00',
+  );
+  for (const value of ['2026-09-24', '2026-09-24T09:00:00', 'invalid'])
+    assert.throws(() => loadAppConfig({ NODE_ENV: 'test', NAVER_NEWS_FREE_VERIFIED_AT: value }));
+});
+
 test('news RSS is off by default and accepts only the approved feed identifiers', () => {
   for (const environment of [
     { NODE_ENV: 'test' },
