@@ -4,7 +4,14 @@ import { MemoryRouter, Outlet, Route, Routes, useLocation } from 'react-router-d
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { recordRecentCompany } from '../lib/recent-companies';
 import { ApiError, api } from '../lib/api';
-import type { Session, WatchlistGroup, WatchlistGroupItem, WatchlistGroupPage } from '../types';
+import type {
+  Session,
+  SourceItem,
+  WatchlistGroup,
+  WatchlistGroupItem,
+  WatchlistGroupPage,
+  WatchlistNewsPage,
+} from '../types';
 import { mockMediaQuery } from '../test/media-query';
 import * as popout from '../lib/watchlist-popout';
 import {
@@ -1154,4 +1161,77 @@ it('leaves wheel events on full-page stock content available for native page scr
     expect(wheel.defaultPrevented).toBe(false);
   }
   expect(api.watchlistGroupItems).toHaveBeenCalledOnce();
+});
+
+it('loads every selected-company news page from the header refresh and prevents duplicate refreshes', async () => {
+  const article = (index: number): SourceItem => ({
+    id: `refresh-${index}`,
+    title: `새로고침 소식 ${index}`,
+    source: 'NEWS_RSS',
+    sourceName: '회사 뉴스룸',
+    externalId: `refresh-${index}`,
+    description: null,
+    url: `https://publisher.example/refresh-${index}`,
+    provenanceUrl: null,
+    rightsMode: 'LINK_ONLY',
+    author: null,
+    publishedAt: '2026-09-24T00:00:00Z',
+    firstObservedAt: '2026-09-24T00:00:00Z',
+    processedAt: null,
+    tickers: [],
+    tags: [],
+    contentState: 'UNAVAILABLE',
+    contentSourceId: null,
+    contentLanguage: 'ko',
+    translated: false,
+  });
+  const feed = (index: number, nextCursor: string | null): WatchlistNewsPage => ({
+    group: own,
+    companies: [
+      {
+        ...stock.company,
+        market: 'KRX',
+        corpCode: null,
+        cik: null,
+        isListed: true,
+        updatedAt: '2026-09-24T00:00:00Z',
+      },
+    ],
+    companyCount: 1,
+    asOf: '2026-09-24T00:00:00Z',
+    items: [article(index)],
+    nextCursor,
+  });
+  let resolveSecond!: (page: WatchlistNewsPage) => void;
+  const news = vi
+    .spyOn(api, 'watchlistGroupNews')
+    .mockResolvedValueOnce(feed(0, 'stale'))
+    .mockResolvedValueOnce(feed(1, 'second'))
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveSecond = resolve;
+        }),
+    )
+    .mockResolvedValueOnce(feed(3, null));
+  show('/?watchGroup=own&watchCompany=samsung&watchContent=news');
+  await screen.findByText('새로고침 소식 0');
+  expect(screen.queryByRole('button', { name: '소식 더 보기' })).toBeNull();
+  const refresh = screen.getByRole('button', { name: '관심 종목 새로고침' });
+  await waitFor(() => expect(refresh).toBeEnabled());
+  fireEvent.click(refresh);
+  await screen.findByText('새로고침 소식 1');
+  await waitFor(() => expect(resolveSecond).toBeDefined());
+  expect(refresh).toBeDisabled();
+  expect(refresh).toHaveAttribute('aria-busy', 'true');
+  fireEvent.click(refresh);
+  await act(async () => resolveSecond(feed(2, 'third')));
+  await screen.findByText('새로고침 소식 3');
+  await waitFor(() => expect(refresh).toBeEnabled());
+  expect(screen.getByText('새로고침 소식 1')).toBeVisible();
+  expect(screen.getByText('새로고침 소식 2')).toBeVisible();
+  expect(screen.queryByText('새로고침 소식 0')).toBeNull();
+  expect(news.mock.calls.map(([, request]) => request)).toEqual(
+    [null, null, 'second', 'third'].map((cursor) => ({ companyId: 'samsung', limit: 20, cursor })),
+  );
 });

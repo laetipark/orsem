@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Newspaper } from 'lucide-react';
 import { api } from '../lib/api';
-import { newsItems } from '../lib/news-feed';
+import { chronologicalNewsItems } from '../lib/news-feed';
 import { MarketNewsFreshness, MarketNewsList, NEWS_REFRESH_INTERVAL } from './market-news';
 import { Card, CardHeader, EmptyState, ErrorState, LoadingState } from './ui';
 
@@ -25,7 +25,7 @@ export function AssetNews({ asset }: { asset: NewsAsset }) {
     gcTime: 0,
     refetchInterval: NEWS_REFRESH_INTERVAL,
   });
-  const items = news.data ? newsItems([news.data], 20) : [];
+  const items = news.data ? chronologicalNewsItems([news.data], 20) : [];
   return (
     <Card className="market-news asset-news" aria-labelledby={`asset-news-${asset}`}>
       <CardHeader>

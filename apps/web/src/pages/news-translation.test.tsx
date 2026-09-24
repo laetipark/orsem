@@ -70,11 +70,16 @@ it('검색 뉴스는 준비된 번역과 원문 링크를 표시하고 공시의
   expect(await screen.findByText(translated.translation!.title)).toBeVisible();
   expect(screen.queryByText(translated.title)).not.toBeInTheDocument();
   expect(screen.getByText('Form 8-K')).toBeVisible();
-  expect(screen.getAllByText('자동 번역')).toHaveLength(1);
+  expect(screen.queryByText('자동 번역')).toBeNull();
   expect(container.querySelector('a button, a summary, a details')).toBeNull();
   const originalLink = screen.getByText(translated.translation!.title).closest('a');
   expect(originalLink).toHaveAttribute('href', translated.url);
   expect(originalLink).toHaveAttribute('target', '_blank');
+  fireEvent.click(originalLink!);
+  expect(within(screen.getByRole('dialog')).getByText('자동 번역')).toHaveClass('badge');
+  expect(
+    within(screen.getByRole('dialog')).getByRole('link', { name: /자세히 보기/ }),
+  ).toHaveAttribute('href', translated.url);
 });
 
 it('이벤트 탐색은 현재 화면에 필요한 목록 하나에 번역만 표시한다', async () => {

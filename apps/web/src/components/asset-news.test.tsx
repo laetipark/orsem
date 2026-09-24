@@ -1,9 +1,9 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { api } from '../lib/api';
-import type { CursorPage, SourceItem } from '../types';
+import type { CursorPage, SourceItem, NewsFeedPage } from '../types';
 import { AssetNews, type NewsAsset } from './asset-news';
 
 let client: QueryClient;
@@ -30,6 +30,38 @@ function article(asset: NewsAsset): SourceItem {
     contentLanguage: 'ko',
     translated: false,
     displayMode: 'EXTERNAL_LINK',
+  };
+}
+function providerPage(asset: NewsAsset): NewsFeedPage {
+  const value = article(asset);
+  return {
+    items: [],
+    nextCursor: null,
+    providerResultSets: [
+      {
+        queryId: asset,
+        queryLabel: asset,
+        kind: 'ASSET',
+        region: 'global',
+        fetchedAt: '2026-09-06T00:00:00Z',
+        expiresAt: '2099-01-01T00:00:00Z',
+        status: 'AVAILABLE',
+        reason: null,
+        total: 1,
+        start: 1,
+        display: 1,
+        lastBuildDate: null,
+        items: [
+          {
+            title: value.title,
+            description: value.description ?? '',
+            originallink: value.url,
+            link: `https://news.naver.com/${asset}`,
+            pubDate: value.publishedAt!,
+          },
+        ],
+      },
+    ],
   };
 }
 function panel(asset: NewsAsset) {
@@ -74,7 +106,7 @@ it.each([
 it('removes the prior asset immediately while the next asset is pending and shows only its original links', async () => {
   let resolveNext!: (page: CursorPage<SourceItem>) => void;
   vi.mocked(api.news)
-    .mockResolvedValueOnce({ items: [article('gold')], nextCursor: null })
+    .mockResolvedValueOnce(providerPage('gold'))
     .mockImplementationOnce(
       () =>
         new Promise((resolve) => {
@@ -89,12 +121,14 @@ it('removes the prior asset immediately while the next asset is pending and show
   expect(screen.getByText('관련 뉴스를 불러오는 중입니다.')).toBeVisible();
   await waitFor(() => expect(resolveNext).toBeDefined());
   await act(async () => {
-    resolveNext({ items: [article('wti')], nextCursor: null });
+    resolveNext(providerPage('wti'));
   });
   expect(await screen.findByText('wti 관련 제목')).toBeVisible();
+  expect(screen.queryByText('wti 관련 요약')).toBeNull();
+  fireEvent.click(screen.getByRole('link', { name: /wti 관련 제목.*기사 미리보기/ }));
   expect(screen.getByText('wti 관련 요약')).toBeVisible();
   expect(screen.queryByText('gold 관련 제목')).toBeNull();
-  expect(screen.getByRole('link', { name: /원문 새 창에서 보기/ })).toHaveAttribute(
+  expect(screen.getByRole('link', { name: /자세히 보기/ })).toHaveAttribute(
     'href',
     'https://publisher.example/wti',
   );
@@ -110,14 +144,14 @@ it('aborts an old asset request and does not display its late response under the
         resolveOld = resolve;
       });
     })
-    .mockResolvedValueOnce({ items: [article('btc')], nextCursor: null });
+    .mockResolvedValueOnce(providerPage('btc'));
   const view = render(panel('eth'));
   await waitFor(() => expect(oldSignal).toBeDefined());
   view.rerender(panel('btc'));
   expect(oldSignal?.aborted).toBe(true);
   expect(await screen.findByText('btc 관련 제목')).toBeVisible();
   await act(async () => {
-    resolveOld({ items: [article('eth')], nextCursor: null });
+    resolveOld(providerPage('eth'));
   });
   expect(screen.queryByText('eth 관련 제목')).toBeNull();
   expect(screen.getByRole('heading', { name: '비트코인 관련 뉴스' })).toBeVisible();

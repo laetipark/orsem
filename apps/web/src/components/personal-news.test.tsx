@@ -111,7 +111,7 @@ it.each([
   if (tab === '공시') fireEvent.click(screen.getByRole('tab', { name: tab }));
   expect(await screen.findByText(`관심 ${tab} 1`)).toBeVisible();
   if (tab === '공시') {
-    const link = screen.getByRole('link', { name: /관심 공시 1 · SEC/ });
+    const link = screen.getByRole('link', { name: '관심 공시 1' });
     expect(link).toHaveAttribute('href', '/events/filing-1');
     expect(link).not.toHaveAttribute('target');
   }
@@ -148,6 +148,44 @@ it('deduplicates the complete latest 20 candidates before creating pages', async
   expect(new Set(seen).size).toBe(20);
   expect(screen.getByText('관심 뉴스 20')).toBeVisible();
   expect(screen.queryByText('관심 뉴스 21')).toBeNull();
+});
+
+it('includes NAVER news in the same chronological list and pagination count', async () => {
+  const response = newsResponse(6);
+  response.providerResultSets = [
+    {
+      queryId: 'company:test',
+      queryLabel: '관심 종목',
+      region: 'kr',
+      kind: 'COMPANY',
+      fetchedAt: asOf,
+      expiresAt: '2099-01-01T00:00:00Z',
+      status: 'AVAILABLE',
+      reason: null,
+      total: 1,
+      start: 1,
+      display: 1,
+      lastBuildDate: null,
+      items: [
+        {
+          title: '네이버 최신 기사',
+          description: '기사 설명',
+          originallink: 'https://publisher.example/naver',
+          link: 'https://news.naver.com/article/1',
+          pubDate: asOf,
+        },
+      ],
+    },
+  ];
+  vi.mocked(api.personalNews).mockResolvedValue(response);
+  render(panel());
+  await screen.findByText('네이버 최신 기사');
+  expect(screen.getAllByRole('list')).toHaveLength(1);
+  expect(screen.getAllByRole('listitem')[0]).toHaveTextContent('네이버 최신 기사');
+  expect(screen.getByText('총 7건 · 1–6건')).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: '다음 소식' }));
+  expect(screen.getByText('관심 뉴스 6')).toBeVisible();
+  expect(screen.queryByText('네이버 최신 기사')).toBeNull();
 });
 
 it('starts each tab at page one and keeps a valid page after breakpoint changes', async () => {

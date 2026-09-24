@@ -30,7 +30,7 @@ OpenDART / SEC / Samsung Global / Federal Reserve / BLS
       React 대시보드
 ```
 
-NAVER 뉴스는 정기 대상 순환 또는 종목 뉴스 열람 시 자동 조회합니다. 임시 메모리 결과는 공식 뉴스와 함께 표시하되 DB·번역·통합 검색·알림 파이프라인에는 저장하지 않습니다.
+NAVER 뉴스는 정기 대상 순환 또는 종목 뉴스 열람 시 자동 조회합니다. 검색 메타데이터는 기존 `source_items`·`news_items`·`news_articles`·`news_source_companies`에 저장하고 회사 뉴스와 같은 커서로 최신순 조회합니다. 원응답·원문/네이버 링크·발행 문자열·UTC 발행/최초 관측을 보존하며 기사 전문·AI·번역·자동 알림 수집은 하지 않습니다. 저장 뉴스는 현재 등록 정책과 행별 audience 권한을 함께 검사합니다.
 
 ## 패키지
 

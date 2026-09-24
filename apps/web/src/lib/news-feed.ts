@@ -1,7 +1,7 @@
-import type { SourceItem } from '../types';
+import type { NaverNewsResultSet, NewsFeedPage, SourceItem } from '../types';
 
 const published = (item: SourceItem) => Date.parse(item.publishedAt ?? item.firstObservedAt) || 0;
-const key = (item: SourceItem) => {
+const key = (item: Pick<SourceItem, 'url' | 'id'>) => {
   try {
     const url = new URL(item.url);
     url.hash = '';
@@ -47,7 +47,84 @@ export function newsItems(
 ) {
   return mergeNews(
     pages.flatMap((page) => page.items),
-    pages.flatMap((page) => page.providerGroups ?? []),
+    [],
     limit,
   ).filter((item) => !item.expiresAt || Date.parse(item.expiresAt) > Date.now());
+}
+
+/** Keep each search response independent, including its original ordering and duplicates. */
+export function newsResultSets(pages: Array<{ providerResultSets?: NaverNewsResultSet[] }>) {
+  const sets = new Map<string, NaverNewsResultSet>();
+  for (const page of pages) {
+    for (const set of page.providerResultSets ?? []) {
+      if (set.expiresAt && Date.parse(set.expiresAt) <= Date.now()) continue;
+      if (!sets.has(set.queryId)) sets.set(set.queryId, set);
+    }
+  }
+  return [...sets.values()];
+}
+
+function publicUrl(value: string): string | null {
+  try {
+    const url = new URL(value);
+    return ['https:', 'http:'].includes(url.protocol) && !url.username && !url.password
+      ? url.href
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A chronological view of company and NAVER news; provider responses stay untouched. */
+export function chronologicalNewsItems(
+  pages: Array<Pick<NewsFeedPage, 'items' | 'providerGroups' | 'providerResultSets'>>,
+  limit = Infinity,
+) {
+  const providerItems = pages.flatMap((page) => page.providerGroups?.flat() ?? []);
+  const metadata = new Map(providerItems.map((item) => [key(item), item]));
+  const results = newsResultSets(pages).flatMap((set) =>
+    set.items.map((original, index): SourceItem => {
+      const url = publicUrl(original.originallink) ?? publicUrl(original.link) ?? '';
+      const related = metadata.get(key({ url, id: '' }));
+      return {
+        ...related,
+        id: `naver:${set.queryId}:${index}`,
+        articleId: null,
+        source: 'NAVER',
+        sourceName: url ? new URL(url).hostname : '네이버 뉴스',
+        externalId: original.link,
+        url,
+        title: original.title,
+        description: original.description,
+        providerOriginal: original,
+        provenanceUrl: publicUrl(original.link),
+        publishedAt: Number.isFinite(Date.parse(original.pubDate))
+          ? new Date(original.pubDate).toISOString()
+          : null,
+        firstObservedAt: set.fetchedAt ?? '',
+        expiresAt: set.expiresAt ?? undefined,
+        author: null,
+        processedAt: null,
+        rightsMode: 'LINK_ONLY',
+        tickers: related?.tickers ?? [],
+        tags: [],
+        contentState: 'UNAVAILABLE',
+        contentSourceId: null,
+        contentLanguage: 'ko',
+        translated: false,
+        translation: null,
+        translationStatus: 'UNAVAILABLE',
+        displayMode: 'EXTERNAL_LINK',
+      };
+    }),
+  );
+  // Older responses can expose only the normalized provider groups.
+  const legacyResults = pages.flatMap((page) =>
+    page.providerResultSets === undefined ? (page.providerGroups?.flat() ?? []) : [],
+  );
+  return mergeNews(
+    [...pages.flatMap((page) => page.items), ...results, ...legacyResults],
+    [],
+    limit,
+  );
 }

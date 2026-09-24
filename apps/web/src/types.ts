@@ -39,12 +39,29 @@ export interface CursorPage<T> {
 
 export interface NewsFeedPage extends CursorPage<SourceItem> {
   providerGroups?: SourceItem[][];
+  providerResultSets?: NaverNewsResultSet[];
   naver?: {
     fetchedAt: string | null;
     status: string;
     nextRequestAt: string | null;
     reason?: string | null;
   } | null;
+}
+
+export interface NaverNewsResultSet {
+  queryId: string;
+  queryLabel: string;
+  region: 'kr' | 'us' | 'global';
+  kind: 'COMPANY' | 'MARKET' | 'ASSET';
+  fetchedAt: string | null;
+  expiresAt: string | null;
+  status: string;
+  reason: string | null;
+  items: NaverNewsSearchItem[];
+  total: number | null;
+  start: number | null;
+  display: number | null;
+  lastBuildDate: string | null;
 }
 
 export interface WatchlistNewsPage extends NewsFeedPage {
@@ -165,6 +182,7 @@ export interface NewsTranslation {
 }
 
 export interface SourceItem {
+  summaryAllowed?: boolean;
   translationStatus?: 'PENDING' | 'COMPLETED' | 'FAILED' | 'UNAVAILABLE';
   expiresAt?: string;
   collectedAt?: string;
@@ -752,6 +770,9 @@ export interface PersonalFiling {
   source: 'OPENDART' | 'SEC';
   externalId: string;
   title: string;
+  summaryTitle?: string;
+  signal?: 'BUY' | 'SELL' | 'MIXED' | 'NONE';
+  eventDate?: string | null;
   filingDate: string | null;
   publishedAt: string | null;
   firstObservedAt: string;

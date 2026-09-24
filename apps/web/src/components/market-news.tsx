@@ -1,16 +1,17 @@
 import { NaverHighlightedText } from './naver-highlighted-text';
 import { companyRegion } from '@orsem/contracts';
-import { useEffect, useId, useState } from 'react';
-import { newsItems } from '../lib/news-feed';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { chronologicalNewsItems } from '../lib/news-feed';
 import { companyPath } from '../lib/company-path';
 import { useMouseDragScroll } from '../lib/use-mouse-drag-scroll';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowUpRight, ChevronRight, Newspaper } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
-import { formatKst } from '../lib/format';
+import { formatDate, formatKst } from '../lib/format';
 import type { SourceFreshness, SourceItem } from '../types';
-import { Card, CardHeader, EmptyState, ErrorState, LoadingState } from './ui';
+import { Badge, Card, CardHeader, EmptyState, ErrorState, LoadingState } from './ui';
+import { NewsPreviewDialog } from './news-preview-dialog';
 import './market-news.css';
 
 export const NEWS_REFRESH_INTERVAL = 60_000;
@@ -105,10 +106,12 @@ export function MarketNewsFreshness({
             {(
               {
                 AVAILABLE: '정상',
+                PARTIAL: '일부 검색 대기',
                 PENDING: '검색 대기',
                 UNCONFIGURED: '미설정',
                 UNAVAILABLE: '연결 지연',
                 LIMIT_REACHED: '한도 소진',
+                PAUSED: '검색 중단',
                 EXHAUSTED: '한도 소진',
                 BUDGET_EXHAUSTED: '한도 소진',
                 DISABLED: '비활성',
@@ -153,8 +156,9 @@ export function newsHeadline(item: NewsListItem): string {
 
 export function newsDescription(item: NewsListItem): string {
   if (
-    item.rightsMode === 'STORE_METADATA_ONLY' ||
-    (item.rightsMode === 'LINK_ONLY' && !item.source.startsWith('NAVER'))
+    !item.summaryAllowed &&
+    (item.rightsMode === 'STORE_METADATA_ONLY' ||
+      (item.rightsMode === 'LINK_ONLY' && !item.source.startsWith('NAVER')))
   )
     return '요약 미제공';
   return (
@@ -173,6 +177,9 @@ export function NewsCompanyBadges({
 }) {
   const drag = useMouseDragScroll();
   const id = useId();
+  const container = useRef<HTMLDivElement>(null);
+  const measurements = useRef<HTMLDivElement>(null);
+  const [visibleCount, setVisibleCount] = useState(2);
   const [expanded, setExpanded] = useState(false);
   const [mobile, setMobile] = useState(() => window.matchMedia('(max-width: 767px)').matches);
   useEffect(() => {
@@ -193,8 +200,42 @@ export function NewsCompanyBadges({
         .map((company) => [company.id, company]),
     ).values(),
   ];
+  const signature = unique
+    .map((company) => `${company.id}:${company.nameKo}:${company.nameEn}`)
+    .join('|');
+  useLayoutEffect(() => {
+    const element = container.current;
+    const measure = measurements.current;
+    if (!element || !measure || scroll) return;
+    const fit = () => {
+      const width = element.clientWidth;
+      if (!width) {
+        setVisibleCount(mobile ? 1 : 2);
+        return;
+      }
+      const widths = Array.from(measure.children).map((node) => node.getBoundingClientRect().width);
+      const moreWidth = widths.pop() ?? 36;
+      if (widths.reduce((sum, value) => sum + value + 4, -4) <= width) {
+        setVisibleCount(widths.length);
+        return;
+      }
+      let used = moreWidth;
+      let count = 0;
+      for (const value of widths) {
+        if (used + value + 4 > width) break;
+        used += value + 4;
+        count++;
+      }
+      setVisibleCount(count);
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(element);
+    observer.observe(measure);
+    return () => observer.disconnect();
+  }, [signature, mobile, scroll]);
   if (!unique.length) return null;
-  const count = mobile ? 1 : 2;
+  const count = Math.min(visibleCount, unique.length);
   const hidden = unique.length - count;
   const link = (company: (typeof unique)[number]) => (
     <Link
@@ -209,6 +250,8 @@ export function NewsCompanyBadges({
   );
   return (
     <div
+      ref={container}
+      id={id}
       className={`news-company-badges${scroll ? ` news-company-badges--scroll mouse-drag-scroll${drag.dragging ? ' is-dragging' : ''}` : ''}`}
       aria-label="관련 종목"
       role={scroll ? 'region' : undefined}
@@ -216,7 +259,17 @@ export function NewsCompanyBadges({
       data-mouse-scrollable={scroll ? drag.scrollable : undefined}
       {...(scroll ? drag.handlers : {})}
     >
-      {(scroll ? unique : unique.slice(0, count)).map(link)}
+      {!scroll ? (
+        <div className="news-company-badges__measure" ref={measurements} aria-hidden="true">
+          {unique.map((company) => (
+            <span key={company.id}>
+              {company.nameKo || company.nameEn || company.ticker || company.stockCode}
+            </span>
+          ))}
+          <span>+{unique.length}</span>
+        </div>
+      ) : null}
+      {(scroll || expanded ? unique : unique.slice(0, count)).map(link)}
       {!scroll && hidden > 0 ? (
         <>
           <button
@@ -228,21 +281,14 @@ export function NewsCompanyBadges({
           >
             {expanded ? '접기' : `+${hidden}`}
           </button>
-          {expanded ? (
-            <div className="news-company-badges__more" id={id}>
-              {unique.slice(count).map(link)}
-            </div>
-          ) : null}
         </>
       ) : null}
     </div>
   );
 }
 
-function NewsCopy({ item }: { item: NewsListItem }) {
+function NewsMetadata({ item }: { item: NewsListItem }) {
   const naver = item.source.startsWith('NAVER');
-  const title = newsHeadline(item),
-    description = newsDescription(item);
   const translation = translatedMetadata(item);
   const pendingLabel =
     item.translationStatus === 'FAILED'
@@ -253,74 +299,130 @@ function NewsCopy({ item }: { item: NewsListItem }) {
           ? '원문 · 번역 대기'
           : '원문';
   return (
+    <span className="market-news__meta">
+      <span className="market-news__publisher">{item.sourceName || '뉴스 출처'}</span>
+      {item.sourceKind ? (
+        <Badge tone="teal">
+          {
+            {
+              OFFICIAL_DISCLOSURE: '공식 공시',
+              OFFICIAL_RELEASE: '공식',
+              COMPANY_IR: '기업발표',
+              PRESS_RELEASE: '보도자료',
+              INDEPENDENT_MEDIA: '언론',
+              AGGREGATOR: '집계API',
+              UNKNOWN: '유형 미확인',
+            }[item.sourceKind]
+          }
+        </Badge>
+      ) : null}
+      {item.officialVerification === 'CONFIRMED' ? (
+        <Badge tone="teal">공식 자료 연결 확인</Badge>
+      ) : item.officialVerification === 'LINKED' ? (
+        <Badge>공식 관련자료 후보</Badge>
+      ) : null}
+      {item.marketRegion ? <Badge>{regionLabels[item.marketRegion]}</Badge> : null}
+      {translation ? (
+        <Badge tone="blue">{translation.editedAt ? '번역 수정본' : '자동 번역'}</Badge>
+      ) : null}
+      {!translation &&
+      !naver &&
+      (item.contentLanguage === 'en' ||
+        item.translationStatus === 'PENDING' ||
+        item.translationStatus === 'FAILED') ? (
+        <Badge>{pendingLabel}</Badge>
+      ) : null}
+      {item.publishedAt ? (
+        <time dateTime={item.publishedAt}>발행 {formatKst(item.publishedAt)}</time>
+      ) : (
+        <>
+          <span>발행시각 미제공</span>
+          {item.firstObservedAt ? (
+            <time dateTime={item.firstObservedAt}>최초 확인 {formatKst(item.firstObservedAt)}</time>
+          ) : null}
+        </>
+      )}
+      {item.collectedAt ? <span>수집 {formatKst(item.collectedAt)}</span> : null}
+      {(item.providerCount ?? 1) > 1 ? <span>수집 경로 {item.providerCount}개</span> : null}
+    </span>
+  );
+}
+
+function NewsCopy({ item }: { item: NewsListItem }) {
+  const naver = item.source.startsWith('NAVER');
+  const title = newsHeadline(item);
+  return (
     <span className="market-news__copy">
-      <strong
-        lang={translation ? 'ko' : undefined}
-        className="market-news__headline"
-        title={naver ? undefined : title}
-      >
+      <strong lang={translatedMetadata(item) ? 'ko' : undefined} className="market-news__headline">
         {naver ? <NaverHighlightedText value={title} /> : title}
       </strong>
-      <span
-        lang={translation?.description ? 'ko' : undefined}
-        className="market-news__description"
-        title={naver ? undefined : description}
-      >
-        {naver ? <NaverHighlightedText value={description} /> : description}
-      </span>
-      <span className="market-news__meta">
+      <span className="market-news__meta market-news__list-meta">
         <span className="market-news__publisher">{item.sourceName || '뉴스 출처'}</span>
-        {item.sourceKind ? (
-          <span>
-            {
-              {
-                OFFICIAL_DISCLOSURE: '공식 공시',
-                OFFICIAL_RELEASE: '공식',
-                COMPANY_IR: '기업발표',
-                PRESS_RELEASE: '보도자료',
-                INDEPENDENT_MEDIA: '언론',
-                AGGREGATOR: '집계API',
-                UNKNOWN: '유형 미확인',
-              }[item.sourceKind]
-            }
-          </span>
-        ) : null}
-        {item.officialVerification === 'CONFIRMED' ? (
-          <span>공식 자료 연결 확인</span>
-        ) : item.officialVerification === 'LINKED' ? (
-          <span>공식 관련자료 후보</span>
-        ) : null}
-        {item.marketRegion ? <span>{regionLabels[item.marketRegion]}</span> : null}
-        {translation ? <span>{translation.editedAt ? '번역 수정본' : '자동 번역'}</span> : null}
-        {!translation &&
-        !naver &&
-        (item.contentLanguage === 'en' ||
-          item.translationStatus === 'PENDING' ||
-          item.translationStatus === 'FAILED') ? (
-          <span>{pendingLabel}</span>
-        ) : null}
         {item.publishedAt ? (
-          <time dateTime={item.publishedAt}>발행 {formatKst(item.publishedAt)}</time>
+          <time dateTime={item.publishedAt}>{formatDate(item.publishedAt)}</time>
         ) : (
-          <>
-            <span>발행시각 미제공</span>
-            {item.firstObservedAt ? (
-              <time dateTime={item.firstObservedAt}>
-                최초 확인 {formatKst(item.firstObservedAt)}
-              </time>
-            ) : null}
-          </>
+          <span>발행일 미제공</span>
         )}
-        {item.collectedAt ? <span>수집 {formatKst(item.collectedAt)}</span> : null}
-        {(item.providerCount ?? 1) > 1 ? <span>수집 경로 {item.providerCount}개</span> : null}
       </span>
     </span>
   );
 }
 
+function NewsAdditionalSources({ item }: { item: NewsListItem }) {
+  const itemUrl = safeNewsUrl(item.url);
+  const sources = newsSourceLinks(item);
+  const hasAdditionalSources = sources.some((source) => source.url !== itemUrl);
+  return (
+    <>
+      {item.source === 'GDELT' ? (
+        <div className="market-news__credit">
+          <a href="https://www.gdeltproject.org/" target="_blank" rel="noopener noreferrer">
+            데이터 제공 GDELT<span className="sr-only"> 새 창에서 보기</span>
+          </a>
+        </div>
+      ) : null}
+      {item.officialReferences?.some(
+        (ref) => ref.status !== 'REJECTED' && safeNewsUrl(ref.url ?? ''),
+      ) ? (
+        <details className="market-news__sources">
+          <summary>공식 관련 자료</summary>
+          <ul>
+            {item.officialReferences
+              .filter((ref) => ref.status !== 'REJECTED' && safeNewsUrl(ref.url ?? ''))
+              .map((ref) => (
+                <li key={`${ref.kind}:${ref.id}`}>
+                  <a href={safeNewsUrl(ref.url ?? '')!} target="_blank" rel="noopener noreferrer">
+                    {ref.title ?? '공식 자료'} ·{' '}
+                    {ref.status === 'CONFIRMED' ? '연결 확인' : '관련 후보'}
+                    <ArrowUpRight size={13} aria-hidden="true" />
+                  </a>
+                </li>
+              ))}
+          </ul>
+        </details>
+      ) : null}
+      {hasAdditionalSources ? (
+        <details className="market-news__sources">
+          <summary>연결된 원문 출처 {sources.length}개</summary>
+          <ul>
+            {sources.map((source) => (
+              <li key={`${source.id}:${source.url}`}>
+                <a href={source.url} target="_blank" rel="noopener noreferrer">
+                  {source.sourceName || source.source}
+                  <ArrowUpRight size={13} aria-hidden="true" />
+                  <span className="sr-only">새 창에서 보기</span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
+    </>
+  );
+}
+
 export function MarketNewsList({
   items,
-  headlineOnly = false,
   externalCompanies = false,
   companyDetail = false,
 }: {
@@ -330,96 +432,80 @@ export function MarketNewsList({
   companyDetail?: boolean;
 }) {
   const [now, setNow] = useState(Date.now);
+  const [selected, setSelected] = useState<NewsListItem | null>(null);
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, []);
+  const preview =
+    selected &&
+    items.find(
+      (item) => item.id === selected.id && (!item.expiresAt || Date.parse(item.expiresAt) > now),
+    );
   return (
-    <ul className={`market-news__list${companyDetail ? ' market-news__list--company' : ''}`}>
-      {items
-        .filter((item) => !item.expiresAt || Date.parse(item.expiresAt) > now)
-        .map((item) => {
-          const itemUrl = safeNewsUrl(item.url);
-          const sources = newsSourceLinks(item);
-          const hasAdditionalSources = sources.some((source) => source.url !== itemUrl);
-          return (
-            <li className="market-news__item" key={item.articleId ?? item.id}>
-              <div className="market-news__row">
-                {itemUrl ? (
-                  <a
-                    className="market-news__link"
-                    href={itemUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <NewsCopy item={item} />
-                    <ArrowUpRight size={16} aria-hidden="true" />
-                    <span className="sr-only">원문 새 창에서 보기</span>
-                  </a>
-                ) : (
-                  <div className="market-news__link market-news__link--unavailable">
-                    <NewsCopy item={item} />
-                    <span className="sr-only">안전한 원문 링크가 없습니다.</span>
-                  </div>
-                )}
-                <NewsCompanyBadges
-                  companies={item.relatedCompanies}
-                  external={externalCompanies}
-                  scroll={companyDetail}
-                />
-              </div>
-              {item.source === 'GDELT' ? (
-                <div className="market-news__credit">
-                  <a href="https://www.gdeltproject.org/" target="_blank" rel="noopener noreferrer">
-                    데이터 제공 GDELT<span className="sr-only"> 새 창에서 보기</span>
-                  </a>
+    <>
+      <ul className={`market-news__list${companyDetail ? ' market-news__list--company' : ''}`}>
+        {items
+          .filter((item) => !item.expiresAt || Date.parse(item.expiresAt) > now)
+          .map((item) => {
+            const itemUrl = safeNewsUrl(item.url);
+            return (
+              <li className="market-news__item" key={item.articleId ?? item.id}>
+                <div className="market-news__row">
+                  {itemUrl ? (
+                    <a
+                      className="market-news__link"
+                      href={itemUrl}
+                      aria-haspopup="dialog"
+                      onClick={(event) => {
+                        if (
+                          event.button !== 0 ||
+                          event.ctrlKey ||
+                          event.metaKey ||
+                          event.shiftKey ||
+                          event.altKey
+                        )
+                          return;
+                        event.preventDefault();
+                        setSelected(item);
+                      }}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <NewsCopy item={item} />
+                      <ArrowUpRight size={16} aria-hidden="true" />
+                      <span className="sr-only">기사 미리보기</span>
+                    </a>
+                  ) : (
+                    <div className="market-news__link market-news__link--unavailable">
+                      <NewsCopy item={item} />
+                      <span className="sr-only">안전한 원문 링크가 없습니다.</span>
+                    </div>
+                  )}
+                  <NewsCompanyBadges
+                    companies={item.relatedCompanies}
+                    external={externalCompanies}
+                  />
                 </div>
-              ) : null}
-              {!headlineOnly &&
-              item.officialReferences?.some(
-                (ref) => ref.status !== 'REJECTED' && safeNewsUrl(ref.url ?? ''),
-              ) ? (
-                <details className="market-news__sources">
-                  <summary>공식 관련 자료</summary>
-                  <ul>
-                    {item.officialReferences
-                      .filter((ref) => ref.status !== 'REJECTED' && safeNewsUrl(ref.url ?? ''))
-                      .map((ref) => (
-                        <li key={`${ref.kind}:${ref.id}`}>
-                          <a
-                            href={safeNewsUrl(ref.url ?? '')!}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                          >
-                            {ref.title ?? '공식 자료'} ·{' '}
-                            {ref.status === 'CONFIRMED' ? '연결 확인' : '관련 후보'}
-                            <ArrowUpRight size={13} aria-hidden="true" />
-                          </a>
-                        </li>
-                      ))}
-                  </ul>
-                </details>
-              ) : null}
-              {!headlineOnly && hasAdditionalSources ? (
-                <details className="market-news__sources">
-                  <summary>연결된 원문 출처 {sources.length}개</summary>
-                  <ul>
-                    {sources.map((source) => (
-                      <li key={`${source.id}:${source.url}`}>
-                        <a href={source.url} target="_blank" rel="noopener noreferrer">
-                          {source.sourceName || source.source}
-                          <ArrowUpRight size={13} aria-hidden="true" />
-                          <span className="sr-only">새 창에서 보기</span>
-                        </a>
-                      </li>
-                    ))}
-                  </ul>
-                </details>
-              ) : null}
-            </li>
-          );
-        })}
-    </ul>
+              </li>
+            );
+          })}
+      </ul>
+      {preview ? (
+        <NewsPreviewDialog
+          key={preview.id}
+          title={newsHeadline(preview)}
+          description={newsDescription(preview)}
+          naver={preview.source.startsWith('NAVER')}
+          url={safeNewsUrl(preview.url)}
+          onClose={() => setSelected(null)}
+        >
+          <NewsMetadata item={preview} />
+          <NewsCompanyBadges companies={preview.relatedCompanies} external={externalCompanies} />
+          <NewsAdditionalSources item={preview} />
+        </NewsPreviewDialog>
+      ) : null}
+    </>
   );
 }
 
@@ -438,6 +524,7 @@ export function DashboardNews() {
     queryFn: ({ signal }) => api.news({ limit: 6, scope: 'market' }, signal),
     refetchInterval: NEWS_REFRESH_INTERVAL,
     staleTime: 30_000,
+    gcTime: 0,
   });
 
   return (
@@ -465,10 +552,12 @@ export function DashboardNews() {
           onRetry={() => void news.refetch()}
         />
       ) : null}
-      {news.data && newsItems([news.data]).length ? (
-        <MarketNewsList items={newsItems([news.data], 6)} headlineOnly />
+      {news.data && chronologicalNewsItems([news.data]).length ? (
+        <MarketNewsList items={chronologicalNewsItems([news.data], 6)} headlineOnly />
       ) : null}
-      {news.data && !newsItems([news.data]).length && !news.isError ? <MarketNewsEmpty /> : null}
+      {news.data && !chronologicalNewsItems([news.data]).length && !news.isError ? (
+        <MarketNewsEmpty />
+      ) : null}
     </Card>
   );
 }

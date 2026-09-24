@@ -36,7 +36,7 @@ import { useRecentCompanies } from '../lib/recent-companies';
 import { openWatchlistPopout } from '../lib/watchlist-popout';
 import { staleWatchlistPrice, useWatchlistQuotes } from '../lib/use-watchlist-quotes';
 import { RecentStocks } from './recent-stocks';
-import { WatchlistNewsFeed } from './watchlist-news-feed';
+import { WatchlistNewsFeed, type WatchlistNewsRefresh } from './watchlist-news-feed';
 import { WatchlistModeFrame } from './watchlist-mode-frame';
 import './watchlist-groups-panel.css';
 export const movedIds = (ids: string[], index: number, direction: -1 | 1) =>
@@ -158,6 +158,7 @@ export function WatchlistGroupsPanel({
   const recentCompanies = useRecentCompanies(actor);
   const panelId = useId();
   const [filterHost, setFilterHost] = useState<HTMLDivElement | null>(null);
+  const [newsRefresh, setNewsRefresh] = useState<WatchlistNewsRefresh | null>(null);
   const [popupBlocked, setPopupBlocked] = useState(false);
   const contentPreference = useStockContentPreference(actor);
   const spaceScroll = useMouseDragScroll();
@@ -427,23 +428,50 @@ export function WatchlistGroupsPanel({
               variant="ghost"
               aria-label="관심 종목 새로고침"
               title="관심 종목 새로고침"
-              disabled={groups.isFetching || stockQuery.isFetching}
+              disabled={
+                groups.isFetching ||
+                stockQuery.isFetching ||
+                Boolean(showNews && newsRefresh?.isFetching)
+              }
+              aria-busy={
+                groups.isFetching ||
+                stockQuery.isFetching ||
+                Boolean(showNews && newsRefresh?.isFetching)
+              }
               onClick={() => {
                 setBlockedScope(null);
                 void rooms.refetch();
                 if (scopeReady) {
                   void groups.refetch();
-                  void client.invalidateQueries({ queryKey: ['watchlist-v2', actor] });
+                  if (showNews) void newsRefresh?.refresh();
+                  void client.invalidateQueries({
+                    queryKey: ['watchlist-v2', actor],
+                    predicate: (query) =>
+                      !showNews ||
+                      !['group-news', 'group-filings'].includes(String(query.queryKey[2])),
+                  });
                   if (recentSelected) {
                     void client.invalidateQueries({ queryKey: ['company-quotes', actor] });
-                    void client.invalidateQueries({
-                      queryKey: ['news', actor, 'recent-companies'],
-                    });
+                    if (!showNews) {
+                      void client.invalidateQueries({
+                        queryKey: ['news', actor, 'recent-companies'],
+                      });
+                    }
                   }
                 }
               }}
             >
-              <RefreshCw size={15} />
+              <RefreshCw
+                size={15}
+                className={
+                  groups.isFetching ||
+                  stockQuery.isFetching ||
+                  (showNews && newsRefresh?.isFetching)
+                    ? 'spin'
+                    : undefined
+                }
+                aria-hidden="true"
+              />
             </Button>
             {!floating && !touchOnly ? (
               <Button
@@ -639,6 +667,7 @@ export function WatchlistGroupsPanel({
                 news={
                   recentSelected ? (
                     <WatchlistNewsFeed
+                      onRefreshChange={setNewsRefresh}
                       filterHost={filterHost}
                       inlineTabs={!compact}
                       externalCompanies={floating}
@@ -649,6 +678,7 @@ export function WatchlistGroupsPanel({
                     />
                   ) : selected ? (
                     <WatchlistNewsFeed
+                      onRefreshChange={setNewsRefresh}
                       filterHost={filterHost}
                       inlineTabs={!compact}
                       externalCompanies={floating}

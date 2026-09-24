@@ -37,7 +37,7 @@ it('keeps the selected company on every full-feed cursor request', async () => {
   );
   await screen.findByRole('heading', { name: '삼성전자 관련 뉴스 전체' });
   await screen.findByText('회사 뉴스 newer');
-  fireEvent.click(screen.getByRole('button', { name: '뉴스 더 보기' }));
+  fireEvent.click(screen.getByRole('button', { name: '새로고침' }));
   await screen.findByText('회사 뉴스 older');
   expect(screen.getByText('회사 뉴스 newer')).toBeVisible();
   expect(mocks.news).toHaveBeenLastCalledWith(
@@ -48,6 +48,46 @@ it('keeps the selected company on every full-feed cursor request', async () => {
     }),
     expect.any(AbortSignal),
   );
+});
+
+it('lists persisted NAVER and company news together in publication order', async () => {
+  mocks.news.mockResolvedValue({
+    items: [
+      {
+        id: 'company',
+        title: '회사 발표',
+        source: 'IR',
+        url: 'https://example.com/company',
+        publishedAt: '2026-09-24T01:00:00Z',
+        firstObservedAt: '2026-09-25T00:00:00Z',
+      },
+      {
+        id: 'naver',
+        title: '네이버 최신 기사',
+        source: 'NAVER',
+        url: 'https://example.com/naver',
+        publishedAt: '2026-09-24T03:00:00Z',
+        firstObservedAt: '2026-09-24T04:00:00Z',
+      },
+    ],
+    nextCursor: null,
+    providerGroups: [],
+    providerResultSets: [],
+  });
+  render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={['/news']}>
+        <NewsPage />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+  await screen.findByText('네이버 최신 기사');
+  expect(screen.getAllByRole('listitem').map((item) => item.textContent)).toEqual([
+    expect.stringContaining('네이버 최신 기사'),
+    expect.stringContaining('회사 발표'),
+  ]);
+  expect(screen.queryByRole('heading', { name: '네이버 뉴스 검색결과' })).toBeNull();
+  expect(screen.queryByText('네이버 검색 제공')).toBeNull();
 });
 afterEach(() => {
   cleanup();

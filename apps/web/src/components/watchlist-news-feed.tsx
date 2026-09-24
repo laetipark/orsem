@@ -1,15 +1,21 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
-import { useEffect } from 'react';
+import { useCallback, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api';
 import { watchlistAccessDenied } from '../lib/watchlist-access';
-import { formatDate, formatKst } from '../lib/format';
-import { newsItems } from '../lib/news-feed';
+import { chronologicalNewsItems } from '../lib/news-feed';
+import { useRefreshAllNews } from '../lib/use-refresh-all-news';
 import type { RecentCompany } from '../lib/recent-companies';
 import { MarketNewsList } from './market-news';
-import { Button, EmptyState, ErrorState, LoadingState } from './ui';
+import { FilingFeedList } from './filing-feed-list';
+import { EmptyState, ErrorState, LoadingState } from './ui';
 import './watchlist-news-feed.css';
+
+export interface WatchlistNewsRefresh {
+  refresh: () => Promise<unknown>;
+  isFetching: boolean;
+}
 
 export function WatchlistNewsFeed({
   actor,
@@ -21,6 +27,7 @@ export function WatchlistNewsFeed({
   filterHost,
   inlineTabs = false,
   externalCompanies = false,
+  onRefreshChange,
 }: {
   actor: string;
   groupId?: string;
@@ -31,6 +38,7 @@ export function WatchlistNewsFeed({
   filterHost: HTMLElement | null;
   inlineTabs?: boolean;
   externalCompanies?: boolean;
+  onRefreshChange?: (refresh: WatchlistNewsRefresh | null) => void;
 }) {
   const [params, setParams] = useSearchParams();
   const recent = recentCompanies !== undefined;
@@ -42,26 +50,34 @@ export function WatchlistNewsFeed({
   const tab = !recent && params.get('watchNewsType') === 'filings' ? 'filings' : 'news';
   const ids = recentCompanies?.map((c) => c.id) ?? [];
   const ready = enabled && Boolean(actor) && (recent ? ids.length > 0 : Boolean(groupId));
+  const newsKey = recent
+    ? ['news', actor, 'recent-companies', ids, companyId]
+    : ['watchlist-v2', actor, 'group-news', roomId ?? 'personal', groupId, companyId];
+  const fetchNewsPage = (cursor: string | null, signal: AbortSignal) =>
+    recent
+      ? api.news(
+          {
+            scope: 'company',
+            ...(companyId ? { companyId } : { companyIds: ids }),
+            limit: 20,
+            cursor,
+          },
+          signal,
+        )
+      : api.watchlistGroupNews(groupId!, { companyId, limit: 20, cursor }, signal);
+  const allNews = useRefreshAllNews({
+    queryKey: newsKey,
+    fetchPage: fetchNewsPage,
+    enabled: ready && tab === 'news',
+  });
   const news = useInfiniteQuery({
-    queryKey: recent
-      ? ['news', actor, 'recent-companies', ids, companyId]
-      : ['watchlist-v2', actor, 'group-news', roomId ?? 'personal', groupId, companyId],
+    queryKey: newsKey,
     initialPageParam: null as string | null,
-    queryFn: ({ signal, pageParam }) =>
-      recent
-        ? api.news(
-            {
-              scope: 'company',
-              ...(companyId ? { companyId } : { companyIds: ids }),
-              limit: 20,
-              cursor: pageParam,
-            },
-            signal,
-          )
-        : api.watchlistGroupNews(groupId!, { companyId, limit: 20, cursor: pageParam }, signal),
+    queryFn: ({ signal, pageParam }) => fetchNewsPage(pageParam, signal),
     getNextPageParam: (page) => page.nextCursor ?? undefined,
     enabled: ready && tab === 'news',
-    refetchInterval: ready && tab === 'news' ? 60_000 : false,
+    refetchInterval: ready && tab === 'news' && !allNews.isRefreshing ? 60_000 : false,
+    refetchOnWindowFocus: !allNews.isRefreshing,
     refetchIntervalInBackground: false,
     staleTime: 30_000,
     gcTime: 0,
@@ -77,7 +93,16 @@ export function WatchlistNewsFeed({
     retry: false,
   });
   const current = tab === 'news' ? news : filings;
-  const denied = watchlistAccessDenied(current.error);
+  const refresh = useCallback(
+    () => (tab === 'news' ? allNews.refreshAll() : filings.refetch()),
+    [tab, allNews.refreshAll, filings.refetch],
+  );
+  const isFetching = current.isFetching || (tab === 'news' && allNews.isRefreshing);
+  useEffect(() => {
+    onRefreshChange?.({ refresh, isFetching });
+    return () => onRefreshChange?.(null);
+  }, [onRefreshChange, refresh, isFetching]);
+  const denied = watchlistAccessDenied(current.error) || watchlistAccessDenied(allNews.error);
   useEffect(() => {
     if (denied && !recent) onAccessLost();
   }, [denied, recent, onAccessLost]);
@@ -100,7 +125,7 @@ export function WatchlistNewsFeed({
       },
       { replace: true },
     );
-  const items = news.data ? newsItems(news.data.pages) : [];
+  const items = chronologicalNewsItems(news.data?.pages ?? []);
   const tabs = !recent ? (
     <div
       className="personal-news__tabs watch-news-feed__tabs"
@@ -153,55 +178,36 @@ export function WatchlistNewsFeed({
           title="최근 조회한 종목이 없습니다"
           description="종목 상세를 열면 관련 뉴스를 이곳에서 확인할 수 있습니다."
         />
-      ) : current.isPending ? (
+      ) : current.isPending && !allNews.error ? (
         <LoadingState label="종목 소식을 불러오는 중입니다." />
       ) : current.isError ? (
         <ErrorState
           message="소식을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요."
-          onRetry={() => void current.refetch()}
+          onRetry={() => void refresh()}
         />
       ) : tab === 'news' ? (
         <>
+          {allNews.error ? (
+            <ErrorState
+              message="전체 뉴스를 불러오지 못했습니다. 불러온 소식은 계속 표시합니다."
+              onRetry={() => void allNews.refreshAll()}
+            />
+          ) : null}
           {items.length ? (
             <MarketNewsList items={items} headlineOnly externalCompanies={externalCompanies} />
-          ) : (
+          ) : !allNews.error ? (
             <EmptyState
               title="아직 연결된 뉴스가 없습니다"
               description={first?.naver?.reason ?? '수집된 관련 뉴스가 있으면 이곳에 표시합니다.'}
             />
-          )}
-          {news.hasNextPage ? (
-            <Button
-              className="watch-news-feed__more"
-              variant="secondary"
-              disabled={news.isFetchingNextPage}
-              onClick={() => void news.fetchNextPage()}
-            >
-              {news.isFetchingNextPage ? '불러오는 중…' : '소식 더 보기'}
-            </Button>
           ) : null}
         </>
       ) : filings.data?.items.length ? (
-        <ul className="personal-filings">
-          {filings.data.items.map((item) => (
-            <li key={item.id}>
-              <Link to={item.url}>
-                <strong>{item.title}</strong>
-                <small>
-                  {item.relatedCompanies.map((c) => c.nameKo || c.nameEn || c.ticker).join(' · ')} ·{' '}
-                  {item.source === 'SEC' ? 'SEC' : 'OpenDART'} ·{' '}
-                  {item.filingDate
-                    ? `접수 ${formatDate(item.filingDate)}`
-                    : `수집 ${formatKst(item.firstObservedAt)}`}
-                </small>
-              </Link>
-            </li>
-          ))}
-        </ul>
+        <FilingFeedList items={filings.data.items} externalCompanies={externalCompanies} />
       ) : (
         <EmptyState
           title="아직 연결된 공시가 없습니다"
-          description="선택한 종목의 원본 공시가 수집되면 표시합니다."
+          description="선택한 종목의 확정된 공시가 있으면 표시합니다."
         />
       )}
     </section>

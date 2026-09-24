@@ -1,14 +1,14 @@
-import { newsItems } from '../lib/news-feed';
+import { chronologicalNewsItems } from '../lib/news-feed';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useId, useState } from 'react';
-import { Link, useOutletContext } from 'react-router-dom';
+import { useOutletContext } from 'react-router-dom';
 import { api } from '../lib/api';
-import { formatDate, formatKst } from '../lib/format';
 import { COMPACT_LAYOUT_QUERY, useMediaQuery } from '../lib/use-media-query';
 import type { Session } from '../types';
 import { watchActorKey } from './watchlist-group-editors';
 import { Button, Card, CardHeader, EmptyState, LoadingState, ErrorState } from './ui';
 import { MarketNewsList } from './market-news';
+import { FilingFeedList } from './filing-feed-list';
 
 export function PersonalNews() {
   const session = useOutletContext<Session | undefined>();
@@ -38,7 +38,7 @@ export function PersonalNews() {
   const current = tab === 'news' ? news : filings;
   const count = enabled ? (current.data?.companyCount ?? 0) : 0;
   const items = news.data
-    ? newsItems([{ items: news.data.news, providerGroups: news.data.providerGroups }], 20)
+    ? chronologicalNewsItems([{ ...news.data, items: news.data.news }], 20)
     : [];
   const filingItems = filings.data?.items ?? [];
   const total = enabled ? (tab === 'news' ? items.length : filingItems.length) : 0;
@@ -94,31 +94,14 @@ export function PersonalNews() {
               <MarketNewsList items={items.slice(offset, offset + pageSize)} headlineOnly />
             ) : null}
             {tab === 'filings' && total ? (
-              <ul className="personal-filings">
-                {filingItems.slice(offset, offset + pageSize).map((item) => (
-                  <li key={item.id}>
-                    <Link to={item.url}>
-                      <strong>{item.title}</strong>
-                      <small>
-                        {item.relatedCompanies
-                          .map((c) => c.nameKo || c.nameEn || c.ticker)
-                          .join(' · ')}{' '}
-                        · {item.source === 'SEC' ? 'SEC' : 'OpenDART'} ·{' '}
-                        {item.filingDate
-                          ? `접수 ${formatDate(item.filingDate)}`
-                          : `수집 ${formatKst(item.firstObservedAt)}`}
-                      </small>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
+              <FilingFeedList items={filingItems.slice(offset, offset + pageSize)} />
             ) : null}
             {!total ? (
               <EmptyState
                 title={count ? '아직 연결된 소식이 없습니다' : '개인 관심 종목을 추가해 보세요'}
                 description={
                   count
-                    ? '새 뉴스와 원본 공시가 수집되면 표시됩니다.'
+                    ? '새 뉴스와 확정된 공시가 있으면 표시됩니다.'
                     : '그룹 관리에서 종목을 담으면 여기에 소식을 모아 드립니다.'
                 }
               />

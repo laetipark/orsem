@@ -413,6 +413,8 @@ export const api = {
       events: DashboardData['priorities']['P1'];
       news: SourceItem[];
       providerGroups?: SourceItem[][];
+      providerResultSets?: import('../types').NaverNewsResultSet[];
+      naver?: import('../types').NewsFeedPage['naver'];
     }>('/dashboard/personal-news', { signal }),
   news: ({ limit = 20, companyIds, ...filters }: NewsFilters = {}, signal?: AbortSignal) =>
     companyIds?.length === 0

@@ -3,7 +3,8 @@ import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { Newspaper, RefreshCw, Search } from 'lucide-react';
 import { type FormEvent, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { newsItems } from '../lib/news-feed';
+import { chronologicalNewsItems } from '../lib/news-feed';
+import { useRefreshAllNews } from '../lib/use-refresh-all-news';
 import { api } from '../lib/api';
 import type { NewsSourceKind } from '../types';
 import {
@@ -35,6 +36,7 @@ export function parseNewsSourceKind(value: string | null): NewsSourceKind | unde
 }
 const publishers = [
   ['', '모든 제공자'],
+  ['naver-news', '네이버 뉴스'],
   ['samsung-global-newsroom', 'Samsung Global Newsroom'],
   ['federal-reserve', 'Federal Reserve'],
   ['bls', 'Bureau of Labor Statistics'],
@@ -71,17 +73,21 @@ export function NewsPage() {
     q: params.get('q') || undefined,
     companyId,
   };
+  const newsKey = ['news', filters];
+  const fetchPage = (cursor: string | null, signal: AbortSignal) =>
+    api.news({ ...filters, limit: 20, cursor }, signal);
+  const allNews = useRefreshAllNews({ queryKey: newsKey, fetchPage });
   const news = useInfiniteQuery({
-    queryKey: ['news', filters],
-    queryFn: ({ pageParam, signal }) =>
-      api.news({ ...filters, limit: 20, cursor: pageParam }, signal),
+    queryKey: newsKey,
+    queryFn: ({ pageParam, signal }) => fetchPage(pageParam, signal),
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
-    refetchInterval: NEWS_REFRESH_INTERVAL,
+    refetchInterval: allNews.isRefreshing ? false : NEWS_REFRESH_INTERVAL,
+    refetchOnWindowFocus: !allNews.isRefreshing,
     staleTime: 30_000,
     gcTime: 0,
   });
-  const items = newsItems(news.data?.pages ?? []);
+  const items = chronologicalNewsItems(news.data?.pages ?? []);
   const setFilter = (name: string, value: string) =>
     setParams((current) => {
       const next = new URLSearchParams(current);
@@ -102,16 +108,20 @@ export function NewsPage() {
         <p>
           {companyId
             ? `${company.data?.nameKo ?? '선택한 종목'} 관련 뉴스를 최신순으로 모두 확인할 수 있습니다.`
-            : '시장 공통 소식과 기업 관련 뉴스를 구분해 확인합니다. 모든 기사는 원문 링크로 제공합니다.'}
+            : '네이버 뉴스와 회사·시장 소식을 날짜순으로 확인하고, 기사를 선택해 요약을 볼 수 있습니다.'}
         </p>
         <div className="news-page__actions">
           <Button
             variant="secondary"
             size="sm"
-            onClick={() => void news.refetch()}
-            disabled={news.isFetching}
+            onClick={() => void allNews.refreshAll()}
+            disabled={news.isFetching || allNews.isRefreshing}
           >
-            <RefreshCw size={15} className={news.isFetching ? 'spin' : ''} aria-hidden="true" />{' '}
+            <RefreshCw
+              size={15}
+              className={news.isFetching || allNews.isRefreshing ? 'spin' : ''}
+              aria-hidden="true"
+            />{' '}
             새로고침
           </Button>
         </div>
@@ -218,7 +228,15 @@ export function NewsPage() {
           </p>
           <MarketNewsFreshness naver={news.data?.pages[0]?.naver} />
         </div>
-        {news.isPending ? <LoadingState label="뉴스를 불러오는 중입니다." /> : null}
+        {news.isPending && !allNews.error ? (
+          <LoadingState label="뉴스를 불러오는 중입니다." />
+        ) : null}
+        {allNews.error ? (
+          <ErrorState
+            message="전체 뉴스를 불러오지 못했습니다. 불러온 뉴스는 계속 표시합니다."
+            onRetry={() => void allNews.refreshAll()}
+          />
+        ) : null}
         {news.isError ? (
           <ErrorState
             message={
@@ -228,7 +246,7 @@ export function NewsPage() {
                   ? '새 목록을 불러오지 못해 이전 뉴스를 표시합니다.'
                   : news.error.message
             }
-            onRetry={() => void (news.isFetchNextPageError ? news.fetchNextPage() : news.refetch())}
+            onRetry={() => void allNews.refreshAll()}
           />
         ) : null}
         {items.length ? <MarketNewsList items={items} companyDetail={Boolean(companyId)} /> : null}
@@ -239,18 +257,14 @@ export function NewsPage() {
             <MarketNewsEmpty />
           )
         ) : null}
-        {news.hasNextPage ? (
-          <div className="market-news__more">
-            <Button
-              variant="secondary"
-              onClick={() => void news.fetchNextPage()}
-              disabled={news.isFetching}
-            >
-              {news.isFetchingNextPage ? '불러오는 중…' : '뉴스 더 보기'}
-            </Button>
-          </div>
-        ) : items.length ? (
-          <p className="market-news__end">조건에 맞는 뉴스를 모두 확인했습니다.</p>
+        {items.length ? (
+          <p className="market-news__end">
+            {allNews.isRefreshing
+              ? `${items.length}건 · 전체 뉴스를 불러오는 중입니다.`
+              : news.hasNextPage
+                ? `${items.length}건 · 상단 새로고침으로 전체 뉴스를 불러올 수 있습니다.`
+                : `${items.length}건 · 조건에 맞는 뉴스를 모두 확인했습니다.`}
+          </p>
         ) : null}
       </Card>
     </div>

@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { formatDate } from '../lib/format';
 import { useVisiblePanel } from '../lib/use-visible-panel';
-import { newsItems } from '../lib/news-feed';
+import { chronologicalNewsItems } from '../lib/news-feed';
 import { MarketNewsList } from './market-news';
 
 const tabs = [
@@ -149,13 +149,14 @@ function RelatedNews({ companyId, visible }: { companyId: string; visible: boole
     gcTime: 0,
     retry: false,
   });
-  const items = newsItems(query.data?.pages ?? []);
+  const items = chronologicalNewsItems(query.data?.pages ?? []);
   const page = Math.min(requestedPage, Math.max(0, Math.ceil(items.length / pageSize) - 1));
   const next = async () => {
     if ((page + 1) * pageSize < items.length) setPage(page + 1);
     else if (query.hasNextPage) {
       const result = await query.fetchNextPage();
-      if (newsItems(result.data?.pages ?? []).length > (page + 1) * pageSize) setPage(page + 1);
+      if (chronologicalNewsItems(result.data?.pages ?? []).length > (page + 1) * pageSize)
+        setPage(page + 1);
     }
   };
   return (
