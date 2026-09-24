@@ -52,3 +52,26 @@ it.each([
   expect(screen.getByRole('button', { name: '3개월' })).toHaveAttribute('aria-pressed', 'true');
   expect(api.marketHistory).not.toHaveBeenCalled();
 });
+
+it('keeps the S&P500 detail range controls with an older TradingView symbol', () => {
+  client.setQueryData(['markets', 'all'], {
+    asOf: '2026-09-23T16:00:00Z',
+    items: marketFixtures.map((item) =>
+      item.id === 'sp500' ? { ...item, widgetSymbol: 'SP:SPX' } : item,
+    ),
+  });
+  render(
+    <QueryClientProvider client={client}>
+      <ThemeProvider>
+        <MemoryRouter initialEntries={['/markets/sp500?range=3m']}>
+          <Routes>
+            <Route path="/markets/:id" element={<MarketDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </ThemeProvider>
+    </QueryClientProvider>,
+  );
+  expect(screen.getByRole('button', { name: '3개월' })).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.getByTitle('S&P500 FRED 일별 종가 차트')).toBeInTheDocument();
+  expect(api.marketHistory).not.toHaveBeenCalled();
+});

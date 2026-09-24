@@ -93,9 +93,10 @@ export function MarketCard({
         ) : null}
         <ArrowUpRight size={15} aria-hidden="true" />
       </Link>
-      {item.displayKind === 'WIDGET' && item.widgetSymbol ? (
+      {item.displayKind === 'WIDGET' && (item.widgetSymbol || item.id === 'sp500') ? (
         <MarketWidget
-          symbol={item.widgetSymbol}
+          instrumentId={item.id}
+          symbol={item.widgetSymbol ?? ''}
           name={item.name}
           sourceUrl={item.sourceUrl}
           compact={compact}

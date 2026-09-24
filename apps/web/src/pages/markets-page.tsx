@@ -56,7 +56,7 @@ export function MarketDetailPage() {
     enabled: Boolean(item && item.displayKind === 'NATIVE'),
     staleTime: 60_000,
   });
-  const hasFredChart = item?.displayKind === 'WIDGET' && item.widgetSymbol === 'FRED:SP500';
+  const hasFredChart = item?.displayKind === 'WIDGET' && item.id === 'sp500';
   const availableRanges = useMemo(
     () =>
       hasFredChart
@@ -154,13 +154,14 @@ export function MarketDetailPage() {
               </div>
             </div>
           ) : null}
-          {item.displayKind === 'WIDGET' && item.widgetSymbol ? (
+          {item.displayKind === 'WIDGET' && (item.widgetSymbol || hasFredChart) ? (
             <div>
               <p className="market-page-note">{item.description}</p>
               <MarketWidget
                 detail
                 range={activeRange}
-                symbol={item.widgetSymbol}
+                instrumentId={item.id}
+                symbol={item.widgetSymbol ?? ''}
                 name={item.name}
                 sourceUrl={item.sourceUrl}
               />

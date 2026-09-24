@@ -37,6 +37,28 @@ it('shows the original S&P500 daily series through the official FRED embed, incl
   expect(screen.getByRole('link')).toBeVisible();
 });
 
+it('uses the S&P500 instrument ID when a cached response has an obsolete TradingView symbol', () => {
+  const { container } = render(
+    <ThemeProvider>
+      <MarketWidget
+        instrumentId="sp500"
+        symbol="SP:SPX"
+        name="S&P500"
+        sourceUrl="https://www.tradingview.com/symbols/SP-SPX/"
+      />
+    </ThemeProvider>,
+  );
+  expect(screen.getByTitle('S&P500 FRED 일별 종가 차트')).toHaveAttribute(
+    'src',
+    expect.stringContaining('fred.stlouisfed.org/graph/graph-landing.php'),
+  );
+  expect(container.querySelector('tv-mini-chart, script')).toBeNull();
+  expect(screen.getByRole('link')).toHaveAttribute(
+    'href',
+    'https://fred.stlouisfed.org/series/SP500',
+  );
+});
+
 it('fits the official graph to narrow cards and updates the requested detail range', () => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-09-23T16:00:00.000Z'));

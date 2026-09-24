@@ -70,10 +70,10 @@ function FredSp500({ name, detail, compact, range }: WidgetProps) {
   );
 }
 
-export function MarketWidget(props: WidgetProps) {
-  // Keep the legacy widgetSymbol route working for cached TradingView metadata.
-  // Only FRED's official embed renders the series; Orsem never reads its values.
-  return props.symbol === 'FRED:SP500' ? (
+export function MarketWidget(props: WidgetProps & { instrumentId?: string }) {
+  // The instrument ID stays stable even if an older market response contains
+  // a TradingView symbol that can no longer be embedded.
+  return props.instrumentId === 'sp500' || props.symbol === 'FRED:SP500' ? (
     <FredSp500 {...props} />
   ) : (
     <TradingViewWidget {...props} />
