@@ -248,14 +248,32 @@ async def pinned_https_bytes(url, timeout_ms, max_bytes, headers=None):
     parsed = public_url(url, https=True)
     host = parsed.hostname
     writer = None
-    async with asyncio.timeout(timeout_ms / 1000):
-        answers = await asyncio.get_running_loop().getaddrinfo(host, 443, type=socket.SOCK_STREAM)
+    loop = asyncio.get_running_loop()
+    deadline_at = loop.time() + timeout_ms / 1000
+    async with asyncio.timeout_at(deadline_at):
+        answers = await loop.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
         addresses = list(dict.fromkeys(str(row[4][0]) for row in answers))
         if not addresses or any(disallowed_address(address) for address in addresses):
             raise ValueError("Feed DNS resolved to a disallowed address.")
-        reader, writer = await asyncio.open_connection(
-            addresses[0], 443, ssl=ssl.create_default_context(), server_hostname=host
-        )
+        tls = ssl.create_default_context()
+        for index, address in enumerate(addresses):
+            # Reserve time for the other validated answers when an address is
+            # unreachable. DNS, every connection and HTTP share one deadline.
+            remaining = deadline_at - loop.time()
+            if remaining <= 0:
+                raise TimeoutError("Feed request deadline expired.")
+            connect_seconds = remaining / (len(addresses) - index)
+            try:
+                async with asyncio.timeout(connect_seconds):
+                    reader, writer = await asyncio.open_connection(
+                        address, 443, ssl=tls, server_hostname=host
+                    )
+                break
+            except ssl.SSLError:
+                raise
+            except (OSError, TimeoutError):
+                if index == len(addresses) - 1:
+                    raise
         try:
             connection = h11.Connection(h11.CLIENT, max_incomplete_event_size=65536)
             values = {

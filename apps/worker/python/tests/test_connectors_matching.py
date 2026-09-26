@@ -2,7 +2,12 @@
 
 import pytest
 
-from orsem_worker.connectors.policy import CompanyMatcher, alias_expression, company_aliases
+from orsem_worker.connectors.policy import (
+    NEWS_MATCHER_VERSION,
+    CompanyMatcher,
+    alias_expression,
+    company_aliases,
+)
 
 
 def catalog(count):
@@ -93,3 +98,62 @@ def test_compiled_expression_cache_is_bounded_across_jobs():
     assert alias_expression.cache_info().currsize == 512
     assert match("($VX0) shares") == ["company-0"]
     assert alias_expression.cache_info().currsize == 512
+
+
+def test_v2_ordinary_words_and_market_qualified_symbols():
+    companies = [
+        {
+            "id": "new",
+            "nameKo": "NEW",
+            "nameEn": "Next Entertainment World",
+            "market": "KOSDAQ",
+            "stockCode": "160550",
+        },
+        {
+            "id": "nice",
+            "nameKo": "NICE",
+            "nameEn": "NICE Holdings",
+            "market": "KOSPI",
+            "stockCode": "034310",
+        },
+        {
+            "id": "naver",
+            "nameKo": "NAVER",
+            "nameEn": "NAVER Corporation",
+            "market": "KOSPI",
+            "stockCode": "035420",
+        },
+        {
+            "id": "nhn",
+            "nameKo": "NHN",
+            "nameEn": "NHN Corporation",
+            "market": "KOSPI",
+            "stockCode": "181710",
+        },
+        {
+            "id": "nvidia",
+            "nameKo": "엔비디아",
+            "nameEn": "NVIDIA Corporation",
+            "market": "NASDAQ",
+            "ticker": "NVDA",
+        },
+    ]
+    match = CompanyMatcher(
+        company_aliases(companies, [{"companyId": "nvidia", "alias": "NVX", "aliasType": "TICKER"}])
+    )
+    assert NEWS_MATCHER_VERSION == 2
+    assert match("New York opens a new facility with nice results") == []
+    assert match("NEW investment and NICE outlook") == []
+    assert match("Next Entertainment World earnings") == ["new"]
+    assert match("NICE Holdings earnings") == ["nice"]
+    assert match("NAVER and NHN earnings") == ["naver", "nhn"]
+    assert match("NEW(160550) and KRX:034310 earnings") == ["new", "nice"]
+    assert match("NYSE:NVDA and NASDAQ:160550 and KOSPI:160550") == []
+    assert match("NOTNASDAQ:NVDA") == []
+    assert match("NASDAQ:NVDA and KRX:160550") == ["new", "nvidia"]
+    assert match("KOSDAQ:160550 and $NVDA") == ["new", "nvidia"]
+    assert match("NYSE:NVX") == []
+    assert match("NASDAQ:NVX") == ["nvidia"]
+    umbrella = CompanyMatcher(company_aliases([{**companies[0], "market": "KRX"}]))
+    assert umbrella("KOSDAQ:160550") == ["new"]
+    assert umbrella("NASDAQ:160550") == []

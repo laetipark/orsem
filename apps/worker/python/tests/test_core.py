@@ -43,6 +43,33 @@ def test_production_requires_explicit_infra_and_never_fixture_seeds():
     assert "secret" not in repr(load_config({"AI_API_KEY": "secret"}))
 
 
+@pytest.mark.parametrize(
+    "value",
+    [
+        "Orsem 홍길동 contact@example.com",
+        "Orsem contact@예시.com",
+        "Orsem\x00identity contact@example.com",
+        "Orsem\tidentity contact@example.com",
+        "Orsem\ridentity contact@example.com",
+        "Orsem\nidentity contact@example.com",
+        "Orsem\x7fidentity contact@example.com",
+        "Orsem\u00a0identity contact@example.com",
+    ],
+)
+def test_sec_user_agent_rejects_non_ascii_and_embedded_controls(value):
+    with pytest.raises(ValueError, match="SEC_USER_AGENT.*printable ASCII"):
+        load_config({"SEC_USER_AGENT": value})
+
+
+def test_sec_user_agent_validates_the_trimmed_header_value():
+    expected = "Orsem Research/1.0 contact+sec@example.com"
+    settings = load_config({"SEC_USER_AGENT": f"\r\n\t {expected} \t\r\n"})
+    assert settings.secUserAgent == expected
+    assert load_config({"SEC_USER_AGENT": " \t\r\n"}).secUserAgent is None
+    with pytest.raises(ValueError, match="SEC_USER_AGENT"):
+        load_config({"SEC_USER_AGENT": "contact@example.com"})
+
+
 def test_job_scope_and_types_are_validated_before_actions():
     assert validate_job("poll-opendart", {"detailType": "D005"})["suppressAlerts"] is False
     with pytest.raises(ValueError):

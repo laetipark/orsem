@@ -109,6 +109,14 @@ class SecHttp:
                 timeout_ms=timeout_ms,
                 max_bytes=max_bytes,
             )
+        # A caller must never fall back to the HTTP library's anonymous User-Agent.
+        # Keep the configured contact authoritative, including for mixed-case or
+        # duplicate caller headers, without changing headers sent to other hosts.
+        user_agent = self.ctx.config.secUserAgent
+        if not user_agent:
+            raise ValueError("SEC_USER_AGENT is required for SEC requests.")
+        headers = httpx.Headers(headers)
+        headers["User-Agent"] = user_agent
         async with self.lock:
             lease: dict[str, Any] | None = None
             try:

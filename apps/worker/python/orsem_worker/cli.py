@@ -16,7 +16,9 @@ import httpx
 from bullmq import Job, Queue
 from redis.asyncio import Redis
 
+from .admin_cli.common import AdminError
 from .config import load_config, load_environment
+from .connectors.discovery import GROUP_SQL
 from .connectors.policy import CompanyMatcher, company_aliases
 from .connectors.projections import replace_relevance
 from .constants import QueueName
@@ -45,7 +47,7 @@ def output(value):
 
 
 async def backfill_news_relevance(db, apply=False):
-    companies = await db.fetch_all("SELECT id,name_ko,name_en,ticker,stock_code FROM companies")
+    companies = await db.fetch_all("SELECT id,name_ko,name_en,ticker,stock_code,market FROM companies")
     aliases = await db.fetch_all("SELECT * FROM company_aliases")
     matcher = CompanyMatcher(
         company_aliases((camel(c) for c in companies), (camel(a) for a in aliases))
@@ -140,6 +142,16 @@ class SecCollection:
         self.queue = None
         self.owned_jobs = []
         self.stage = "configuration"
+
+    async def load_scope(self):
+        return await self.ctx.db.fetch_all("""SELECT c.id,c.ticker,c.name_ko,c.cik FROM companies c
+          WHERE c.is_listed=1 AND c.market IN ('NASDAQ','NYSE','AMEX') AND (
+          EXISTS (SELECT 1 FROM market_leader_company_links w WHERE w.company_id=c.id AND w.priority IN ('P1','P2'))
+          OR c.id IN (""" + GROUP_SQL + """)
+          OR EXISTS (SELECT 1 FROM ir_sources ir WHERE ir.company_id=c.id AND ir.is_active=1)
+          OR EXISTS (SELECT 1 FROM source_checkpoints cp WHERE cp.connector='TOSS' AND cp.stream LIKE 'PRICE_BARS:%'
+          AND cp.last_success_at>=UTC_TIMESTAMP()-INTERVAL 1 DAY
+          AND CAST(SUBSTRING_INDEX(cp.stream,':',-1) AS BINARY)=CAST(c.id AS BINARY))) ORDER BY c.ticker,c.id""")
 
     async def report_state(self):
         health = (
@@ -312,13 +324,7 @@ class SecCollection:
                 raise CliError("EXPECTED_SCHEDULE_NOT_REGISTERED_ONCE")
         if not collect_only:
             await self.run_job("sync-sec-cik", {}, "map_cik")
-        companies = await self.ctx.db.fetch_all("""SELECT c.id,c.ticker,c.name_ko,c.cik FROM companies c
-          WHERE c.is_listed=1 AND c.market IN ('NASDAQ','NYSE','AMEX') AND (
-          EXISTS (SELECT 1 FROM market_leader_company_links w WHERE w.company_id=c.id AND w.priority IN ('P1','P2'))
-          OR EXISTS (SELECT 1 FROM ir_sources ir WHERE ir.company_id=c.id AND ir.is_active=1)
-          OR EXISTS (SELECT 1 FROM source_checkpoints cp WHERE cp.connector='TOSS' AND cp.stream LIKE 'PRICE_BARS:%'
-          AND cp.last_success_at>=UTC_TIMESTAMP()-INTERVAL 1 DAY
-          AND CAST(SUBSTRING_INDEX(cp.stream,':',-1) AS BINARY)=CAST(c.id AS BINARY))) ORDER BY c.ticker,c.id""")
+        companies = await self.load_scope()
         eligible = [row for row in companies if row.get("cik")]
         self.output(
             {
@@ -390,6 +396,19 @@ def parser():
         group = command.add_mutually_exclusive_group()
         group.add_argument("--apply", action="store_true")
         group.add_argument("--dry-run", action="store_true")
+    repair = commands.add_parser("news-repair")
+    repair.add_argument("--company-ids", nargs="+", required=True)
+    repair.add_argument("--output-dir", required=True)
+    repair.add_argument("--max-sources", type=int, default=1000)
+    repair_mode = repair.add_mutually_exclusive_group()
+    repair_mode.add_argument("--apply", action="store_true")
+    repair_mode.add_argument("--dry-run", action="store_true")
+    rollback = commands.add_parser("news-repair-rollback")
+    rollback.add_argument("--repair-dir", required=True)
+    rollback.add_argument("--output-dir", required=True)
+    rollback_mode = rollback.add_mutually_exclusive_group()
+    rollback_mode.add_argument("--apply", action="store_true")
+    rollback_mode.add_argument("--dry-run", action="store_true")
     commands.add_parser("preview-market-leaders")
     collect = commands.add_parser("collect-sec")
     collect.add_argument("--status", action="store_true")
@@ -404,7 +423,6 @@ def parser():
 async def execute(args):
     if hasattr(args, "arguments"):
         from .admin_cli import run
-        from .admin_cli.common import AdminError
 
         try:
             output(await run(args.command, args.arguments))
@@ -431,6 +449,26 @@ async def execute(args):
     try:
         if args.command == "backfill-news-relevance":
             output(await backfill_news_relevance(ctx.db, args.apply))
+        elif args.command == "news-repair":
+            from .connectors.news_repair import repair_news_company_links
+
+            output(
+                await repair_news_company_links(
+                    ctx.db,
+                    args.company_ids,
+                    args.output_dir,
+                    apply=args.apply,
+                    max_sources=args.max_sources,
+                )
+            )
+        elif args.command == "news-repair-rollback":
+            from .connectors.news_repair import rollback_news_company_links
+
+            output(
+                await rollback_news_company_links(
+                    ctx.db, args.repair_dir, args.output_dir, apply=args.apply
+                )
+            )
         elif args.command == "preview-market-leaders":
             output(await preview_market_leaders(ctx))
         elif args.command == "sync-korean-etfs":
@@ -442,7 +480,11 @@ async def execute(args):
         output(
             {
                 "stage": collect.stage if collect else args.command,
-                "error": str(error) if isinstance(error, CliError) else "OPERATION_FAILED",
+                "error": str(error)
+                if isinstance(error, CliError)
+                else error.code
+                if isinstance(error, AdminError)
+                else "OPERATION_FAILED",
             }
         )
         if collect:

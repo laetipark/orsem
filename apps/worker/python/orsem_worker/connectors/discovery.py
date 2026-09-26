@@ -8,7 +8,15 @@ from typing import Any
 
 from orsem_worker.core import identifier, utcnow
 
-from .common import Checkpoints, decoded_row, failure_message, instant, iso, save_row
+from .common import (
+    Checkpoints,
+    ConnectorRequestError,
+    decoded_row,
+    failure_message,
+    instant,
+    iso,
+    save_row,
+)
 from .feeds import FeedConnector
 from .policy import (
     CompanyMatcher,
@@ -40,6 +48,19 @@ GROUP_SQL = """SELECT DISTINCT gi.company_id AS companyId FROM watchlist_group_i
 ADMIN_SQL = """SELECT DISTINCT gi.company_id AS companyId FROM watchlist_group_items gi JOIN watchlist_groups g ON g.id=gi.group_id JOIN admins a ON g.owner_key=CONCAT('ADMIN:',a.id) AND a.is_active=1 WHERE g.room_id IS NULL ORDER BY gi.company_id"""
 LEADERS_SQL = "SELECT company_id AS companyId FROM market_leader_company_links"
 FREE = {"MARKETAUX", "ALPHAVANTAGE", "FINNHUB"}
+
+
+class SecCheckpointReader:
+    """Keep checkpoint read/decoding failures outside issuer response isolation."""
+
+    def __init__(self, store):
+        self.store = store
+
+    async def load(self, connector, stream):
+        try:
+            return await self.store.load(connector, stream)
+        except Exception:  # noqa: BLE001 - all checkpoint failures stop discovery, including invalid stored revisions
+            raise RuntimeError("SEC discovery checkpoint unavailable.") from None
 
 
 def camel(row):
@@ -187,6 +208,42 @@ class Discovery:
                 if str(company.get("cik") or "").zfill(10) in groups:
                     groups[str(company["cik"]).zfill(10)].append(company)
         return [group for group in groups.values() if group]
+
+    async def discovery_batches(self, adapter, scope, *, backfill):
+        """Isolate SEC issuer response failures without catching persistence errors."""
+        store = SecCheckpointReader(self.store) if adapter.name == "SEC" else self.store
+        iterator = adapter.batches(scope, store, backfill=backfill)
+        try:
+            while True:
+                try:
+                    batch = await anext(iterator)
+                except StopAsyncIteration:
+                    return
+                except (ConnectorRequestError, ValueError) as error:
+                    # Shared SEC cooldown/policy errors have distinct types and
+                    # propagate. A defensive HTTP status check also stops denial
+                    # responses from any adapter that did not use that policy.
+                    if adapter.name != "SEC" or getattr(error, "httpStatus", None) in (403, 429):
+                        raise
+                    adapter.discoveryFailureCount += 1
+                    failed = adapter.discoveryMetadata.setdefault("failedIssuers", [])
+                    if len(failed) < 100:
+                        failed.append(
+                            {
+                                "cik": str(scope[0]["cik"]).zfill(10),
+                                "errorCode": "SEC_ISSUER_REQUEST_FAILED"
+                                if isinstance(error, ConnectorRequestError)
+                                else "SEC_SUBMISSIONS_INVALID",
+                                "httpStatus": getattr(error, "httpStatus", None),
+                            }
+                        )
+                    adapter.discoveryMetadata["issuerFailureCount"] = adapter.discoveryFailureCount
+                    return
+                # The consumer persists each yielded batch before requesting
+                # another one. Its DB/checkpoint errors never enter this catch.
+                yield batch
+        finally:
+            await iterator.aclose()
 
     async def persist(self, candidate, ir_ids, job, suppress=False, matched=()):
         policy = candidate.get("sourcePolicy") or (
@@ -566,7 +623,7 @@ class Discovery:
         aliases = []
         if matchable:
             companies = await self.ctx.db.fetch_all(
-                "SELECT id,name_ko,name_en,ticker,stock_code FROM companies"
+                "SELECT id,name_ko,name_en,ticker,stock_code,market FROM companies"
             )
             extra = await self.ctx.db.fetch_all("SELECT * FROM company_aliases")
             aliases = company_aliases((camel(c) for c in companies), (camel(e) for e in extra))
@@ -651,8 +708,8 @@ class Discovery:
                 for scope in scopes:
                     if adapter.name == "ALPACA_NEWS":
                         scope = [c for c in scope if c["market"] in US_MARKETS]
-                    async for batch in adapter.batches(
-                        scope, self.store, backfill=job.get("reason") == "BACKFILL"
+                    async for batch in self.discovery_batches(
+                        adapter, scope, backfill=job.get("reason") == "BACKFILL"
                     ):
                         seen += len(batch["candidates"])
                         run["items_seen"] = str(seen)
@@ -706,7 +763,8 @@ class Discovery:
                                 checkpoint["metadata"],
                             )
                 is_feed = isinstance(adapter, FeedConnector)
-                partial = adapter.failure_count if is_feed else 0
+                sec_failures = adapter.discoveryFailureCount if adapter.name == "SEC" else 0
+                partial = adapter.failure_count if is_feed else sec_failures
                 truncated = adapter.truncated if is_feed else adapter.discoveryWasTruncated
                 if is_feed:
                     await adapter.commit_feeds()
@@ -724,14 +782,17 @@ class Discovery:
                         v
                         for v in (
                             scope_warning if adapter.name == "SEC" else None,
+                            f"{sec_failures} SEC issuer discovery failure(s); completed batches were retained."
+                            if sec_failures
+                            else None,
                             f"SEC ownership documents remain pending ({ownership.get('ownershipPending', 0)})."
                             if incomplete
                             else None,
                             "Discovery recovery is incomplete; inspect the remaining cursor."
                             if truncated
                             else None,
-                            f"{partial} supplementary feed/document processing failure(s); saved items were retained."
-                            if partial
+                            f"{partial - sec_failures} supplementary feed/document processing failure(s); saved items were retained."
+                            if partial > sec_failures
                             else None,
                         )
                         if v
@@ -741,7 +802,9 @@ class Discovery:
                 status = "DEGRADED" if warning else "HEALTHY"
                 adapter_metadata = adapter.metadata if is_feed else adapter.discoveryMetadata
                 complete = (
-                    bool(sec_scopes) and not truncated if adapter.name == "SEC" else not truncated
+                    bool(sec_scopes) and not truncated and not sec_failures
+                    if adapter.name == "SEC"
+                    else not truncated
                 )
                 success = (
                     complete and not scope_warning and not incomplete and not partial

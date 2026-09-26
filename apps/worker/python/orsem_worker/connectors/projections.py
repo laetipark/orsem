@@ -8,7 +8,7 @@ from urllib.parse import parse_qs, urlsplit
 from orsem_worker.core import identifier, sha256, utcnow
 
 from .common import decoded_row, instant, save_row
-from .policy import allows_audience, approved, canonical_url, current_policy
+from .policy import NEWS_MATCHER_VERSION, allows_audience, approved, canonical_url, current_policy
 
 
 def readable(source):
@@ -122,7 +122,7 @@ async def replace_relevance(tx, source_id, evidence, matches):
         if row and (
             row["match_method"] == "MANUAL_REVIEW"
             or row["input_hash"] == input_hash
-            and row["matcher_version"] == 1
+            and row["matcher_version"] == NEWS_MATCHER_VERSION
             and row["match_method"] == method
         ):
             continue
@@ -131,7 +131,7 @@ async def replace_relevance(tx, source_id, evidence, matches):
             "source_item_id": source_id,
             "company_id": company_id,
             "input_hash": input_hash,
-            "matcher_version": 1,
+            "matcher_version": NEWS_MATCHER_VERSION,
             "match_method": method,
         }
         await save_row(tx, "news_source_companies", values, new=row is None)

@@ -239,10 +239,15 @@ def load_config(environment: Mapping[str, str] | None = None) -> Config:
         "ncloud",
     ):
         raise ValueError("Unsupported market data or NAVER provider.")
-    if values["secUserAgent"] and not re.fullmatch(
-        r"[A-Za-z0-9][^\r\n]{0,127}\s+[^\s@]+@[^\s@]+\.[^\s@]+", values["secUserAgent"]
+    if values["secUserAgent"] and (
+        not re.fullmatch(r"[\x20-\x7e]+", values["secUserAgent"])
+        or not re.fullmatch(
+            r"[A-Za-z0-9][^\r\n]{0,127}\s+[^\s@]+@[^\s@]+\.[^\s@]+", values["secUserAgent"]
+        )
     ):
-        raise ValueError("SEC_USER_AGENT must identify the application and a contact email.")
+        raise ValueError(
+            "SEC_USER_AGENT must use printable ASCII and identify the application and a contact email."
+        )
     if values["secUserAgent"] and len(values["secUserAgent"]) > 255:
         raise ValueError("SEC_USER_AGENT is too long.")
     if values["nodeEnv"] == "production":

@@ -264,6 +264,7 @@ async def test_sec_denial_persisted_and_next_call_skipped():
 async def test_sec_storage_failure_is_fail_closed():
     called = []
     ctx = context(
+        {"SEC_USER_AGENT": "Synthetic contact@example.com"},
         transport=httpx.MockTransport(lambda request: called.append(request) or httpx.Response(200))
     )
     ctx.db.failure = True

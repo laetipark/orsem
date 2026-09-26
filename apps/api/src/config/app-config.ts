@@ -22,9 +22,12 @@ const optionalString = z.preprocess((value) => {
 const optionalSecUserAgent = optionalString.refine(
   (value) =>
     !value ||
-    (value.length <= 255 && /^[A-Za-z0-9][^\r\n]{0,127}\s+[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(value)),
+    (value.length <= 255 &&
+      /^[\x20-\x7e]+$/u.test(value) &&
+      /^[A-Za-z0-9][^\r\n]{0,127}\s+[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(value)),
   {
-    message: 'SEC_USER_AGENT must contain an application identity followed by a contact email',
+    message:
+      'SEC_USER_AGENT must use printable ASCII and contain an application identity followed by a contact email',
   },
 );
 

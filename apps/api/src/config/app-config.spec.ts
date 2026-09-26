@@ -163,6 +163,36 @@ test('SEC user agent declares both application identity and contact email', () =
   );
 });
 
+test('SEC user agent rejects non-ASCII text and embedded header controls', () => {
+  for (const value of [
+    'Orsem 홍길동 contact@example.com',
+    'Orsem contact@예시.com',
+    'Orsem\x00identity contact@example.com',
+    'Orsem\tidentity contact@example.com',
+    'Orsem\ridentity contact@example.com',
+    'Orsem\nidentity contact@example.com',
+    'Orsem\x7fidentity contact@example.com',
+    'Orsem\u00a0identity contact@example.com',
+  ]) {
+    assert.throws(
+      () => loadAppConfig({ NODE_ENV: 'test', SEC_USER_AGENT: value }),
+      /SEC_USER_AGENT.*printable ASCII/u,
+    );
+  }
+});
+
+test('SEC user agent validates the trimmed header value', () => {
+  const expected = 'Orsem Research/1.0 contact+sec@example.com';
+  assert.equal(
+    loadAppConfig({ NODE_ENV: 'test', SEC_USER_AGENT: `\r\n\t ${expected} \t\r\n` }).secUserAgent,
+    expected,
+  );
+  assert.equal(
+    loadAppConfig({ NODE_ENV: 'test', SEC_USER_AGENT: ' \t\r\n' }).secUserAgent,
+    undefined,
+  );
+});
+
 test('production refuses fixture mode and missing secrets', () => {
   assert.throws(() => loadAppConfig({ NODE_ENV: 'production', FIXTURE_MODE: 'true' }));
 });

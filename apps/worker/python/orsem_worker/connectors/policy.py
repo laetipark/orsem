@@ -27,11 +27,13 @@ AMBIGUOUS_NAMES = {
     "visa",
     "oracle",
     "amazon",
+    "new",
+    "nice",
     "삼성",
     "현대",
     "기아",
 }
-NEWS_MATCHER_VERSION = 1
+NEWS_MATCHER_VERSION = 2
 
 
 def registered_policies():
@@ -250,7 +252,9 @@ def candidate_hash(candidate, metadata, summary):
 
 def company_aliases(companies, extras=()):
     aliases = []
+    markets = {}
     for c in companies:
+        markets[c["id"]] = c.get("market")
         for name in (c.get("nameKo"), c.get("nameEn")):
             if not name:
                 continue
@@ -267,11 +271,13 @@ def company_aliases(companies, extras=()):
                 if len(a) >= 2
             ]
         aliases += [
-            {"companyId": c["id"], "alias": a, "aliasType": "SYMBOL"}
+            {"companyId": c["id"], "alias": a, "aliasType": "SYMBOL", "market": c.get("market")}
             for a in (c.get("ticker"), c.get("stockCode"))
             if a
         ]
-    return aliases + list(extras)
+    return aliases + [
+        {**a, "market": markets.get(a["companyId"]) or a.get("market")} for a in extras
+    ]
 
 
 class PreparedAlias(NamedTuple):
@@ -281,6 +287,7 @@ class PreparedAlias(NamedTuple):
     symbol: bool
     korean: bool
     explicit_symbol: bool
+    market: str | None
 
 
 def matcher_fold(value: str) -> str:
@@ -290,12 +297,23 @@ def matcher_fold(value: str) -> str:
 
 
 @lru_cache(maxsize=512)
-def alias_expression(alias: str, symbol: bool, korean: bool, explicit_symbol: bool):
+def alias_expression(alias: str, symbol: bool, korean: bool, explicit_symbol: bool, market=None):
     """Compile only title candidates, with a process-wide bounded cache."""
     escaped = re.escape(alias)
     if symbol:
         paren = "" if explicit_symbol else r"\(|"
-        pattern = rf"(?:\$|{paren}(?:NASDAQ|NYSE|AMEX|KRX)\s*:\s*){escaped}(?=$|[^\p{{L}}\p{{N}}])"
+        exchanges = (
+            "KRX|KOSPI|KOSDAQ|KONEX"
+            if market == "KRX"
+            else "|".join(dict.fromkeys(("KRX", market)))
+            if market in ("KRX", "KOSPI", "KOSDAQ", "KONEX")
+            else market
+            if market in ("NASDAQ", "NYSE", "AMEX")
+            else "(?!)"
+            if market
+            else "NASDAQ|NYSE|AMEX|KRX|KOSPI|KOSDAQ|KONEX"
+        )
+        pattern = rf"(?:\$|{paren}(?<![\p{{L}}\p{{N}}])(?:{exchanges})\s*:\s*){escaped}(?=$|[^\p{{L}}\p{{N}}])"
     elif korean:
         pattern = rf"(?<![\p{{L}}\p{{N}}]){escaped}(?![가-힣A-Za-z0-9])|(?<![\p{{L}}\p{{N}}]){escaped}(?=(?:은|는|이|가|의|와|과|도|를|에|에서|으로)(?:\s|[,.:!?]|$))"
     else:
@@ -343,6 +361,7 @@ class CompanyMatcher:
                     symbol,
                     korean,
                     item["aliasType"] == "EXPLICIT_SYMBOL",
+                    item.get("market"),
                 )
             )
             self.widths.add(width)
@@ -362,7 +381,7 @@ class CompanyMatcher:
             (item.company_id, item.symbol, m.start(), m.end())
             for item in candidates
             for m in alias_expression(
-                item.alias, item.symbol, item.korean, item.explicit_symbol
+                item.alias, item.symbol, item.korean, item.explicit_symbol, item.market
             ).finditer(text)
         ]
         return sorted(

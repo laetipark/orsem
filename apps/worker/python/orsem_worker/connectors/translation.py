@@ -3,7 +3,6 @@
 import asyncio
 import json
 from datetime import timedelta
-from urllib.parse import urlsplit
 
 import regex as re
 
@@ -134,17 +133,8 @@ class LocalTranslationClient:
     async def translate(self, input):
         if not self.config.newsTranslationEnabled:
             raise ValueError("News translation is disabled.")
-        url = urlsplit(self.config.ollamaUrl)
-        if (
-            url.scheme != "http"
-            or url.hostname not in ("127.0.0.1", "::1", "localhost")
-            or url.username
-            or url.password
-            or url.path not in ("", "/")
-            or url.query
-            or url.fragment
-        ):
-            raise ValueError("OLLAMA_URL must be a credential-free loopback HTTP origin.")
+        if self.config.ollamaUrl != "http://172.30.1.99:11434":
+            raise ValueError("OLLAMA_URL must be the approved Ollama HTTP origin.")
         if not re.fullmatch(
             r"[a-zA-Z0-9][a-zA-Z0-9._/-]*(?::[a-zA-Z0-9._-]+)?", self.model
         ) or re.search("cloud", self.model, re.I):
