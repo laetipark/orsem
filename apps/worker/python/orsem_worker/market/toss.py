@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import random
 import re
 import time
@@ -53,12 +54,42 @@ ENDPOINTS = {
     )
 }
 RELEASE = "if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) end return 0"
+logger = logging.getLogger(__name__)
+ACCESS_BLOCK_REASONS = {
+    "ip-not-allowed": 403,
+    "access-forbidden": 403,
+    "invalid-client": 401,
+    "access-check-required": 403,
+}
+AUTH_COOLDOWN_SECONDS = 300
 
 
 class TossHttpError(RuntimeError):
     def __init__(self, status):
         self.status = status
         super().__init__(f"Toss HTTP {status}")
+
+
+class TossAccessBlocked(TossHttpError):
+    def __init__(self, reason):
+        self.reason = reason if reason in ACCESS_BLOCK_REASONS else "access-check-required"
+        self.status = ACCESS_BLOCK_REASONS[self.reason]
+        RuntimeError.__init__(
+            self,
+            f"Toss access paused ({self.reason}); verify WTS Open API allowed IPs and credentials, "
+            "then clear this client's access-block marker and restart the worker.",
+        )
+
+
+class TossAuthCoolingDown(TossAccessBlocked):
+    def __init__(self):
+        self.reason = "authentication-cooldown"
+        self.status = 401
+        RuntimeError.__init__(
+            self,
+            "Toss authentication still rejected after token refresh; requests paused for up to "
+            "5 minutes. Check other clients using these credentials; retry is automatic.",
+        )
 
 
 def decimal(raw, field="number"):
@@ -98,6 +129,10 @@ class TossClient:
         )
         self.token_lock = asyncio.Lock()
         self.closed = False
+        self.access_block_key = self.token_key + ":access-block"
+        self.access_block_reason = None
+        self.auth_cooldown_key = self.token_key + ":auth-cooldown"
+        self.auth_retry_at = 0.0
 
     @property
     def enabled(self):
@@ -115,6 +150,70 @@ class TossClient:
             else None
         )
 
+    async def ensure_access(self):
+        # A refusal remains blocked across jobs/process restarts until explicitly recovered.
+        if self.access_block_reason:
+            raise TossAccessBlocked(self.access_block_reason)
+        blocked = await self.ctx.redis.get(self.access_block_key)
+        if blocked is not None:
+            if isinstance(blocked, bytes):
+                blocked = blocked.decode("ascii", errors="replace")
+            self.access_block_reason = (
+                blocked if blocked in ACCESS_BLOCK_REASONS else "access-check-required"
+            )
+            raise TossAccessBlocked(self.access_block_reason)
+        if time.monotonic() < self.auth_retry_at or await self.ctx.redis.get(
+            self.auth_cooldown_key
+        ):
+            raise TossAuthCoolingDown()
+
+    async def block_access(self, reason):
+        # Never persist/log provider messages, body, request headers or credentials.
+        failure = TossAccessBlocked(reason)
+        self.access_block_reason = failure.reason
+        try:
+            created = await self.ctx.redis.set(self.access_block_key, failure.reason, nx=True)
+        except Exception:  # noqa: BLE001 - retain local refusal if Redis is unavailable
+            logger.error("Toss access refusal could not be persisted; this process remains paused.")
+        else:
+            if created:
+                logger.error("%s", failure)
+        raise failure
+
+    async def cool_authentication(self):
+        self.auth_retry_at = time.monotonic() + AUTH_COOLDOWN_SECONDS
+        try:
+            created = await self.ctx.redis.set(
+                self.auth_cooldown_key, "authentication-cooldown", ex=AUTH_COOLDOWN_SECONDS, nx=True
+            )
+        except Exception:  # noqa: BLE001 - retain local cooldown if Redis is unavailable
+            logger.error(
+                "Toss authentication cooldown could not be shared; this process is paused."
+            )
+        else:
+            if created:
+                logger.warning("%s", TossAuthCoolingDown())
+        raise TossAuthCoolingDown()
+
+    async def check_auth_response(self, status, *, source, body=None, refreshed=False):
+        # Official REST/AsyncAPI specs: only OAuth/WS 403 identifies a disallowed IP.
+        if status == 403:
+            await self.block_access(
+                "ip-not-allowed" if source in ("oauth", "websocket") else "access-forbidden"
+            )
+        if source == "oauth" and not 200 <= status < 300:
+            try:
+                payload = json.loads(body) if body else {}
+                code = payload.get("error") if isinstance(payload, dict) else None
+            except (ValueError, TypeError):
+                code = None
+            if status == 401 or code in ("invalid_client", "unauthorized_client", "invalid_grant"):
+                await self.block_access("invalid-client")
+            if code == "access_denied":
+                await self.block_access("access-forbidden")
+        if status == 401 and refreshed:
+            await self.cool_authentication()
+
     async def access_token(self):
         if not self.enabled:
             raise RuntimeError("Toss credentials are not configured or the provider is disabled.")
@@ -122,6 +221,7 @@ class TossClient:
             key, owner = self.token_key + ":lock", identifier()
             deadline = time.monotonic() + self.config.httpTimeoutMs / 500 + 30
             while not self.closed and time.monotonic() < deadline:
+                await self.ensure_access()
                 cached = await self.cached_token()
                 if cached:
                     return cached
@@ -131,6 +231,7 @@ class TossClient:
                     await asyncio.sleep(0.15)
                     continue
                 try:
+                    await self.ensure_access()
                     cached = await self.cached_token()
                     if cached:
                         return cached
@@ -145,6 +246,7 @@ class TossClient:
                         },
                         headers={"Accept": "application/json"},
                     )
+                    await self.check_auth_response(status, source="oauth", body=body)
                     if not 200 <= status < 300:
                         raise TossHttpError(status)
                     token = json.loads(body)
@@ -213,6 +315,7 @@ class TossClient:
         for attempt in range(4):
             token = await self.access_token()
             await self.pace(endpoint)
+            await self.ensure_access()
             status, headers, body = await http_request(
                 self.ctx,
                 "GET",
@@ -225,6 +328,7 @@ class TossClient:
                     return json.loads(body)
                 except ValueError:
                     raise ValueError("Toss returned invalid JSON.") from None
+            await self.check_auth_response(status, source="rest", refreshed=refreshed)
             if status == 401 and not refreshed:
                 refreshed = True
                 await self.invalidate_token(token)

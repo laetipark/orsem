@@ -10,7 +10,7 @@ from datetime import timedelta
 from orsem_worker.core import identifier, json_text, utcnow
 
 from .common import PRIVATE, instant, iso, obj
-from .toss import RELEASE, WS_URL, decimal
+from .toss import RELEASE, WS_URL, TossAccessBlocked, TossAuthCoolingDown, decimal
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +70,7 @@ class LiveQuotes:
         self.connection_task = None
         self.retry_at = 0
         self.attempt = 0
+        self.auth_refreshed = False
         self.subscription_retry_at = 0
         self.subscription_attempt = 0
         self.refresh_lock = asyncio.Lock()
@@ -79,6 +80,7 @@ class LiveQuotes:
         if self.stopped:
             return
         try:
+            await self.client.ensure_access()
             acquired = await self.ctx.redis.eval(
                 "local v=redis.call('GET',KEYS[1]); if not v or v==ARGV[1] then redis.call('SET',KEYS[1],ARGV[1],'PX',30000); return 1 end return 0",
                 1,
@@ -90,6 +92,10 @@ class LiveQuotes:
                 await self.close_socket()
             elif self.connection_task is None and time.monotonic() >= self.retry_at:
                 self.connection_task = asyncio.create_task(self.connect(), name="toss-websocket")
+        except TossAccessBlocked:
+            self.lease = False
+            self.auth_refreshed = False
+            await self.close_socket()
         except Exception:  # noqa: BLE001 - preserve independent connector operation
             self.lease = False
             await self.close_socket()
@@ -132,6 +138,7 @@ class LiveQuotes:
             if not self.scopes or not self.lease or self.stopped:
                 return
             token = await self.client.access_token()
+            await self.client.ensure_access()
             async with connect(
                 WS_URL,
                 additional_headers={"Authorization": f"Bearer {token}"},
@@ -143,10 +150,13 @@ class LiveQuotes:
                     return
                 self.socket = socket
                 self.attempt = 0
+                self.auth_refreshed = False
                 self.signature = json_text(trade_declaration(self.scopes))
                 await socket.send(self.signature)
                 try:
                     await self.initial_snapshot(self.scopes)
+                except TossAccessBlocked:
+                    raise
                 except Exception:  # noqa: BLE001 - preserve independent connector operation
                     logger.warning(
                         "Toss initial quote snapshot unavailable; live subscription continues."
@@ -155,9 +165,22 @@ class LiveQuotes:
                     await self.receive(frame)
         except asyncio.CancelledError:
             raise
+        except TossAccessBlocked:
+            self.auth_refreshed = False  # The shared client records the refusal once.
         except Exception as error:  # noqa: BLE001 - record per-source failure at runtime boundary
             response = getattr(error, "response", None)
-            if getattr(response, "status_code", None) == 401 and token:
+            status = getattr(response, "status_code", None)
+            try:
+                await self.client.check_auth_response(
+                    status, source="websocket", refreshed=self.auth_refreshed
+                )
+            except TossAuthCoolingDown:
+                self.auth_refreshed = False
+                return
+            except TossAccessBlocked:
+                return
+            if status == 401 and token:
+                self.auth_refreshed = True
                 await self.client.invalidate_token(token)
             logger.warning(
                 "Toss live quote connection unavailable; REST candles remain independently scheduled."
@@ -171,7 +194,12 @@ class LiveQuotes:
             self.attempt += 1
 
     async def initial_snapshot(self, scopes):
-        for price in await self.client.prices([s["symbol"] for s in scopes]):
+        try:
+            prices = await self.client.prices([s["symbol"] for s in scopes])
+        except TossAccessBlocked:
+            await self.close_socket()
+            raise
+        for price in prices:
             scope = next(
                 (
                     s
