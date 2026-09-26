@@ -65,7 +65,7 @@ Missing keys mark only the corresponding component unconfigured: absent Gold his
 
 1. **금·은 이력:** [Gold API 로그인](https://gold-api.com/login)에서 `create a new account`로 가입한 뒤 계정의 API 키를 확인합니다. [무료 요금제](https://gold-api.com/pricing)는 이력/OHLC 합산 시간당 10회 요청을 제공하며, 현재 수집기는 금·은 일평균을 각각 6시간마다 요청합니다. 짧은 시간에 워커를 반복 재시작하면 초기 이력 수집도 요청 수에 포함됩니다.
 2. **WTI:** [EIA API 키 등록](https://www.eia.gov/opendata/register.php)에서 신청하고 이메일로 전달되는 키를 확인합니다.
-3. 실제 키를 저장소 밖 `/home/laeti/.config/orsem/runtime.env`에 아래 이름으로 보관합니다. 아래 값은 형식 설명용 자리표시자입니다.
+3. 실제 키를 저장소 밖 `../.config/orsem/runtime.env`에 아래 이름으로 보관합니다. 아래 값은 형식 설명용 자리표시자입니다.
 
 ```dotenv
 GOLD_API_KEY="YOUR_GOLD_API_HISTORY_KEY"
@@ -95,4 +95,4 @@ Connector IDs are `market:toss`, `market:bithumb`, `market:treasury`, `market:go
 - [EIA API documentation](https://www.eia.gov/opendata/documentation.php) and [reuse policy](https://www.eia.gov/about/copyrights_reuse.php)
 - [TradingView widget data restrictions](https://www.tradingview.com/widget-docs/faq/data/)
 
-The parser and persistence tests are in `apps/worker/test/market-indicators.spec.ts`. They use synthetic unit-test inputs only; running them makes no authenticated provider requests.
+The parser and persistence tests are in `apps/worker/python/tests/test_market.py` and `apps/worker/python/tests/test_indicator_batching.py`. They use synthetic unit-test inputs only; running them makes no authenticated provider requests.

@@ -1,54 +1,54 @@
 # 서비스별 자격 증명 관리
 
-현재 개인 서버에는 **외부 `runtime.env`와 서비스별 JSON**을 권장합니다. 비밀 값은 `/home/laeti/.config/orsem`에 보관하고, 저장소에는 예시와 파일 경로만 둡니다. `CREDENTIALS_FILE`은 공통 규격이 아닙니다. Orsem이 직접 읽는 파일 변수는 `KAKAO_CREDENTIALS_FILE`, `TOSS_CREDENTIALS_FILE`, `WEB_PUSH_CREDENTIALS_FILE`이며, 나머지는 프로세스 환경 변수로 주입해야 합니다.
+현재 개인 서버에는 **외부 `../.config/orsem/runtime.env`와 서비스별 JSON**을 권장합니다. 비밀 값은 `../.config/orsem`에 보관하고, 저장소에는 예시와 파일 경로만 둡니다. `CREDENTIALS_FILE`은 공통 규격이 아닙니다. Orsem이 직접 읽는 파일 변수는 `KAKAO_CREDENTIALS_FILE`, `TOSS_CREDENTIALS_FILE`, `WEB_PUSH_CREDENTIALS_FILE`이며, 나머지는 프로세스 환경 변수로 주입해야 합니다.
 
 이 문서는 권장 배치와 현재 코드의 지원 범위를 설명합니다. 실제 파일 생성, 기존 비밀 값 이동, 공급자 키 발급이나 운영 프로세스 재시작을 수행했다는 뜻은 아닙니다.
 
 ## 위치와 권한
 
-| 환경                      | 권장 위치                                                                                                                                      | 관리 방식                                                                                                                 |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| 현재 사용자·개인 PM2 서버 | `/home/laeti/.config/orsem/runtime.env`, `/home/laeti/.config/orsem/credentials/kakao.json`, `/home/laeti/.config/orsem/credentials/toss.json` | PM2와 API를 실행하는 사용자 소유, 디렉터리 `0700`, 파일 `0600`                                                            |
-| 전용 Linux 운영 계정      | `/etc/orsem/runtime.env`, `/etc/orsem/credentials/kakao.json`, `/etc/orsem/credentials/toss.json`                                              | `orsem` 실행 계정만 읽도록 배치. 관리자 배포라면 `root:orsem`, 디렉터리 `0750`, 파일 `0640`도 가능하며 그룹 구성원을 제한 |
-| 컨테이너·관리형 배포      | `/run/secrets/orsem-kakao.json`, `/run/secrets/orsem-toss.json`                                                                                | 배포 환경의 비밀 저장소에서 읽기 전용 파일로 마운트. 환경 변수 전용 서비스는 배포 도구가 환경으로 주입                    |
+| 환경                      | 권장 위치                                                                                                           | 관리 방식                                                                                                                 |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| 현재 사용자·개인 PM2 서버 | `../.config/orsem/runtime.env`, `../.config/orsem/credentials/kakao.json`, `../.config/orsem/credentials/toss.json` | PM2와 API를 실행하는 사용자 소유, 디렉터리 `0700`, 파일 `0600`                                                            |
+| 전용 Linux 운영 계정      | 배포 명세가 지정한 저장소 밖의 설정 디렉터리                                                                        | `orsem` 실행 계정만 읽도록 배치. 관리자 배포라면 `root:orsem`, 디렉터리 `0750`, 파일 `0640`도 가능하며 그룹 구성원을 제한 |
+| 컨테이너·관리형 배포      | 배포 환경이 제공하는 비밀 파일 마운트 위치                                                                          | 배포 환경의 비밀 저장소에서 읽기 전용 파일로 마운트. 환경 변수 전용 서비스는 배포 도구가 환경으로 주입                    |
 
-`/home/laeti/orsem-data/kakao-credentials.json`처럼 이미 저장소 밖에 둔 기존 경로도 사용할 수 있습니다. 새 구성에서는 원문·로그와 비밀 파일의 백업·접근 정책을 구분하기 쉽도록 `.config/orsem`에 모읍니다. 개발과 운영에는 별도의 디렉터리와 자격 증명을 사용합니다. `*_CREDENTIALS_FILE` 값에 `~`나 환경 변수 확장을 기대하지 말고 **절대 경로**를 지정합니다.
+`../orsem-data/kakao-credentials.json`처럼 이미 저장소 밖에 둔 기존 경로도 사용할 수 있습니다. 새 구성에서는 원문·로그와 비밀 파일의 백업·접근 정책을 구분하기 쉽도록 `../.config/orsem`에 모읍니다. 개발과 운영에는 별도의 디렉터리와 자격 증명을 사용합니다. 문서는 프로젝트 루트 기준 상대 경로를 사용하며 `*_CREDENTIALS_FILE`의 실행 값은 아래 절차로 구한 **절대 경로**를 지정합니다. 환경 파일 자체는 `~`, `$PWD`나 명령 치환을 확장하지 않습니다.
 
 소유자는 서비스를 실제로 실행하는 계정이어야 합니다. `root`로 파일을 만들고 `0600`만 설정하면 사용자 PM2가 읽을 수 없습니다. 상위 디렉터리의 접근 권한도 함께 확인합니다. 운영 비밀을 웹 정적 디렉터리, 저장소, 채팅, 명령행 인자나 로그에 넣지 않습니다. 특히 `VITE_*`는 브라우저에 포함되는 설정이므로 모든 서비스 키에서 사용하지 않습니다.
 
 ## 서비스별 현재 지원
 
-아래 `runtime.env`는 `/home/laeti/.config/orsem/runtime.env`, `credentials/`는 `/home/laeti/.config/orsem/credentials/`를 뜻합니다. 표의 파일 이름은 권장 이름이며 로더가 이름 자체를 요구하지는 않습니다.
+아래 파일 경로는 프로젝트 루트를 기준으로 합니다. 파일 이름은 권장 이름이며 로더가 이름 자체를 요구하지는 않습니다.
 
-| 서비스                      | 권장 보관·정확한 입력                                                                                        | 사용하는 프로세스·주의사항                                                                                        |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
-| 카카오 회원 로그인          | `credentials/kakao.json` → `KAKAO_CREDENTIALS_FILE`; JSON은 `clientId`, `clientSecret`, 선택적 `redirectUri` | API. `clientId`는 REST API 키. 직접 주입 시 `KAKAO_CLIENT_ID`, `KAKAO_CLIENT_SECRET`, `KAKAO_REDIRECT_URI`        |
-| 토스증권 시세               | `credentials/toss.json` → `TOSS_CREDENTIALS_FILE`; JSON은 `clientId`, `clientSecret`                         | API·worker. 직접 주입 시 `TOSS_CLIENT_ID`, `TOSS_CLIENT_SECRET`. `MARKET_DATA_PROVIDER=toss`                      |
-| 모바일·브라우저 알림        | `credentials/web-push.json` → `WEB_PUSH_CREDENTIALS_FILE`; JSON은 `publicKey`, `privateKey`, `subject`       | API·worker. `npm run push:setup`으로 한 번 생성. 저장소 밖 절대 경로와 파일 `0600` 필수. [설정 안내](WEB_PUSH.md) |
-| Gold API 금·은 이력         | `runtime.env`의 `GOLD_API_KEY`                                                                               | worker. [로그인·무료 가입](https://gold-api.com/login) 후 계정에서 API 키 확인. 현재가에는 키 불필요              |
-| EIA WTI 현물 가격           | `runtime.env`의 `EIA_API_KEY`                                                                                | worker. [키 등록](https://www.eia.gov/opendata/register.php) 후 이메일로 수신                                     |
-| 빗썸 시세·TradingView 위젯  | 키 불필요                                                                                                    | 빗썸은 공개 현재가·일봉 API, 미국 지수는 TradingView의 FRED 일별 지수 위젯 사용                                   |
-| OpenDART                    | `runtime.env`의 `OPENDART_API_KEY`                                                                           | API·worker. `OPENDART_CREDENTIALS_FILE`은 지원하지 않음                                                           |
-| NAVER 뉴스 검색             | `runtime.env`의 `NAVER_API_PROVIDER`, `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET`                               | API·worker. `developers`(기본값) 또는 `ncloud`와 키 발급처를 일치시킴. 전용 JSON 로더 없음                        |
-| Alpaca 기업 식별 정보       | `runtime.env`의 `ALPACA_API_KEY`, `ALPACA_API_SECRET`; 공개 설정 `ALPACA_TRADING_BASE_URL`                   | API·worker. 현재 자산 마스터용이며 가격 수집·주문 실행에 사용하지 않음. 전용 JSON 로더 없음                       |
-| SEC                         | `runtime.env` 또는 비밀이 없는 일반 설정의 `SEC_USER_AGENT="Orsem monitored-email@example.com"`              | API·worker. API 키가 아니라 앱 식별 정보와 실제 확인하는 연락처                                                   |
-| Discord                     | `runtime.env`의 `DISCORD_BOT_TOKEN`, `DISCORD_SERVICE_TOKEN`; ID·허용 목록은 아래 예시                       | 봇 토큰은 Discord 프로세스, 서비스 토큰은 API와 Discord에 같은 값. 두 토큰은 서로 다른 값. 전용 JSON 로더 없음    |
-| MessengerBotR 카카오톡 알림 | Android 봇의 비공개 `Database/orsem-state.json`                                                              | 연결 과정에서 `deviceToken` 생성·저장. 서버에는 토큰 해시 저장. 카카오 로그인 키와 독립적                         |
-| MySQL                       | `runtime.env`의 `DATABASE_URL`                                                                               | API·worker·DB 마이그레이션·관리자 생성 CLI. `DATABASE_CREDENTIALS_FILE`은 지원하지 않음                           |
-| Redis                       | `runtime.env`의 `REDIS_URL`; 공개 설정 `REDIS_PREFIX`                                                        | API·worker. 세션·큐·토스 토큰 캐시를 보관하므로 접근 및 백업 권한 제한. `REDIS_CREDENTIALS_FILE`은 지원하지 않음  |
-| Orsem 세션·관리자 TOTP      | `runtime.env`의 `SESSION_SECRET`, `TOTP_ENCRYPTION_KEY`                                                      | API·관리자 생성 CLI. 서로 독립적으로 생성하고 백업. 관리자 로그인 비밀번호는 이 파일에 상시 보관하지 않음         |
-| 선택적 AI 분류기            | `runtime.env`의 `AI_API_KEY`, 일반 설정 `AI_BASE_URL`, `AI_MODEL`, `AI_ENABLED`                              | API·worker. 인증 없는 로컬 Ollama의 `ollama` 값은 호환용 자리표시자이며 비밀 키가 아님                            |
-| 선택적 뉴스 한국어 번역     | `runtime.env`의 `NEWS_TRANSLATION_ENABLED`, `OLLAMA_URL`, `NEWS_TRANSLATION_MODEL`, 처리 상한·제한 시간      | worker 전용 로컬 Ollama, 외부 API 키 불필요. [번역 설정](NEWS_TRANSLATION.md#설정과-재시도) 참고                  |
-| 사이트 뉴스 피드            | 비밀 파일 없음; `NEWS_RSS_FEEDS`, 검토된 Samsung `IR_FEED_URLS`                                              | 코드의 정확한 콘텐츠 프로필과 일치하는 URL만 지원. `GDELT_ENABLED=false` 유지                                     |
-| KIS·한국투자증권            | 현재 커넥터·자격 증명 변수 없음                                                                              | 키를 배치해도 연결되지 않음                                                                                       |
-| KRX 가격                    | 현재 키 설정 없음                                                                                            | 이전 가격 수집은 종료됨. 토스의 국내 시세에 나오는 KRX 표시는 별도 KRX 키가 필요하다는 뜻이 아님                  |
-| Telegram                    | 현재 봇 구현·자격 증명 변수 없음                                                                             | 계약의 채널 유형에 이름이 있어도 `TELEGRAM_BOT_TOKEN`을 읽거나 전송하지 않음                                      |
+| 서비스                      | 권장 보관·정확한 입력                                                                                                         | 사용하는 프로세스·주의사항                                                                                        |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| 카카오 회원 로그인          | `../.config/orsem/credentials/kakao.json` → `KAKAO_CREDENTIALS_FILE`; JSON은 `clientId`, `clientSecret`, 선택적 `redirectUri` | API. `clientId`는 REST API 키. 직접 주입 시 `KAKAO_CLIENT_ID`, `KAKAO_CLIENT_SECRET`, `KAKAO_REDIRECT_URI`        |
+| 토스증권 시세               | `../.config/orsem/credentials/toss.json` → `TOSS_CREDENTIALS_FILE`; JSON은 `clientId`, `clientSecret`                         | API·worker. 직접 주입 시 `TOSS_CLIENT_ID`, `TOSS_CLIENT_SECRET`. `MARKET_DATA_PROVIDER=toss`                      |
+| 모바일·브라우저 알림        | `../.config/orsem/credentials/web-push.json` → `WEB_PUSH_CREDENTIALS_FILE`; JSON은 `publicKey`, `privateKey`, `subject`       | API·worker. `npm run push:setup`으로 한 번 생성. 저장소 밖 절대 경로와 파일 `0600` 필수. [설정 안내](WEB_PUSH.md) |
+| Gold API 금·은 이력         | `../.config/orsem/runtime.env`의 `GOLD_API_KEY`                                                                               | worker. [로그인·무료 가입](https://gold-api.com/login) 후 계정에서 API 키 확인. 현재가에는 키 불필요              |
+| EIA WTI 현물 가격           | `../.config/orsem/runtime.env`의 `EIA_API_KEY`                                                                                | worker. [키 등록](https://www.eia.gov/opendata/register.php) 후 이메일로 수신                                     |
+| 빗썸 시세·TradingView 위젯  | 키 불필요                                                                                                                     | 빗썸은 공개 현재가·일봉 API, 미국 지수는 TradingView의 FRED 일별 지수 위젯 사용                                   |
+| OpenDART                    | `../.config/orsem/runtime.env`의 `OPENDART_API_KEY`                                                                           | API·worker. `OPENDART_CREDENTIALS_FILE`은 지원하지 않음                                                           |
+| NAVER 뉴스 검색             | `../.config/orsem/runtime.env`의 `NAVER_API_PROVIDER`, `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET`                               | API·worker. `developers`(기본값) 또는 `ncloud`와 키 발급처를 일치시킴. 전용 JSON 로더 없음                        |
+| Alpaca 기업 식별 정보       | `../.config/orsem/runtime.env`의 `ALPACA_API_KEY`, `ALPACA_API_SECRET`; 공개 설정 `ALPACA_TRADING_BASE_URL`                   | API·worker. 현재 자산 마스터용이며 가격 수집·주문 실행에 사용하지 않음. 전용 JSON 로더 없음                       |
+| SEC                         | `../.config/orsem/runtime.env` 또는 비밀이 없는 일반 설정의 `SEC_USER_AGENT="Orsem monitored-email@example.com"`              | API·worker. API 키가 아니라 앱 식별 정보와 실제 확인하는 연락처                                                   |
+| Discord                     | `../.config/orsem/runtime.env`의 `DISCORD_BOT_TOKEN`, `DISCORD_SERVICE_TOKEN`; ID·허용 목록은 아래 예시                       | 봇 토큰은 Discord 프로세스, 서비스 토큰은 API와 Discord에 같은 값. 두 토큰은 서로 다른 값. 전용 JSON 로더 없음    |
+| MessengerBotR 카카오톡 알림 | Android 봇의 비공개 `Database/orsem-state.json`                                                                               | 연결 과정에서 `deviceToken` 생성·저장. 서버에는 토큰 해시 저장. 카카오 로그인 키와 독립적                         |
+| MySQL                       | `../.config/orsem/runtime.env`의 `DATABASE_URL`                                                                               | API·worker·DB 마이그레이션·관리자 생성 CLI. `DATABASE_CREDENTIALS_FILE`은 지원하지 않음                           |
+| Redis                       | `../.config/orsem/runtime.env`의 `REDIS_URL`; 공개 설정 `REDIS_PREFIX`                                                        | API·worker. 세션·큐·토스 토큰 캐시를 보관하므로 접근 및 백업 권한 제한. `REDIS_CREDENTIALS_FILE`은 지원하지 않음  |
+| Orsem 세션·관리자 TOTP      | `../.config/orsem/runtime.env`의 `SESSION_SECRET`, `TOTP_ENCRYPTION_KEY`                                                      | API·관리자 생성 CLI. 서로 독립적으로 생성하고 백업. 관리자 로그인 비밀번호는 이 파일에 상시 보관하지 않음         |
+| 선택적 AI 분류기            | `../.config/orsem/runtime.env`의 `AI_API_KEY`, 일반 설정 `AI_BASE_URL`, `AI_MODEL`, `AI_ENABLED`                              | API·worker. 인증 없는 로컬 Ollama의 `ollama` 값은 호환용 자리표시자이며 비밀 키가 아님                            |
+| 선택적 뉴스 한국어 번역     | `../.config/orsem/runtime.env`의 `NEWS_TRANSLATION_ENABLED`, `OLLAMA_URL`, `NEWS_TRANSLATION_MODEL`, 처리 상한·제한 시간      | worker 전용 로컬 Ollama, 외부 API 키 불필요. [번역 설정](NEWS_TRANSLATION.md#설정과-재시도) 참고                  |
+| 사이트 뉴스 피드            | 비밀 파일 없음; `NEWS_RSS_FEEDS`, 검토된 Samsung `IR_FEED_URLS`                                                               | 코드의 정확한 콘텐츠 프로필과 일치하는 URL만 지원. `GDELT_ENABLED=false` 유지                                     |
+| KIS·한국투자증권            | 현재 커넥터·자격 증명 변수 없음                                                                                               | 키를 배치해도 연결되지 않음                                                                                       |
+| KRX 가격                    | 현재 키 설정 없음                                                                                                             | 이전 가격 수집은 종료됨. 토스의 국내 시세에 나오는 KRX 표시는 별도 KRX 키가 필요하다는 뜻이 아님                  |
+| Telegram                    | 현재 봇 구현·자격 증명 변수 없음                                                                                              | 계약의 채널 유형에 이름이 있어도 `TELEGRAM_BOT_TOKEN`을 읽거나 전송하지 않음                                      |
 
-단일 사용자 운영에서는 환경 변수 전용 값을 `runtime.env`에 모으면 설정 누락을 줄일 수 있습니다. 프로세스별 운영 계정이나 배포가 나뉘면 `/etc/orsem/api.env`, `/etc/orsem/worker.env`, `/etc/orsem/discord.env`로 나누어 각 프로세스에 필요한 값만 전달하는 구성을 권장합니다. 현재 PM2 템플릿은 이 분리를 자동으로 수행하지 않습니다.
+단일 사용자 운영에서는 환경 변수 전용 값을 `../.config/orsem/runtime.env`에 모으면 설정 누락을 줄일 수 있습니다. 프로세스별 운영 계정이나 배포가 나뉘면 해당 외부 설정 디렉터리에 API·worker·Discord별 환경 파일을 나누어 필요한 값만 전달합니다. 현재 PM2 템플릿은 이 분리를 자동으로 수행하지 않습니다.
 
 ## 카카오와 토스 JSON 형식
 
-`/home/laeti/.config/orsem/credentials/kakao.json`:
+`../.config/orsem/credentials/kakao.json`:
 
 ```json
 {
@@ -60,7 +60,7 @@
 
 `redirectUri`를 생략하면 `WEB_ORIGIN` + `/api/v1/auth/kakao/callback`을 사용합니다. 지정하는 경우 그 주소와 정확히 같아야 합니다. 카카오 로그인·OpenID Connect 사용 설정과 리다이렉트 URI 등록은 [카카오 로그인 운영](KAKAO_LOGIN.md)을 따릅니다. 카카오톡 메시지 발송용 어드민 키나 MessengerBotR 기기 토큰을 여기에 넣지 않습니다.
 
-`/home/laeti/.config/orsem/credentials/toss.json`:
+`../.config/orsem/credentials/toss.json`:
 
 ```json
 {
@@ -75,12 +75,20 @@
 
 ## 환경 변수 파일 형식
 
-`/home/laeti/.config/orsem/runtime.env`는 JSON이 아닌 **`이름=값` 형식의 UTF-8 파일**입니다. 아래는 자리표시자입니다. 활성화할 서비스에만 실제 값을 넣고 나머지 선택 서비스 항목은 생략합니다.
+`../.config/orsem/runtime.env`는 JSON이 아닌 **`이름=값` 형식의 UTF-8 파일**입니다. 아래는 자리표시자입니다. 활성화할 서비스에만 실제 값을 넣고 나머지 선택 서비스 항목은 생략합니다.
+
+자격 증명 파일을 만든 뒤 프로젝트 루트에서 경로를 확인합니다. 다음 출력은 파일 내용이 아닌 경로이며, 각각 아래 `ABSOLUTE_*_CREDENTIALS_PATH` 자리표시자를 대체합니다. 실행 위치와 무관하게 같은 파일을 사용하고 Web Push의 절대 경로 검증도 충족합니다.
+
+```bash
+realpath ../.config/orsem/credentials/kakao.json
+realpath ../.config/orsem/credentials/toss.json
+realpath ../.config/orsem/credentials/web-push.json
+```
 
 ```dotenv
-KAKAO_CREDENTIALS_FILE=/home/laeti/.config/orsem/credentials/kakao.json
-TOSS_CREDENTIALS_FILE=/home/laeti/.config/orsem/credentials/toss.json
-WEB_PUSH_CREDENTIALS_FILE=/home/laeti/.config/orsem/credentials/web-push.json
+KAKAO_CREDENTIALS_FILE=ABSOLUTE_KAKAO_CREDENTIALS_PATH
+TOSS_CREDENTIALS_FILE=ABSOLUTE_TOSS_CREDENTIALS_PATH
+WEB_PUSH_CREDENTIALS_FILE=ABSOLUTE_WEB_PUSH_CREDENTIALS_PATH
 
 DATABASE_URL="mysql://orsem:URL_ENCODED_PASSWORD@127.0.0.1:3306/orsem"
 REDIS_URL="redis://default:URL_ENCODED_PASSWORD@127.0.0.1:6379/0"
@@ -121,14 +129,14 @@ Cloud에는 **API HUB Application의 Client ID·Client Secret**을 넣습니다.
 
 ## 현재 실행기에 외부 파일 연결하기
 
-Orsem에는 공통 `CREDENTIALS_FILE`, `ORSEM_ENV_FILE` 또는 임의의 `*_FILE`을 자동으로 읽는 기능이 없습니다. 현재 앱·마이그레이션·PM2·부팅 스크립트는 저장소 루트 `.env`를 기본 설정으로 사용합니다. 외부 `runtime.env`는 **Node 또는 배포 도구가 읽어 프로세스 환경에 주입**해야 합니다.
+Orsem에는 공통 `CREDENTIALS_FILE`, `ORSEM_ENV_FILE` 또는 임의의 `*_FILE`을 자동으로 읽는 기능이 없습니다. 현재 앱·마이그레이션·PM2·부팅 스크립트는 저장소 루트 `.env`를 기본 설정으로 사용합니다. 외부 `../.config/orsem/runtime.env`는 **Node 또는 배포 도구가 읽어 프로세스 환경에 주입**해야 합니다.
 
 기존 `.env`를 비밀이 없는 설정으로 남기고, 외부 파일로 옮긴 변수는 기존 `.env`에서 **줄 자체를 제거**합니다. PM2 템플릿은 커넥터·AI 항목에 대해 `.env` 값을 우선하며, 부팅 스크립트는 모든 같은 이름의 `.env` 값을 우선하므로 빈 줄 `KEY=`도 외부 값을 가릴 수 있습니다. 외부 환경을 넣는 것으로 이미 있는 `.env` 비밀 값이 자동 제거되지는 않습니다.
 
 Node 24로 빌드한 API를 직접 실행하는 예시입니다. 필요한 비밀이 아닌 기본 설정은 기존 `.env`에서 읽습니다.
 
 ```bash
-node --env-file=/home/laeti/.config/orsem/runtime.env apps/api/dist/main.js
+node --env-file=../.config/orsem/runtime.env apps/api/dist/main.js
 ```
 
 `--env-file`은 파일을 쉘 스크립트로 실행하지 않고 환경 변수로 읽습니다. 이미 셸에 있는 같은 이름의 값은 파일보다 우선하므로 오래된 값을 먼저 정리합니다. 여러 파일을 쓰면 `--env-file` 옵션을 반복할 수 있습니다. [Node 환경 파일 문서](https://nodejs.org/api/cli.html#--env-filefile)
@@ -136,7 +144,7 @@ node --env-file=/home/laeti/.config/orsem/runtime.env apps/api/dist/main.js
 현재 PM2 템플릿을 유지하면서 외부 파일을 주입하는 예시입니다. 저장소 루트에서 기존 PM2와 같은 사용자로 실행하며, 코드 변경 시 빌드·마이그레이션을 먼저 마칩니다.
 
 ```bash
-node --env-file=/home/laeti/.config/orsem/runtime.env -e '
+node --env-file=../.config/orsem/runtime.env -e '
 const { spawnSync } = require("node:child_process");
 const result = spawnSync("pm2", [
   "startOrReload", "ecosystem.config.cjs",
@@ -148,7 +156,7 @@ process.exit(result.status ?? 1);
 
 Discord를 운영할 경우 대상 목록에 `orsem-discord`도 포함하고 API와 봇의 서비스 토큰을 함께 반영합니다. PM2의 기존 환경을 갱신하려면 `--update-env`가 필요합니다. [PM2 환경 갱신 문서](https://pm2.keymetrics.io/docs/usage/process-management/#updating-environment-variables-and-options)
 
-부팅 시에도 같은 외부 파일을 주입해야 합니다. [기존 부팅 명령](DEPLOYMENT.md#pc-재부팅-후-자동-시작)의 Node 실행 파일 바로 뒤에 `--env-file=/home/laeti/.config/orsem/runtime.env`를 추가하는 방식입니다. 기존 자동 시작 항목을 중복 생성하지 않습니다. `start-at-boot.mjs --check`는 선택 프로세스를 확인할 뿐 실제 비밀 값·공급자 연결을 검증하지 않습니다. 외부 파일을 주입하지 않는 `npm run db:migrate`·`npm run admin:create` 역시 자동으로 외부 설정을 찾지 못하므로, 위 `spawnSync` 방식으로 `npm` 명령에도 같은 환경을 전달해야 합니다.
+부팅 시에도 같은 외부 파일을 주입해야 합니다. [기존 부팅 명령](DEPLOYMENT.md#pc-재부팅-후-자동-시작)의 Node 실행 파일 바로 뒤에 `--env-file=../.config/orsem/runtime.env`를 추가하는 방식입니다. 기존 자동 시작 항목을 중복 생성하지 않습니다. `start-at-boot.mjs --check`는 선택 프로세스를 확인할 뿐 실제 비밀 값·공급자 연결을 검증하지 않습니다. 외부 파일을 주입하지 않는 `npm run db:migrate`·`npm run admin:create` 역시 자동으로 외부 설정을 찾지 못하므로, 위 `spawnSync` 방식으로 `npm` 명령에도 같은 환경을 전달해야 합니다.
 
 PM2의 환경 출력·진단 자료·저장된 프로세스 덤프에는 주입한 비밀이 포함될 수 있습니다. 실행 사용자 외에는 PM2 홈 디렉터리를 읽지 못하도록 하고, 덤프를 저장소나 지원 문의에 첨부하지 않습니다. `pm2 save`는 프로세스 목록을 저장하는 동작이며 자격 증명 파일을 보호하거나 부팅 시 외부 파일을 읽도록 설정하는 동작은 아닙니다.
 

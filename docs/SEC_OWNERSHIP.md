@@ -21,6 +21,6 @@ filingDate·reportPeriod·transactionDate는 날짜 문자열이고 acceptanceDa
 
 ## 분기 데이터 대조 인터페이스
 
-[SEC Insider Transactions Data Sets](https://www.sec.gov/data-research/sec-markets-data/insider-transactions-data-sets)는 분기별 추출 자료로, 실시간 원문을 대체하지 않는다. `SecInsiderQuarterReconciler`는 연도·분기·공식 URL·파일 해시·suppressAlerts=true를 받아 checked/missingAccessions/discrepancies를 반환하는 인터페이스다. 다운로드·ZIP importer는 이번 구현 범위에서 실행하지 않는다.
+[SEC Insider Transactions Data Sets](https://www.sec.gov/data-research/sec-markets-data/insider-transactions-data-sets)는 분기별 추출 자료로, 실시간 원문을 대체하지 않는다. 현재 분기 대조 인터페이스와 다운로드·ZIP importer는 구현되어 있지 않다. 후속 대조 계약은 연도·분기·공식 URL·파일 해시·suppressAlerts=true를 입력받아 checked/missingAccessions/discrepancies를 반환하는 형태로 설계한다.
 
 추후 importer는 원문과 분기 데이터 accession을 대조하고 누락된 원문 복구 작업만 별도로 만든다. 숫자·각주 차이는 검수 대상으로 남기며 분기 데이터를 새 실시간 거래로 알리지 않는다. 데이터 자체의 추출 오류 가능성과 분기 말 접수 경계를 보존한다.

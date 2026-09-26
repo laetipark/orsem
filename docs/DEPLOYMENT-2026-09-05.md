@@ -23,7 +23,7 @@ API와 worker만 각각 한 번 재시작했다. Ollama와 Discord는 기존 PID
 
 비공개 배포·백업 폴더:
 
-`/home/laeti/orsem-data/backups/production-close-translation-20260905T143135Z`
+`../orsem-data/backups/production-close-translation-20260905T143135Z`
 
 `runtime-before.tar.gz`에 기존 API·worker·웹과 공유 패키지 산출물, `before.json`에 원본 파일 해시와 프로세스 정보를 보존했다. `plan.json`과 `candidate/`에 반영한 파일 및 웹 전체 산출물, 검증 JSON에 배포 후 상태를 보존한다. 비밀 환경 파일은 이 백업에 포함하지 않는다.
 

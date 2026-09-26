@@ -16,6 +16,8 @@
 
 `SEC_USER_AGENT`가 없으면 SEC 커넥터만 비활성화한다. 실제 설정값, 자격증명, 원본 응답은 이 문서나 저장소에 기록하지 않는다.
 
+User-Agent는 로마자로 쓴 애플리케이션·운영자 식별 정보와 실제 연락 가능한 이메일을 사용한다. API와 worker 설정에서 앞뒤 공백을 제거한 뒤 출력 가능한 ASCII 전체를 검증한다. 내부 한글·제어문자는 오류로 처리하며 이름이나 연락처를 임의로 삭제·변환하지 않는다. 공통 `SecHttp`는 SEC GET 요청 직전에 설정된 User-Agent를 정확히 한 번 붙여 호출자가 생략하거나 기본 헤더를 넘겨도 식별 정보가 빠지지 않게 한다. 다른 호스트에 SEC 연락처를 추가하지 않으며 리다이렉트도 추적하지 않는다. [2026-09-24 헤더 검증 기록](SEC_HEADER_REVIEW_2026-09-24.md)은 이 보완과 실제 403 지속을 구분한다.
+
 ## CIK 연결과 보존 규칙
 
 `market.masters.SecCikMaster.sync()`는 공식 마스터를 한 번 가져와 대상 기업에 적용한다. payload의 `companyIds`를 생략하면 현재 등록된 미국 상장기업이 대상이다.
@@ -47,7 +49,7 @@
 | MSFT | Nasdaq | `0000789019`      |
 | NVDA | Nasdaq | `0001045810`      |
 
-추출물은 저장소 밖에서 관리한다. 당시 작업 파일은 `/tmp/orsem-sec-cached-master.json`이며 현재 파일의 존재나 운영 반영 상태를 보장하지 않는다. 취득 메타데이터는 `method: SEARCH_CACHE_EXTRACT`, `coverage: SELECTED_ROWS_ONLY`, `cacheAge: UNKNOWN`, `sourceLastModified: null`, `liveIssuerValidation: NOT_COMPLETED`를 보존한다. `extractedAt`은 캐시 생성 시각이 아닌 추출 시각이다. SHA-256도 HTTP 원문이 아닌 추출 JSON 기준이다.
+추출물은 저장소 밖에서 관리한다. 당시 작업 파일은 `../../../tmp/orsem-sec-cached-master.json`이며 현재 파일의 존재나 운영 반영 상태를 보장하지 않는다. 취득 메타데이터는 `method: SEARCH_CACHE_EXTRACT`, `coverage: SELECTED_ROWS_ONLY`, `cacheAge: UNKNOWN`, `sourceLastModified: null`, `liveIssuerValidation: NOT_COMPLETED`를 보존한다. `extractedAt`은 캐시 생성 시각이 아닌 추출 시각이다. SHA-256도 HTTP 원문이 아닌 추출 JSON 기준이다.
 
 명시적 Python 진입점은 `SecCikMaster.sync({"companyIds": [...]}, cache=cache)`다. 비어 있지 않은 기업 ID 목록을 요구하며, 캐시가 선택한 모든 대상에 모호함 없이 대응하지 않으면 적용을 거절한다. 부분 캐시에 없는 다른 기업을 미매칭으로 기록하지 않는다. 이 메서드는 네트워크 요청을 하지 않고, 원본 HTTP 응답을 흉내 내는 방식으로 가져오지 않는다. 직접 취득한 응답은 별도로 `DIRECT_HTTP / HTTP_RESPONSE_TEXT`로 기록한다.
 
@@ -78,9 +80,9 @@ SEC 상태는 실제 수집 결과를 사용한다. 이전의 단일 기업 상�
 운영에서는 설치된 Python worker wheel과 기존 외부 환경 설정을 사용한다. 수집 명령은 기존 worker 큐로 작업을 보내므로 Python worker와 Redis, 대응하는 스키마·JobScheduler가 준비되어 있어야 한다. CLI 자체는 정기 워커나 스케줄러를 시작하지 않는다.
 
 ```sh
-export ORSEM_REPO_ROOT=/home/laeti/orsem
-/home/laeti/orsem-data/worker/current/bin/python -I -B -m orsem_worker.cli collect-sec --status
-/home/laeti/orsem-data/worker/current/bin/python -I -B -m orsem_worker.cli collect-sec --verify
+export ORSEM_REPO_ROOT="$PWD"
+../orsem-data/worker/current/bin/python -I -B -m orsem_worker.cli collect-sec --status
+../orsem-data/worker/current/bin/python -I -B -m orsem_worker.cli collect-sec --verify
 ```
 
 | 옵션             | 동작                                                                                       |
@@ -124,9 +126,9 @@ CLI는 실행 전 두 SEC 정기 작업이 각각 한 개씩 등록되어 있는
 ## 구현 위치
 
 - `apps/worker/python/orsem_worker/market/masters.py`: 공식 마스터·캐시 검증과 CIK 연결.
-- `apps/worker/python/orsem_worker/connectors/discovery.py`, `providers.py`, `projections.py`: submissions 수집, 기준선·알림 억제, 접수 이벤트 연결.
-- `apps/worker/python/orsem_worker/connectors/sec_access.py`, `health.py`: 공유 대기 정책과 실제 수집 기반 상태.
+- `apps/worker/python/orsem_worker/connectors/discovery.py`, `apps/worker/python/orsem_worker/connectors/providers/sec.py`, `apps/worker/python/orsem_worker/connectors/projections.py`: submissions 수집, 기준선·알림 억제, 접수 이벤트 연결.
+- `apps/worker/python/orsem_worker/connectors/sec_access.py`, `apps/worker/python/orsem_worker/connectors/health.py`: 공유 대기 정책과 실제 수집 기반 상태.
 - `apps/worker/python/orsem_worker/disclosures/sec.py`: Form 3/4/5 원문 해석과 ownership 저장.
-- `apps/worker/python/orsem_worker/scheduling.py`, `jobs.py`: 실행 주기와 명시적 수집 범위 검증.
+- `apps/worker/python/orsem_worker/scheduling.py`, `apps/worker/python/orsem_worker/jobs.py`: 실행 주기와 명시적 수집 범위 검증.
 - `packages/database/src/migrations/1788398000000-AllowSharedCompanyCik.ts`: CIK 공유 지원 마이그레이션.
 - `apps/worker/python/orsem_worker/cli.py`: 운영 수집과 집계 검증 명령.

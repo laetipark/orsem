@@ -27,6 +27,8 @@ docs/                    아키텍처, 이용 권리, 보안 및 운영 절차
 
 Node.js 24, npm 11과 Python 3.12가 필요합니다. API·웹·Discord와 공통 TypeScript 패키지는 npm workspace를 유지합니다.
 
+문서의 파일 경로와 셸 명령은 프로젝트 루트를 기준으로 합니다. 외부 데이터는 `../orsem-data`, 비밀 설정은 `../.config/orsem` 배치를 기본 예시로 사용합니다. 링크와 실행 환경의 경로 처리 원칙은 [문서 안내](docs/README.md#문서-작성과-경로-기준)를 참고하세요.
+
 ```bash
 cp .env.example .env
 npm install
@@ -74,7 +76,7 @@ python3 scripts/verify-in-isolation.py
 
 Python만 검사할 때는 `python3 scripts/worker.py lint`, `typecheck`, `test`를 사용합니다. DB·Redis 통합 검사는 별도로 지정한 폐기 가능한 인스턴스에서 실행합니다. 운영 명령과 각 명령의 쓰기 범위는 [Python 워커 안내](docs/PYTHON_WORKER.md)에 정리합니다.
 
-공시 원문, 로그, 비밀 값, 비공개 테스트 문서 모음은 이 저장소가 아닌 `/home/laeti/orsem-data`에 보관합니다.
+공시 원문, 로그, 비밀 값, 비공개 테스트 문서 모음은 이 저장소가 아닌 `../orsem-data`에 보관합니다.
 
 ## SEC·뉴스 복구
 

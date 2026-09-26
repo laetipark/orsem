@@ -46,10 +46,29 @@ NAVER 뉴스는 정기 대상 순환 또는 종목 뉴스 열람 시 자동 조�
 
 ## 코드 책임 분리
 
-- API의 `resources/orsem-data.service.ts`는 조회·권한·트랜잭션을 조합합니다. 순수 응답 변환은 `resources/resource-mappers.ts`, 페이지 결과 구성은 `common/pagination.ts`, 커서 직렬화는 `common/cursor.ts`에서 관리합니다. 지역 필터와 정렬을 적용한 뒤 `limit + 1`개를 읽어 다음 페이지 유무를 결정합니다.
-- Python worker의 `connectors/common.py`와 개별 클라이언트는 HTTP 응답 바이트·redirect·제한 시간을 통제합니다. `market/toss.py`는 요청 범위·저장된 수집 이력·현재 시각을 이용해 토스 갱신 범위를 결정합니다. `disclosures/`는 원문 보존과 추출·검토·반영을, `connectors/`는 소스별 권리·예산·수집·번역을, `market/`은 가격·기업 정보·시장 선정을 담당합니다.
-- `core.py`·`storage.py`는 기존 MySQL 테이블에 바인딩된 SQL과 명시적 트랜잭션으로 접근합니다. DDL은 계속 `packages/database`의 TypeORM 마이그레이션이 관리하며 Python에서 스키마를 자동 생성하지 않습니다. `jobs.py`는 기존 JSON 작업 계약을 검증하고 `runtime.py`·`scheduling.py`는 기존 Redis 큐와 JobScheduler를 관리합니다. `push.py`·`outbox.py`·`alert_gate.py`는 알림 수신 권한과 현재 활성 공시 결과를 전송 직전에도 확인합니다.
-- 웹의 시장 조회, 그룹 분류, 시각 표시, 카드와 가격 표시를 별도 모듈로 관리합니다. 화면 배치는 컴포넌트와 CSS가 맡고, 수집 시각·자료 기준 시각의 의미는 `lib/market-time.ts`에서 공유합니다. 표시용 한글 명칭은 `lib/domain-labels.ts`를 사용하며 API 코드와 원본 인용문은 변경하지 않습니다.
+종목 조회·차트·수집기를 수정할 때는 다음 경로에서 책임별 구현을 찾습니다. 모든 경로는 프로젝트 루트 기준입니다.
+
+| 경로                                                                | 책임                                                      |
+| ------------------------------------------------------------------- | --------------------------------------------------------- |
+| `apps/api/src/resources/orsem-data.service.ts`                      | DB 조회·권한·트랜잭션 조합                                |
+| `apps/api/src/resources/resource-projections.ts`                    | 회사·공시·이벤트 응답 구성                                |
+| `apps/api/src/resources/company-timeline.ts`                        | 가격·이벤트 마커·전후 수익률 계산                         |
+| `apps/web/src/components/company-chart.tsx`                         | 차트 화면 표시                                            |
+| `apps/web/src/components/company-chart-controls.tsx`                | 차트 제어 UI                                              |
+| `apps/web/src/lib/use-company-chart.ts`                             | 차트 인스턴스·구독·선택·갱신 관리                         |
+| `apps/web/src/lib/company-query.ts`                                 | 조회 캐시 키·쿼리·2초 갱신 정책                           |
+| `apps/worker/python/orsem_worker/connectors/providers/base.py`      | 공통 공급자 기반 구현                                     |
+| `apps/worker/python/orsem_worker/connectors/providers/budget.py`    | 뉴스 공급자 예산·호출 한도 관리                           |
+| `apps/worker/python/orsem_worker/connectors/providers/sec.py`       | SEC 제출 목록 수집                                        |
+| `apps/worker/python/orsem_worker/connectors/providers/free_news.py` | Marketaux·Alpha Vantage·Finnhub 뉴스                      |
+| `apps/worker/python/orsem_worker/connectors/providers/alpaca.py`    | Alpaca 뉴스                                               |
+| `apps/worker/python/orsem_worker/connectors/providers/gdelt.py`     | GDELT 뉴스                                                |
+| `apps/worker/python/orsem_worker/connectors/providers/__init__.py`  | 기존 `orsem_worker.connectors.providers` 공개 import 유지 |
+
+- API의 공통 필드 변환은 `apps/api/src/resources/resource-mappers.ts`, 페이지 결과 구성은 `apps/api/src/common/pagination.ts`, 커서 직렬화는 `apps/api/src/common/cursor.ts`에서 관리합니다. 지역 필터와 정렬을 적용한 뒤 `limit + 1`개를 읽어 다음 페이지 유무를 결정합니다.
+- Python worker의 `apps/worker/python/orsem_worker/connectors/common.py`와 개별 클라이언트는 HTTP 응답 바이트·redirect·제한 시간을 통제합니다. `apps/worker/python/orsem_worker/market/toss.py`는 요청 범위·저장된 수집 이력·현재 시각을 이용해 토스 갱신 범위를 결정합니다. `apps/worker/python/orsem_worker/disclosures/`는 원문 보존과 추출·검토·반영을, `apps/worker/python/orsem_worker/connectors/`는 소스별 권리·예산·수집·번역을, `apps/worker/python/orsem_worker/market/`은 가격·기업 정보·시장 선정을 담당합니다.
+- `apps/worker/python/orsem_worker/core.py`·`apps/worker/python/orsem_worker/storage.py`는 기존 MySQL 테이블에 바인딩된 SQL과 명시적 트랜잭션으로 접근합니다. DDL은 계속 `packages/database`의 TypeORM 마이그레이션이 관리하며 Python에서 스키마를 자동 생성하지 않습니다. `apps/worker/python/orsem_worker/jobs.py`는 기존 JSON 작업 계약을 검증하고 `apps/worker/python/orsem_worker/runtime.py`·`apps/worker/python/orsem_worker/scheduling.py`는 기존 Redis 큐와 JobScheduler를 관리합니다. `apps/worker/python/orsem_worker/push.py`·`apps/worker/python/orsem_worker/outbox.py`·`apps/worker/python/orsem_worker/alert_gate.py`는 알림 수신 권한과 현재 활성 공시 결과를 전송 직전에도 확인합니다.
+- 웹의 시장 조회, 그룹 분류, 시각 표시, 카드와 가격 표시를 별도 모듈로 관리합니다. 화면 배치는 컴포넌트와 CSS가 맡고, 수집 시각·자료 기준 시각의 의미는 `apps/web/src/lib/market-time.ts`에서 공유합니다. 표시용 한글 명칭은 `apps/web/src/lib/domain-labels.ts`를 사용하며 API 코드와 원본 인용문은 변경하지 않습니다.
 
 Node.js 24/npm workspace는 API·웹·Discord·공통 TypeScript 계약을 유지합니다. Python 워커는 JavaScript 실행 브리지 없이 `python -m orsem_worker`로 실행합니다. 기존 BullMQ 큐 이름·접두사·작업 데이터·재시도 계약과 DB 식별자를 공유하므로 언어 전환 시 일반 큐 작업이나 수집 자료를 초기화하지 않습니다. Python 패키지는 wheel과 잠긴 의존성으로 배포합니다.
 
@@ -93,7 +112,7 @@ REST와 WebSocket은 서버의 OAuth 토큰 하나를 공유하며, 갱신은 �
 
 ## 기존 수집 경로의 조건부 뉴스 확장
 
-Marketaux·Alpha Vantage·Finnhub는 Python `connectors/providers.py`의 공급자와 공통 발견 후보 계약을 사용합니다. BullMQ 수집 → 권리·무료 entitlement 검사 → 기존 DB 예산 예약 → 공급자 metadata 정규화 → 기존 회사 연결/뉴스 중복 제거 → source_items/news_items 저장 → 공식 자료 후보 연결 순서를 따릅니다. RSS는 같은 경로의 정확한 URL 프로필을 사용합니다.
+Marketaux·Alpha Vantage·Finnhub는 Python `apps/worker/python/orsem_worker/connectors/providers/`의 공급자와 공통 발견 후보 계약을 사용합니다. BullMQ 수집 → 권리·무료 entitlement 검사 → 기존 DB 예산 예약 → 공급자 metadata 정규화 → 기존 회사 연결/뉴스 중복 제거 → source_items/news_items 저장 → 공식 자료 후보 연결 순서를 따릅니다. RSS는 같은 경로의 정확한 URL 프로필을 사용합니다.
 
 일반 뉴스에는 본문 수집 단계가 없다. 공급자별 장애를 provenance와 함께 기록하며 다른 서비스로 묵시적으로 대체하지 않는다. 재시작 cursor와 overlap은 기존 checkpoint 구조를 사용한다. 회사·원출처·시간이 맞는 정규화 제목과 canonical URL로 기사를 묶되 발견 경로와 독립 원출처 수를 분리한다.
 
@@ -109,7 +128,7 @@ API는 인증된 세션에서 `ADMIN_UI | MEMBER_UI | SHARED_ROOM | BOT` 독자�
 - D004: 공개매수, 신고·설명·실제 결과를 별도 구분.
 - D005: 향후 거래계획으로, 체결 증거가 아님.
 
-D005와 D002의 계획·실행 연결 후보는 다대다 관계입니다. 자동 확정에는 기업, 보고자, 증권, 계획 기간, 수량이 정확히 일치해야 합니다. 정정 관계는 감사 가능한 그래프로 남기며 이전 제출 문서를 삭제하지 않습니다.
+D005와 D002의 계획·실행 연결 후보는 다대다 관계입니다. 기업·보고자·증권·거래 성격·방향·기간·수량을 대조하되, 정확히 일치하더라도 `EXECUTION_CANDIDATE`와 `PENDING`으로 저장해 관리자 검토를 거칩니다. 계획의 남은 수량 안에 있는 부분 실행 후보는 정확 일치와 구분합니다. 정정 관계는 감사 가능한 그래프로 남기며 이전 제출 문서를 삭제하지 않습니다.
 
 ## 전송 보장 범위
 

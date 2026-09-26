@@ -11,7 +11,7 @@
 
 2026-09-09 07:32 KST worker 재시작 후 PID는 `221103`이다. API 프로세스는 유지했다. 재시작 전후 모두 SEC 대기 시각 `2026-09-08T22:35:00.276Z` (07:35:00 KST)가 유지됐고, 실행 중인 worker의 User-Agent는 기존 환경 파일과 일치했다.
 
-배포 전 환경과 worker 산출물을 저장소 밖의 비공개 임시 디렉터리에 백업했다. 실제 연락처, 공인 IP, 자격증명, SEC 원문은 이 문서에 포함하지 않는다. 배포한 `dist/connectors/sec-access-policy.js`의 SHA-256은 `b15037c695c2690c1c2851afbef3cabf32c7e3015f35b51ae93d283b8fd89c83`이다.
+배포 전 환경과 worker 산출물을 저장소 밖의 비공개 임시 디렉터리에 백업했다. 실제 연락처, 공인 IP, 자격증명, SEC 원문은 이 문서에 포함하지 않는다. 배포한 `apps/worker/dist/connectors/sec-access-policy.js`의 SHA-256은 `b15037c695c2690c1c2851afbef3cabf32c7e3015f35b51ae93d283b8fd89c83`이다.
 
 ## 검증
 
@@ -39,7 +39,7 @@
 
 재설정과 대기 확대는 운영에 적용됐지만 접근 거부는 계속된다. HTTP 200·재무정보 취득·공시 저장은 확인하지 못했다. 공시 출처 항목은 0건이며 SEC 상태는 `DEGRADED`다. 이 점검은 HTTP 진단이므로 기존 공시 수집의 성공 상태를 변경하지 않았다. 점검 후 worker는 PID `221103`, PM2 `online` 상태를 유지했다.
 
-실제 연락처·송신 공인 IP를 포함한 비공개 진단 자료는 `/tmp/orsem-sec-access-private.json`, SEC 문의 초안은 `/tmp/orsem-sec-webmaster-draft.txt`에 권한 `0600`으로 저장했다. 이메일은 발송하지 않았다. 기존 shared cooldown을 지우거나 우회하는 추가 요청은 하지 않았다.
+실제 연락처·송신 공인 IP를 포함한 비공개 진단 자료는 `../../../tmp/orsem-sec-access-private.json`, SEC 문의 초안은 `../../../tmp/orsem-sec-webmaster-draft.txt`에 권한 `0600`으로 저장했다. 이메일은 발송하지 않았다. 기존 shared cooldown을 지우거나 우회하는 추가 요청은 하지 않았다.
 
 ## 사전 실측
 

@@ -19,19 +19,19 @@ python3 scripts/worker.py start
 
 워커는 공용 루트 `.env`와 기존 외부 자격 증명 파일을 사용합니다. `ORSEM_REPO_ROOT`는 환경 설정을 찾을 저장소 루트입니다. API 키, 연결 비밀번호, 원문, 로그와 감사 산출물은 저장소 밖에 보관합니다. 자격 증명이 없으면 해당 커넥터만 비활성화하며 운영 환경에 fixture를 자동으로 넣지 않습니다.
 
-운영 의존성은 SHA256이 포함된 `requirements.lock`으로 고정합니다. 배포용 별도 환경에 검증한 의존성 wheel과 worker wheel을 설치하며, 모든 해시는 배포 명세에 기록합니다. 현재 호스트는 시스템 Python에 `ensurepip`가 없어 다음 형태로 별도의 검증된 설치용 Python을 사용합니다.
+운영 의존성은 SHA256이 포함된 `apps/worker/python/requirements.lock`으로 고정합니다. 배포용 별도 환경에 검증한 의존성 wheel과 worker wheel을 설치하며, 모든 해시는 배포 명세에 기록합니다. 현재 호스트는 시스템 Python에 `ensurepip`가 없어 다음 형태로 별도의 검증된 설치용 Python을 사용합니다.
 
 ```bash
-/usr/bin/python3.12 -m venv --without-pip /path/to/new-release
-/path/to/installer/bin/python -m pip --python /path/to/new-release/bin/python install \
-  --no-index --no-deps --require-hashes --find-links /path/to/verified/wheels \
-  -r /path/to/verified/requirements.lock
-/path/to/installer/bin/python -m pip --python /path/to/new-release/bin/python install \
-  --no-index --no-deps /path/to/verified/orsem_worker-0.2.0-py3-none-any.whl
-/path/to/installer/bin/python -m pip --python /path/to/new-release/bin/python check
+python3.12 -m venv --without-pip ../orsem-data/worker/releases/RELEASE_ID
+../orsem-data/worker/installer/bin/python -m pip --python ../orsem-data/worker/releases/RELEASE_ID/bin/python install \
+  --no-index --no-deps --require-hashes --find-links ../orsem-data/worker/verified/wheels \
+  -r ../orsem-data/worker/verified/requirements.lock
+../orsem-data/worker/installer/bin/python -m pip --python ../orsem-data/worker/releases/RELEASE_ID/bin/python install \
+  --no-index --no-deps ../orsem-data/worker/verified/orsem_worker-0.2.0-py3-none-any.whl
+../orsem-data/worker/installer/bin/python -m pip --python ../orsem-data/worker/releases/RELEASE_ID/bin/python check
 ```
 
-`/path/to/...`는 배포 명세의 실제 절대 경로로 바꿉니다. 실행 중인 `worker/current` 환경을 직접 수정하지 않고 새 버전 환경을 설치·검증한 뒤 연결을 전환합니다. PM2는 `/home/laeti/orsem-data/worker/current/bin/python`에 `-m orsem_worker`를 전달하며 `interpreter: none`, 단일 fork 인스턴스, `kill_timeout: 660000`을 사용합니다. 변경한 `ORSEM_DATA_DIR`을 사용하면 해당 데이터 디렉터리 아래의 `worker/current`가 기준입니다.
+`RELEASE_ID`와 설치용 Python·검증 산출물 경로는 배포 명세에 맞게 바꿉니다. 위 경로는 프로젝트 루트를 기준으로 한 예시입니다. 실행 중인 `../orsem-data/worker/current` 환경을 직접 수정하지 않고 새 버전 환경을 설치·검증한 뒤 연결을 전환합니다. PM2는 `../orsem-data/worker/current/bin/python`에 `-m orsem_worker`를 전달하며 `interpreter: none`, 단일 fork 인스턴스, `kill_timeout: 660000`을 사용합니다. 변경한 `ORSEM_DATA_DIR`을 사용하면 해당 데이터 디렉터리를 기준으로 같은 배치를 사용합니다.
 
 ## 검증
 
@@ -56,15 +56,15 @@ python3 scripts/worker.py test
 
 ## 코드와 저장 계약
 
-| 위치                                     | 책임                                                                                                     |
-| ---------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `disclosures/`                           | OpenDART 목록·법인 동기화, ZIP/XML 처리, D001–D005 추출, 검토·AI 감사, 조회용 데이터 반영, SEC ownership |
-| `connectors/`                            | SEC·뉴스 수집, 권리·예산·체크포인트, AI 클라이언트, 뉴스 제목·요약 번역                                  |
-| `market/`                                | 토스 가격·실시간 시세·기업 정보, 시장 선정, 식별 정보                                                    |
-| `core.py`, `storage.py`, `schema.json`   | 기존 MySQL 테이블과 트랜잭션, JSON·날짜·정밀 수치 변환                                                   |
-| `jobs.py`, `runtime.py`, `scheduling.py` | 기존 JSON 작업 검증, BullMQ 큐 실행, 정기 JobScheduler                                                   |
-| `outbox.py`, `push.py`, `alert_gate.py`  | DB outbox, 전달 재시도, 현재 공시·계정·종목별 알림 설정 확인                                             |
-| `cli.py`, `admin_cli/`                   | 명시적 일회성 운영·감사 명령                                                                             |
+| 위치                                                                                                                                     | 책임                                                                                                     |
+| ---------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `apps/worker/python/orsem_worker/disclosures/`                                                                                           | OpenDART 목록·법인 동기화, ZIP/XML 처리, D001–D005 추출, 검토·AI 감사, 조회용 데이터 반영, SEC ownership |
+| `apps/worker/python/orsem_worker/connectors/`                                                                                            | SEC·뉴스 수집, 권리·예산·체크포인트, AI 클라이언트, 뉴스 제목·요약 번역                                  |
+| `apps/worker/python/orsem_worker/market/`                                                                                                | 토스 가격·실시간 시세·기업 정보, 시장 선정, 식별 정보                                                    |
+| `apps/worker/python/orsem_worker/core.py`, `apps/worker/python/orsem_worker/storage.py`, `apps/worker/python/orsem_worker/schema.json`   | 기존 MySQL 테이블과 트랜잭션, JSON·날짜·정밀 수치 변환                                                   |
+| `apps/worker/python/orsem_worker/jobs.py`, `apps/worker/python/orsem_worker/runtime.py`, `apps/worker/python/orsem_worker/scheduling.py` | 기존 JSON 작업 검증, BullMQ 큐 실행, 정기 JobScheduler                                                   |
+| `apps/worker/python/orsem_worker/outbox.py`, `apps/worker/python/orsem_worker/push.py`, `apps/worker/python/orsem_worker/alert_gate.py`  | DB outbox, 전달 재시도, 현재 공시·계정·종목별 알림 설정 확인                                             |
+| `apps/worker/python/orsem_worker/cli.py`, `apps/worker/python/orsem_worker/admin_cli/`                                                   | 명시적 일회성 운영·감사 명령                                                                             |
 
 DDL은 `packages/database`의 마이그레이션이 관리합니다. Python 워커는 스키마를 자동 생성하거나 TypeORM `synchronize`를 활성화하지 않습니다. 기존 큐 이름·접두사·작업 ID 규칙·DB 식별자·체크포인트를 보존합니다. 정기 스케줄 전환은 배포 명세의 관리 대상만 바꾸며 일반 대기·실행·지연 작업을 일괄 삭제하지 않습니다.
 
@@ -77,8 +77,8 @@ D001·D002·D005의 사실을 합치지 않고 양수 수량만으로 장내매�
 다음 표의 하위 명령을 개발·격리 후보에서는 `python3 scripts/worker.py cli <하위 명령>`으로 실행합니다. 운영에서는 저장소 소스 대신 설치된 wheel을 선택하도록 아래 진입점을 사용합니다. CLI 자체는 별도 정기 워커를 시작하지 않습니다.
 
 ```bash
-export ORSEM_REPO_ROOT=/home/laeti/orsem
-/home/laeti/orsem-data/worker/current/bin/python -I -B -m orsem_worker.cli collect-sec --status
+export ORSEM_REPO_ROOT="$PWD"
+../orsem-data/worker/current/bin/python -I -B -m orsem_worker.cli collect-sec --status
 ```
 
 | 명령                                | 범위                                                                             |
@@ -99,7 +99,7 @@ export ORSEM_REPO_ROOT=/home/laeti/orsem
 | `scripts/stage-parser-corpus.py`                 | `--snapshot`, `--corpus`, `--output-dir`. 기본은 계획 생성. `--apply`는 명시한 `ORSEM_STAGE_DATABASE_URL`에 분류 메타데이터와 비활성 검토 후보 저장 |
 | `scripts/export-parser-review-audit.py`          | `--output-dir`. `ORSEM_AUDIT_DATABASE_URL` 또는 `DATABASE_URL`의 검토 자료를 읽어 감사 파일 생성                                                    |
 | `scripts/parser-rollout-backup.py backup`        | `--env-file`, `--output-dir`. 일관 스냅샷과 해시 명세를 외부 디렉터리에 저장                                                                        |
-| `scripts/parser-rollout-backup.py restore-check` | `--socket-path`, `--database`, `--backup-dir`, `--output-dir`. `/tmp` 아래 독립 MySQL 소켓과 `orsem_*_test` 이름의 새 DB에서 복원 검증              |
+| `scripts/parser-rollout-backup.py restore-check` | `--socket-path`, `--database`, `--backup-dir`, `--output-dir`. `../../../tmp` 아래 독립 MySQL 소켓과 `orsem_*_test` 이름의 새 DB에서 복원 검증      |
 
 예를 들어 `.venv/bin/python scripts/parser-corpus-audit.py --help`로 각 명령의 인자를 확인합니다. staging은 활성 결과나 알림을 자동 교체하지 않으며 별도 원문 확인·반영 절차를 유지합니다. `restore-check`는 운영 DB 전체 복원 명령이 아닙니다. 백업·감사 파일에는 원문이나 비공개 데이터가 들어갈 수 있으므로 기존 외부 데이터 디렉터리 권한과 보존 기준을 적용합니다.
 
@@ -107,6 +107,6 @@ export ORSEM_REPO_ROOT=/home/laeti/orsem
 
 전환 전 큐 정지 상태와 실행 파일·설정·데이터 백업을 시도별로 기록하고 활성 작업이 끝난 뒤 워커를 중지합니다. worker만 교체할 때는 API·웹 실행 파일과 프로세스를 유지합니다. 새 wheel의 준비 상태, 연속 정기 작업 처리, 제공자별 실제 수집 결과, 전달 설정을 확인합니다. 정기 작업 변환 외의 일반 큐 작업과 DB outbox는 보존합니다.
 
-검증한 전환·복구 스크립트와 사용 절차는 `/home/laeti/orsem-data/backups/python-worker-20260910/operations`에 보존합니다. 복구에는 해당 시도의 journal과 큐 snapshot을 사용합니다. 최초 시도의 기록을 재전환 기록 대신 사용하지 않으며, 복구 후에도 원래 정지돼 있던 큐는 정지 상태를 유지합니다.
+검증한 전환·복구 스크립트와 사용 절차는 `../orsem-data/backups/python-worker-20260910/operations`에 보존합니다. 복구에는 해당 시도의 journal과 큐 snapshot을 사용합니다. 최초 시도의 기록을 재전환 기록 대신 사용하지 않으며, 복구 후에도 원래 정지돼 있던 큐는 정지 상태를 유지합니다.
 
-TypeScript 복구 환경은 `/home/laeti/orsem-data/backups/python-worker-20260910/rollback`입니다. 뉴스 메타데이터 전용 동작과 새 종목별 알림 설정을 지원하며 worker만 되돌리는 경로가 있습니다. 과거 본문 수집기를 다시 활성화하거나 DB 전체를 복원하지 않습니다. 기존 소스·중복 스크립트 정리 여부와 관측 완료 여부는 [현재 배포 상태](DEPLOYMENT.md#python-워커-전환-상태)를 기준으로 판단하며 외부 복구 환경과 데이터는 유지합니다.
+TypeScript 복구 환경은 `../orsem-data/backups/python-worker-20260910/rollback`입니다. 뉴스 메타데이터 전용 동작과 새 종목별 알림 설정을 지원하며 worker만 되돌리는 경로가 있습니다. 과거 본문 수집기를 다시 활성화하거나 DB 전체를 복원하지 않습니다. 기존 소스·중복 스크립트 정리 여부와 관측 완료 여부는 [현재 배포 상태](DEPLOYMENT.md#python-워커-전환-상태)를 기준으로 판단하며 외부 복구 환경과 데이터는 유지합니다.

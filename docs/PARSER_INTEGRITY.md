@@ -36,18 +36,18 @@ MySQL DDL은 자동 커밋됩니다. 첫 무결성 이관이 중간에 실패하
 
 ```sh
 .venv/bin/python scripts/parser-corpus-audit.py \
-  --snapshot /external/snapshot.json \
-  --old-results /external/old-results.json \
-  --output-dir /external/corpus-audit
+  --snapshot ../orsem-data/snapshot.json \
+  --old-results ../orsem-data/old-results.json \
+  --output-dir ../orsem-data/corpus-audit
 .venv/bin/python scripts/stage-parser-corpus.py \
-  --snapshot /external/snapshot.json \
-  --corpus /external/corpus-audit/corpus-audit.json \
-  --output-dir /external/staging-dry-run
+  --snapshot ../orsem-data/snapshot.json \
+  --corpus ../orsem-data/corpus-audit/corpus-audit.json \
+  --output-dir ../orsem-data/staging-dry-run
 ```
 
 하네스는 모든 원문 변형을 검사하며 공시 ID로 중복 제거하지 않습니다. 입력 SHA와 버전, 엄격 XML 검증, no-op/idempotence, 필드별 이전 결과 비교, 경고·원문 좌표를 기록합니다. 출력을 저장소 안에 생성하지 않습니다.
 
-`stage-parser-corpus.py`는 기본적으로 DB에 연결하지 않습니다. `--apply`와 명시적인 `ORSEM_STAGE_DATABASE_URL`을 함께 제공해야 비활성 결과를 저장합니다. 테스트용 로컬 소켓은 `ORSEM_STAGE_SOCKET_PATH`로 지정합니다. `.env`에서 staging 대상 DB를 자동 선택하지 않습니다. 이 명령은 외부 커넥터를 부르거나 작업·알림을 enqueue하지 않으며 활성 포인터를 바꾸지 않습니다.
+`scripts/stage-parser-corpus.py`는 기본적으로 DB에 연결하지 않습니다. `--apply`와 명시적인 `ORSEM_STAGE_DATABASE_URL`을 함께 제공해야 비활성 결과를 저장합니다. 테스트용 로컬 소켓은 `ORSEM_STAGE_SOCKET_PATH`로 지정합니다. `.env`에서 staging 대상 DB를 자동 선택하지 않습니다. 이 명령은 외부 커넥터를 부르거나 작업·알림을 enqueue하지 않으며 활성 포인터를 바꾸지 않습니다.
 
 비활성 결과의 검토 화면에서 첫 `공식 요약 검증`은 동일 접수번호의 공식 요약만 조회하고 OPEN 검토를 유지합니다. API 요청이 성공해도 해당 접수번호가 없으면 검증 완료로 취급하지 않습니다. D005는 공식 요약 비대상입니다. D003·D004도 전용 요약 API가 없으므로 비대상 사유를 기록하되, 이것만으로 원문 대조 완료로 처리하지 않습니다. D003·D004는 관리자 `원문 대조 완료`가 실행 ID·원문 SHA·관리자·UTC 시각에 묶여 저장된 후 별도의 `검토 확정`으로 활성화합니다. 관리자가 저장된 요약과 원문·추출 필드를 확인한 다음 별도의 `검토 확정`을 요청해야 기존 활성화 검증을 진행합니다. 작업 payload의 `crosscheckOnly`는 첫 검증 작업이 재전달돼도 활성화로 바뀌지 않도록 고정합니다.
 
@@ -56,7 +56,7 @@ MySQL DDL은 자동 커밋됩니다. 첫 무결성 이관이 중간에 실패하
 ## CSV와 운영 지표
 
 ```sh
-.venv/bin/python scripts/export-parser-review-audit.py --output-dir /external/parser-review-export
+.venv/bin/python scripts/export-parser-review-audit.py --output-dir ../orsem-data/parser-review-export
 ```
 
 도구는 UTC·READ ONLY·REPEATABLE READ 트랜잭션의 동일 스냅샷에서 실패 실행, OPEN 검토, 최신 실행 집계를 내보냅니다. `created_at > snapshot_at`이면 성공 CSV를 만들지 않습니다. 결과 파일은 권한 0600이며 UTF-8 BOM, 전체 셀 인용, 수식 방어를 적용합니다. 접수번호·종목코드 등 불투명 식별자는 Excel의 자동 숫자 변환을 막는 텍스트 표식을 사용하고 manifest에 이를 명시합니다.
@@ -89,13 +89,13 @@ D001의 명시적인 담보·계약 변경은 요약 보유량/비율, 증감 0,
 
 ```sh
 .venv/bin/python scripts/parser-rollout-backup.py backup \
-  --env-file /external/runtime.env --output-dir /external/rollout/attempt-1/backup
+  --env-file ../orsem-data/runtime.env --output-dir ../orsem-data/rollout/attempt-1/backup
 .venv/bin/python scripts/parser-rollout-backup.py restore-check \
-  --backup-dir /external/rollout/attempt-1/backup \
-  --socket-path /tmp/isolated-mysql/mysql.sock --database orsem_disclosure_restore_test \
-  --output-dir /external/rollout/attempt-1/restore
+  --backup-dir ../orsem-data/rollout/attempt-1/backup \
+  --socket-path ../../../tmp/isolated-mysql/mysql.sock --database orsem_disclosure_restore_test \
+  --output-dir ../orsem-data/rollout/attempt-1/restore
 ```
 
-복원 검사는 `/tmp`의 MySQL 소켓과 새 `orsem_*_test` DB에만 실행하며 이미 존재하는 DB를 덮어쓰지 않습니다. 백업 manifest와 모든 파일의 SHA·행 수, 복원 후 값을 확인합니다. 운영에 적용할 때는 writer를 정지한 뒤 최종 백업을 만들고 같은 검증을 수행합니다. 백업 완료 표식과 복원 proof가 같은 manifest를 가리키는지 확인한 뒤 이번 배포의 명시적 마이그레이션 목록만 실행합니다. 시도별로 새 디렉터리를 사용합니다.
+복원 검사는 `../../../tmp`의 MySQL 소켓과 새 `orsem_*_test` DB에만 실행하며 이미 존재하는 DB를 덮어쓰지 않습니다. 백업 manifest와 모든 파일의 SHA·행 수, 복원 후 값을 확인합니다. 운영에 적용할 때는 writer를 정지한 뒤 최종 백업을 만들고 같은 검증을 수행합니다. 백업 완료 표식과 복원 proof가 같은 manifest를 가리키는지 확인한 뒤 이번 배포의 명시적 마이그레이션 목록만 실행합니다. 시도별로 새 디렉터리를 사용합니다.
 
 백업에는 관련 테이블 데이터와 전체 DDL만 포함되므로 다른 테이블까지 삭제하는 전체 DB 복원에 사용하지 않습니다. 장애 시 관련 데이터·스키마·마이그레이션 이력·작업 대기 상태를 호환되는 실행 파일과 함께 복원합니다. UTC 보정이나 신규 비활성 실행을 남긴 상태에서 구버전 API/worker만 재시작하지 않습니다. 운영 재개 후 새 자료가 들어왔다면 별도로 보존하고 호환 가능한 수정으로 복구합니다.

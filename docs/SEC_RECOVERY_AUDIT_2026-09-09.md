@@ -57,7 +57,7 @@
 
 [SEC Webmaster FAQ](https://www.sec.gov/about/webmaster-frequently-asked-questions)는 접근 거부 시 오류 화면 또는 오류 원문과 IP 주소를 포함한 문의를 안내한다. 문의 목적은 차단 여부와 시정 조치 확인이다.
 
-문의 초안은 저장소 밖 `/tmp/orsem-sec-webmaster-draft.txt`에 권한 `0600`으로 보관한다. UTC·KST, GET URL, 실제 직렬화 시 확인한 User-Agent, 허용 목록의 응답 헤더, 요청 통제 범위와 그 한계를 포함한다. 송신 공인 IP는 같은 서버의 별도 HTTPS 반사 서비스에서 관측한 값이며 SEC가 확인한 송신 주소로 단정하지 않는다.
+문의 초안은 저장소 밖 `../../../tmp/orsem-sec-webmaster-draft.txt`에 권한 `0600`으로 보관한다. UTC·KST, GET URL, 실제 직렬화 시 확인한 User-Agent, 허용 목록의 응답 헤더, 요청 통제 범위와 그 한계를 포함한다. 송신 공인 IP는 같은 서버의 별도 HTTPS 반사 서비스에서 관측한 값이며 SEC가 확인한 송신 주소로 단정하지 않는다.
 
 07:37 응답의 전체 본문·참조번호는 당시 보존하지 않았으므로 복원하거나 없었다고 주장할 수 없다. 이후 허용된 진단 요청에서는 오류 본문을 최대 64KiB·1초 한도로 별도 비공개 자료에 보존하고, 참조번호 유무와 본문 잘림 여부를 구분하도록 진단 스크립트를 보완했다. 공개 로그·DB 진단 필드에는 본문이나 참조번호를 추가하지 않는다. 문의 메일은 발송하지 않았다.
 
@@ -72,7 +72,7 @@
 - 기존 배포 산출물을 비공개 임시 디렉터리에 백업한 뒤 07:57 KST worker를 재시작했다. PID `227686`, PM2 `online`, 실제 환경의 User-Agent는 기존 환경 파일과 일치했다. API PID `187188`은 유지했다.
 - 배포 산출물 SHA-256: 접근 정책 `eeb3887de162b699d005ac516daedb466ade48dcc9f5c0bbf3ef71dee0732d46`, 공시 수집 `f62ed2e6b2ae917e62c3ff12a5b6a4511315a151cd5f07b735cd07c57db55d30`, 원문 수집 `e30e3a8c259db8c546c4520467083f74a420b312fc5b440d6694c6e44a04cf74`.
 
-07:57:41 KST (`2026-09-08T22:57:41.534Z`) 새 정책을 사용하는 단일 NVIDIA companyfacts 진단은 다시 HTTP 403 / `SEC_UNDECLARED_AUTOMATION`이었다. User-Agent 직렬화 일치, TLS 1.3 인증서 검증 정상, `AkamaiGHost`, 응답 헤더 도착 99ms, `Retry-After` 없음이었다. 오류 본문 전체와 참조번호 1개를 이번에는 확보했다. 비공개 진단 이력과 `/tmp/orsem-sec-error-response.txt`에 권한 `0600`으로 저장하고 문의 초안을 갱신했다. 이전 07:37 기록도 별도 파일로 보존했다.
+07:57:41 KST (`2026-09-08T22:57:41.534Z`) 새 정책을 사용하는 단일 NVIDIA companyfacts 진단은 다시 HTTP 403 / `SEC_UNDECLARED_AUTOMATION`이었다. User-Agent 직렬화 일치, TLS 1.3 인증서 검증 정상, `AkamaiGHost`, 응답 헤더 도착 99ms, `Retry-After` 없음이었다. 오류 본문 전체와 참조번호 1개를 이번에는 확보했다. 비공개 진단 이력과 `../../../tmp/orsem-sec-error-response.txt`에 권한 `0600`으로 저장하고 문의 초안을 갱신했다. 이전 07:37 기록도 별도 파일로 보존했다.
 
 연속 거부는 3회로 저장됐고 다음 요청 가능 시각은 `2026-09-08T23:37:41.634Z` (08:37:41 KST), 40분 뒤다. 07:58 DB 재조회에서도 목록·XML 처리·재무 snapshot은 모두 0건이었다. 이 진단으로 실제 수집 성공 상태를 기록하지 않았다. 원인 확인과 데이터 복구는 계속 미완료이며, 문의 메일도 아직 발송하지 않았다.
 

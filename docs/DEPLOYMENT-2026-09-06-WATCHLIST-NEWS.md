@@ -70,7 +70,7 @@ NAVER를 켜려면 무료 조건과 계정 공유 사용량을 확인한 뒤 다
 
 ## 백업과 복구
 
-비공개 백업: `/home/laeti/orsem-data/backups/groups-news-20260905T162840Z`
+비공개 백업: `../orsem-data/backups/groups-news-20260905T162840Z`
 
 - `runtime-before.tar.gz`, `database-before.sql`(약 188MB), `runtime-before.env`
 - 마이그레이션·관계 재분류·원문 해시·권한·시세·번역 보존·최종 준비 상태 보고서

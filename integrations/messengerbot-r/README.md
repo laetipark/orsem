@@ -5,8 +5,8 @@
 ## 설치
 
 1. MessengerBotR에서 이름이 `orsem`인 API2 봇을 만듭니다.
-2. 봇 스크립트에 `orsem-api2.js`를 복사합니다.
-3. 봇의 `Database` 디렉터리에 `orsem-config.example.json`을 `orsem-config.json`으로 복사하고 HTTPS Orsem URL을 설정합니다.
+2. 봇 스크립트에 `integrations/messengerbot-r/orsem-api2.js`를 복사합니다.
+3. `integrations/messengerbot-r/orsem-config.example.json`을 Android 봇 내부의 `Database/orsem-config.json`으로 복사하고 HTTPS Orsem URL을 설정합니다.
 4. 인증된 Orsem 대시보드에서 일회용 MessengerBot 연결 코드를 만듭니다. 코드는 10분 뒤 만료됩니다.
 5. 알림을 받을 카카오톡 방 하나에서 해당 코드를 넣어 `/오르셈 연결 123456`을 보냅니다.
 6. 알림 접근 권한을 켠 상태로 유지하고 봇을 컴파일·시작합니다.

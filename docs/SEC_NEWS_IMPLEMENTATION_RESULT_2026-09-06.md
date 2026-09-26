@@ -107,7 +107,7 @@ SEC accession 복구·Form 3/4/5 구조화 관측, GDELT 구간 복구, 기본 �
 
 ## 7. 테스트 결과
 
-검증 범위는 **작업 시작 스냅샷 + 이번 변경**이다. 운영 dist를 덮어쓰지 않도록 `/tmp/orsem-recovery-final`에서 실행했다. 수정이 계속 유입되는 현재 작업 트리 전체의 통합 성공이나 운영 검증을 뜻하지 않는다.
+검증 범위는 **작업 시작 스냅샷 + 이번 변경**이다. 운영 dist를 덮어쓰지 않도록 `../../../tmp/orsem-recovery-final`에서 실행했다. 수정이 계속 유입되는 현재 작업 트리 전체의 통합 성공이나 운영 검증을 뜻하지 않는다.
 
 | 명령                             | 결과                                           |
 | -------------------------------- | ---------------------------------------------- |
@@ -120,7 +120,7 @@ SEC accession 복구·Form 3/4/5 구조화 관측, GDELT 구간 복구, 기본 �
 
 전체 테스트 구성: scripts 33, API 264, Discord 4, 웹 259, worker 736, contracts 23, database 34, OpenDART parser 115개다. 마지막 XML 수신 바이트 해시·GDELT 설정 상태 보강 뒤에는 영향받는 worker의 typecheck/build와 전체 736개 테스트를 다시 실행해 통과했다. 복구·ownership 저장 집중 검증도 2개 suite/21개를 통과했다.
 
-검증 로그는 `/tmp/orsem-recovery-final-*.log`, 집중 검증은 `/tmp/orsem-recovery-focused-final.log`에 있다. 이번 변경의 시작 스냅샷 기준 검토용 패치는 `/tmp/orsem-sec-news-recovery-2026-09-06.patch`다. 이 패치를 현재 작업 트리에 다시 적용하면 안 되며, 별도 배포 기반에 맞춰 검토해야 한다.
+검증 로그는 `../../../tmp/orsem-recovery-final-*.log`, 집중 검증은 `../../../tmp/orsem-recovery-focused-final.log`에 있다. 이번 변경의 시작 스냅샷 기준 검토용 패치는 `../../../tmp/orsem-sec-news-recovery-2026-09-06.patch`다. 이 패치를 현재 작업 트리에 다시 적용하면 안 되며, 별도 배포 기반에 맞춰 검토해야 한다.
 
 기존 포맷 문제 6파일은 검증 복사본에서만 정규화했다: `apps/worker/README.md`, `docs/CONNECTOR-SETUP-PLAN-2026-09-06.md`, `docs/CONNECTOR-VERIFICATION-2026-09-06.md`, `docs/DEPLOYMENT-2026-09-06-WATCHLIST-NEWS.md`, `packages/contracts/src/news-sources.ts`, `packages/contracts/src/schemas.ts`. 별도 작업의 진행 중인 room 구현을 이번 검증에 추가하지 않았다.
 

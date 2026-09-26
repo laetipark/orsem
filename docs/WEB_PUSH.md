@@ -7,7 +7,7 @@
 OpenDART 새 공시는 수집 시점이 아니라 분석 성공·검증 완료 후 알립니다. 새 공시와 분석 완료를 모두 선택해도 같은 분석 결과는 한 번만 발송합니다. 과거 수집·오프라인 재분석은 알림을 발송하지 않습니다.
 
 1. `/settings/notifications`에서 알림을 켜고 새 공시·분석 완료·정정·뉴스 중 받을 종류를 선택합니다. 관리자는 운영 알림도 선택할 수 있습니다.
-2. 관심기업 관련 알림만 받을지 선택하고 설정을 저장합니다. 관심기업은 현재 서비스의 공용 관심 목록을 사용합니다.
+2. 관심기업 관련 알림만 받을지 선택하고 설정을 저장합니다. 기본 범위는 국내·미국 월간 시가총액 상위 목록이며, 종목별 알림 설정이 있으면 해당 계정의 설정을 우선합니다. 전체 알림이 꺼져 있으면 종목별 설정만으로 발송하지 않습니다.
 3. 이 기기의 알림 연결 버튼을 누르고 브라우저 권한 창에서 허용합니다. 화면을 열기만 해서는 권한을 요청하지 않습니다.
 4. 테스트 알림을 보내서 수신과 클릭 이동을 확인합니다. 테스트는 worker의 다음 발송 주기에 전달되므로 약 1분이 걸릴 수 있습니다.
 
@@ -25,16 +25,15 @@ npm run build -w @orsem/database
 npm run push:setup
 ```
 
-기본 저장 위치는 `/home/laeti/.config/orsem/credentials/web-push.json`이며 디렉터리 `0700`, 파일 `0600`을 사용합니다. JSON은 `publicKey`, `privateKey`, `subject` 문자열을 포함합니다. 실제 키를 저장소나 브라우저 빌드에 넣지 않습니다. 기존 키가 있으면 생성 명령은 덮어쓰지 않고 유효성만 확인합니다.
+생성기는 실행 사용자 홈의 설정 디렉터리를 사용합니다. 이 프로젝트의 기본 배치에서는 `../.config/orsem/credentials/web-push.json`이며 디렉터리 `0700`, 파일 `0600`을 사용합니다. JSON은 `publicKey`, `privateKey`, `subject` 문자열을 포함합니다. 실제 키를 저장소나 브라우저 빌드에 넣지 않습니다. 기존 키가 있으면 생성 명령은 덮어쓰지 않고 유효성만 확인합니다.
 
-서버 환경에는 다음 경로를 설정합니다.
+서버 환경에는 루트 상대 경로를 절대 경로로 변환해 설정합니다. 생성기를 실행한 사용자와 서버 실행 사용자가 다르면 실제 파일 위치와 소유권을 확인합니다.
 
-```dotenv
-WEB_PUSH_CREDENTIALS_FILE=/home/laeti/.config/orsem/credentials/web-push.json
-WEB_PUSH_PUBLIC_KEY=
-WEB_PUSH_PRIVATE_KEY=
-WEB_PUSH_SUBJECT=
+```bash
+export WEB_PUSH_CREDENTIALS_FILE="$(realpath ../.config/orsem/credentials/web-push.json)"
 ```
+
+환경 파일에 기록할 때는 `realpath` 출력값을 넣습니다. `.env`에 명령 치환 문구를 그대로 넣지 않습니다. 기존 `WEB_PUSH_PUBLIC_KEY`, `WEB_PUSH_PRIVATE_KEY`, `WEB_PUSH_SUBJECT`에 값이 남아 있으면 파일보다 우선하므로 파일 방식으로 전환할 때 함께 정리합니다.
 
 JSON의 `subject`는 생성 시 `WEB_PUSH_SUBJECT` 또는 서비스의 HTTPS `WEB_ORIGIN`을 사용합니다. 직접 환경 변수로 주입할 때는 `WEB_PUSH_PUBLIC_KEY`, `WEB_PUSH_PRIVATE_KEY`, `WEB_PUSH_SUBJECT`를 모두 설정하고 파일 경로는 생략할 수 있습니다. 비어 있지 않은 직접 환경 값이 JSON보다 우선합니다. 키 누락·불일치·잘못된 파일 권한은 Web Push만 비활성화합니다. 공개 키만 인증된 설정 API를 통해 브라우저에 전달합니다.
 

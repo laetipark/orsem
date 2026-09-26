@@ -2,13 +2,15 @@
 
 저장소는 배포용 설정을 제공하지만 MySQL, Nginx, DNS, TLS, Redis, PM2를 자동으로 변경하지 않습니다.
 
+2026-09-24 뉴스 수집 복구, NAVER 확인 기간 갱신, NEW 오인식 방지 및 기존 연결 정리는 [뉴스 복구 기록](NEWS_RECOVERY_2026-09-24.md)에 배포 범위·실측·외부 백업·복구 절차를 기록했습니다. SEC 외부 403 차단은 별도로 남아 있습니다.
+
 ## Python 워커 전환 상태
 
 2026-09-11 01:03 KST에 수정한 Python 3.12 워커로 운영 큐를 재개했습니다. 01:35 KST까지 31분 안정성 관측을 완료하고, 01:38 KST에 기존 소스 정리를 마쳤습니다. API·웹·Discord는 TypeScript를 유지하고 워커 실행기·파서·관리 CLI만 Python으로 실행합니다. 이 문서 하단의 날짜별 기록은 당시 상태를 보존합니다.
 
-운영 워커 후보는 SHA256이 포함된 `apps/worker/python/requirements.lock`으로 의존성을 설치하고, 격리 빌드한 wheel을 저장소 밖의 버전별 환경에 설치합니다. `worker/current`는 검증된 환경을 가리키도록 전환합니다. 개발·검사 환경은 `requirements-dev.lock`을 사용합니다. [설치와 운영 CLI](PYTHON_WORKER.md)를 참고하세요.
+운영 워커 후보는 SHA256이 포함된 `apps/worker/python/requirements.lock`으로 의존성을 설치하고, 격리 빌드한 wheel을 저장소 밖의 버전별 환경에 설치합니다. `../orsem-data/worker/current`는 검증된 환경을 가리키도록 전환합니다. 개발·검사 환경은 `apps/worker/python/requirements-dev.lock`을 사용합니다. [설치와 운영 CLI](PYTHON_WORKER.md)를 참고하세요.
 
-이번 전환의 TypeScript 복구 후보는 `/home/laeti/orsem-data/backups/python-worker-20260910/rollback`에 보관합니다. 이 후보는 뉴스 메타데이터 전용 동작과 종목별 알림 설정을 지원합니다. 복구 시 수집된 데이터·검토 기록·사용자 설정을 보존하며 DB 전체 복원이나 일반 대기·실행·지연 큐 작업의 일괄 삭제를 수행하지 않습니다.
+이번 전환의 TypeScript 복구 후보는 `../orsem-data/backups/python-worker-20260910/rollback`에 보관합니다. 이 후보는 뉴스 메타데이터 전용 동작과 종목별 알림 설정을 지원합니다. 복구 시 수집된 데이터·검토 기록·사용자 설정을 보존하며 DB 전체 복원이나 일반 대기·실행·지연 큐 작업의 일괄 삭제를 수행하지 않습니다.
 
 ### 2026-09-11 전환 기록
 
@@ -16,7 +18,7 @@
 - 수정본은 다음 회차를 처리 전에 등록하고, 회사명 후보 인덱스와 필요한 정규식만 생성하는 기존 알고리즘을 복원했습니다. 큐 종료는 모든 수신을 멈춘 뒤 활성 작업의 잠금을 유지하며 마무리합니다.
 - Treasury 요청에는 이전 실행 환경과 같은 User-Agent를 사용합니다. 회사 마스터·캔들·시장 지표의 묶음 조회와 저장도 복원했으며, MySQL advisory lock은 커밋·롤백 이후에 해제합니다.
 - 수정본 release ID는 `2326ef49c9ad7ffb8a35c5b1ac06ad86b0ff6ce7aefaf9bdca9f31c14abe4994`, worker wheel SHA256은 `bd0dbc5d502ad0089bffc11b031154b41b59a7bf92eca38f444e4176816819f6`입니다. Python 소스·정적 계약 파일 66개와 고정 의존성 wheel 44개를 검증했습니다. 이전 로고 수집 모듈은 포함되지 않습니다.
-- 재전환 전 `/home/laeti/orsem-data/backups/python-worker-20260910/retry-1`에 새 DB·큐 스냅샷을 보관했습니다. DB 압축 파일 SHA256은 `1f11e94c0e119a5e7400d54340e062e165247dab166c171eb00bb108bc57684f`입니다. 일반 작업 1,341개의 내용·재시도 설정과 예약 설정 30개의 실행 주기를 보존했습니다.
+- 재전환 전 `../orsem-data/backups/python-worker-20260910/retry-1`에 새 DB·큐 스냅샷을 보관했습니다. DB 압축 파일 SHA256은 `1f11e94c0e119a5e7400d54340e062e165247dab166c171eb00bb108bc57684f`입니다. 일반 작업 1,341개의 내용·재시도 설정과 예약 설정 30개의 실행 주기를 보존했습니다.
 - `AddCompanyNotifications1789084800000`은 첫 전환 때 적용한 뒤 다시 실행하지 않았습니다. 두 번째 전환은 워커만 교체했으며 API·웹 산출물은 변경하지 않았습니다.
 - 검증: 독립 MySQL·Redis에서 Python 전체 485개 테스트가 통과했습니다. 격리 프로젝트의 `npm run check`와 빌드도 통과했습니다. 실제 SEC 403 해제는 별도이며 [접근 정책 대조](SEC_PYTHON_ACCESS_REVIEW_2026-09-10.md)를 참고합니다.
 - 운영 관측: 31분 34초 동안 재시작·실패 작업 0건, API 준비 상태와 공개 웹 응답 200을 유지했습니다. 15분 뉴스 수집 두 회차를 처리했으며 프로세스 최고 메모리는 약 374 MiB, 관측 종료 시 약 161 MiB였습니다. 8개 큐와 30개 예약 작업을 유지합니다.
@@ -24,7 +26,7 @@
 
 ### 2026-09-11 화면·로고 후속 정리 배포
 
-01:58:01 KST에 화면·로고 후속 변경과 API 리팩토링을 운영에 반영했습니다. 백업은 `/home/laeti/orsem-data/backups/ui-refactor-2026-09-10T16-57-51-884Z`이며 최종 웹 index SHA256은 `a69a9f8ff14ce3dfdeb4acd6801a8968c4e6db2f3df6235630b36abaff353a09`입니다. 01:57 KST 최초 시도는 공개 응답 확인 지연으로 이전 API와 index를 자동 복구한 뒤 재배포했습니다.
+01:58:01 KST에 화면·로고 후속 변경과 API 리팩토링을 운영에 반영했습니다. 백업은 `../orsem-data/backups/ui-refactor-2026-09-10T16-57-51-884Z`이며 최종 웹 index SHA256은 `a69a9f8ff14ce3dfdeb4acd6801a8968c4e6db2f3df6235630b36abaff353a09`입니다. 01:57 KST 최초 시도는 공개 응답 확인 지연으로 이전 API와 index를 자동 복구한 뒤 재배포했습니다.
 
 적용 범위는 웹 78개와 API `news-content` 산출물 3개, 총 81개 파일입니다. API 실행 코드 차이는 `news-content.js` 하나이며 기존 프로세스 환경을 유지한 채 API만 재시작했습니다. 기존 웹 자산 295개(최초 시도 전 250개와 최초 시도에서 추가된 45개)를 보존했습니다. Python worker는 PID `453811`, 재시작 0회 상태를 유지했고 DB·마이그레이션·큐를 변경하지 않았습니다.
 
@@ -45,8 +47,8 @@ PC의 상세 동작 버튼 4개는 높이 44px와 같은 테두리·배경·8px 
 ## 1. 실행 데이터 준비
 
 ```bash
-mkdir -p /home/laeti/orsem-data/raw /home/laeti/orsem-data/logs
-chmod 700 /home/laeti/orsem-data
+mkdir -p ../orsem-data/raw ../orsem-data/logs
+chmod 700 ../orsem-data
 ```
 
 ## 2. MySQL과 환경 설정
@@ -75,9 +77,11 @@ API, DB 마이그레이션 CLI, worker, Discord 프로세스, Vite 설정은 모
 | `WEB_ORIGIN`                          | 정확한 공개 브라우저 출처, 예: `https://orsem.laetipark.me`             |
 | `SESSION_SECRET`                      | 독립적으로 생성한 무작위 문자 32개 이상                                 |
 | `TOTP_ENCRYPTION_KEY`                 | 정확히 32바이트인 무작위 값의 정규 base64 인코딩                        |
-| `ORSEM_DATA_DIR` / `RAW_DOCUMENT_DIR` | 저장소 밖의 절대 경로                                                   |
+| `ORSEM_DATA_DIR` / `RAW_DOCUMENT_DIR` | `../orsem-data` / `../orsem-data/raw`를 해석한 저장소 밖의 절대 경로    |
 
 예시 문구를 그대로 배포하지 말고 각각 독립적인 비밀 값을 생성합니다.
+
+파일 경로는 프로젝트 루트에서 `realpath ../orsem-data`와 `realpath ../orsem-data/raw`로 구한 값을 환경에 기록합니다. `.env` 자체는 셸 변수나 명령 치환을 실행하지 않습니다.
 
 ```bash
 openssl rand -base64 48
@@ -105,20 +109,22 @@ PM2 설정에는 `127.0.0.1:11434`에만 연결되는 선택적 Ollama 프로세
 
 ```bash
 pm2 start ecosystem.config.cjs --only orsem-ollama
-OLLAMA_HOST=127.0.0.1:11434 /home/laeti/orsem-data/ollama/runtime/bin/ollama pull qwen3.5:4b-q4_K_M
+OLLAMA_HOST=127.0.0.1:11434 ../orsem-data/ollama/runtime/bin/ollama pull qwen3.5:4b-q4_K_M
 ```
 
 `AI_BASE_URL=http://127.0.0.1:11434/v1`, `AI_API_KEY=ollama`, `AI_MODEL=qwen3.5:4b-q4_K_M`, `AI_ENABLED=true`를 설정합니다. 여기서 키는 비밀 값이 아닌 호환용 자리표시자입니다. Ollama 제안은 검토 증거로 저장하며 결정적 거래 분류를 덮어쓰지 않습니다.
 
+2026-09-26부터 운영 워커는 로그인 전 가용성을 확인한 사설 Ollama `172.30.1.99:11434`를 사용합니다. 워커의 실제 `AI_BASE_URL`은 `http://172.30.1.99:11434/v1`, `OLLAMA_URL`은 `http://172.30.1.99:11434`이며 두 모델 태그는 `qwen3.5:4b-q4_K_M`입니다. 분류·번역 제한 시간은 각각 120초입니다. 기존 로컬 Ollama PM2 프로세스와 API 프로세스는 이 워커 전환에서 재시작하지 않았습니다. 워커의 이전 설정과 릴리스 복구 기준은 저장소 밖 `../orsem-data/backups/ollama-cutover-20260926`에 있습니다.
+
 AI 작업은 동시 실행 수가 1인 전용 `orsem-ai-review` 큐에서 실행하므로, 느린 CPU 추론이 공시 후처리나 지연된 조회용 데이터 생성 worker를 점유하지 않습니다.
 
-뉴스 한국어 번역은 `NEWS_TRANSLATION_ENABLED`로 별도 활성화합니다. 같은 Ollama를 사용하되 `OLLAMA_URL=http://127.0.0.1:11434`와 `NEWS_TRANSLATION_MODEL`로 연결하며 외부 번역 API나 클라우드 모델로 자동 전환하지 않습니다. `AddManualNewsTranslations1788405000000`이 아직 적용되지 않았다면 먼저 적용하고, `UseNewsMetadataOnly1788411000000`과 호환되는 API·worker를 배포합니다. 기본 1분·최대 3건의 제목·요약만 번역하며 본문 존재·본문 번역 완료 조건은 사용하지 않습니다. 번역 대기·실패 시 원문 메타데이터를 표시합니다. [뉴스 번역 설정](NEWS_TRANSLATION.md#설정과-재시도)과 [기존 본문 정리 순서](NEWS_TRANSLATION.md#기존-본문-정리와-배포-순서)를 참고하세요.
+뉴스 한국어 번역은 `NEWS_TRANSLATION_ENABLED`로 별도 활성화합니다. 현재 워커는 승인된 `OLLAMA_URL=http://172.30.1.99:11434`와 `NEWS_TRANSLATION_MODEL=qwen3.5:4b-q4_K_M`로 연결하며 외부 번역 API나 클라우드 모델로 자동 전환하지 않습니다. `AddManualNewsTranslations1788405000000`이 아직 적용되지 않았다면 먼저 적용하고, `UseNewsMetadataOnly1788411000000`과 호환되는 API·worker를 배포합니다. 기본 1분·최대 3건의 제목·요약만 번역하며 본문 존재·본문 번역 완료 조건은 사용하지 않습니다. 번역 대기·실패 시 원문 메타데이터를 표시합니다. [뉴스 번역 설정](NEWS_TRANSLATION.md#설정과-재시도)과 [기존 본문 정리 순서](NEWS_TRANSLATION.md#기존-본문-정리와-배포-순서)를 참고하세요.
 
 운영 웹 빌드에는 `VITE_FIXTURE_MODE=false`를 설정하고 일반적으로 `VITE_API_BASE_URL=/api/v1`을 유지합니다. `VITE_PORT`와 `VITE_API_PROXY_TARGET`은 Vite 개발 서버에만 영향을 줍니다. Discord에는 `DISCORD_BOT_TOKEN`, `DISCORD_APPLICATION_ID`, `DISCORD_CHANNEL_ID`와 API·봇 양쪽에 동일하게 설정한 독립적인 무작위 `DISCORD_SERVICE_TOKEN`이 필요합니다. 운영 허용 목록은 쉼표로 구분한 `DISCORD_ALLOWED_USER_IDS`를 사용합니다. `DISCORD_GUILD_ID`, 조회 주기, 내부 API URL은 선택 항목입니다.
 
 ## 3. 격리 빌드와 마이그레이션
 
-운영 프로세스가 읽는 `/home/laeti/orsem/apps/*/dist`와 `packages/*/dist`에서 빌드·타입 검사·테스트를 실행하지 않습니다. 저장소 밖의 별도 작업 복사본에서 Node.js 24로 빌드하며 workspace 패키지 링크도 그 복사본을 가리켜야 합니다. 운영 비밀 설정은 복사본에 넣지 않습니다.
+운영 프로세스가 읽는 `apps/*/dist`와 `packages/*/dist`에서 빌드·타입 검사·테스트를 실행하지 않습니다. 저장소 밖의 별도 작업 복사본에서 Node.js 24로 빌드하며 workspace 패키지 링크도 그 복사본을 가리켜야 합니다. 운영 비밀 설정은 복사본에 넣지 않습니다.
 
 ```bash
 export ORSEM_WORKER_PYTHON="$PWD/.venv/bin/python"
@@ -141,7 +147,7 @@ Python BullMQ는 기존 큐 이름·접두사·일반 작업 데이터를 재사
 
 ## 4. 프로세스 시작
 
-Python 환경을 설치하고 `worker/current`를 연결한 뒤 시작합니다. `ecosystem.config.cjs`의 워커 설정은 `script=/home/laeti/orsem-data/worker/current/bin/python`, `args=-m orsem_worker`, `interpreter=none`, 단일 fork 인스턴스입니다. `ORSEM_REPO_ROOT`로 공용 환경 설정 위치를 지정합니다. 워커는 Node.js나 npm을 거쳐 실행하지 않습니다.
+Python 환경을 설치하고 `../orsem-data/worker/current`를 연결한 뒤 시작합니다. `ecosystem.config.cjs`의 워커 설정은 `script=../orsem-data/worker/current/bin/python`, `args=-m orsem_worker`, `interpreter=none`, 단일 fork 인스턴스입니다. `ORSEM_REPO_ROOT`로 공용 환경 설정 위치를 지정합니다. 워커는 Node.js나 npm을 거쳐 실행하지 않습니다.
 
 ```bash
 pm2 start ecosystem.config.cjs --only orsem-api,orsem-worker
@@ -152,10 +158,18 @@ pm2 save
 
 ### PC 재부팅 후 자동 시작
 
-`pm2 save`는 프로세스 목록을 저장할 뿐 부팅 작업을 설치하지는 않습니다. 이 호스트는 사용자 crontab으로 이미 시작하는 다른 애플리케이션과 PM2를 공유합니다. 기존 항목은 유지하고 `crontab -e`로 Orsem 전용 `@reboot` 항목 하나를 추가합니다.
+`pm2 save`는 프로세스 목록을 저장할 뿐 부팅 작업을 설치하지는 않습니다. 이 호스트는 사용자 crontab으로 이미 시작하는 다른 애플리케이션과 PM2를 공유합니다. 기존 항목은 유지하고 `crontab -e`로 Orsem 전용 `@reboot` 항목 하나를 추가합니다. 먼저 프로젝트 루트와 Node.js 24의 실행 경로를 확인합니다.
+
+```bash
+pwd -P
+command -v node
+node --version
+```
+
+아래 `REPO_ROOT`와 `NODE_BINARY`는 각각 위에서 확인한 경로로 바꿉니다. cron에는 로그인 셸의 Node 버전 선택이 적용되지 않으므로 실행 파일을 명시합니다. `cd` 이후의 파일 경로는 프로젝트 루트를 기준으로 합니다.
 
 ```cron
-@reboot /usr/bin/flock -n /home/laeti/orsem-data/orsem-boot.lock /home/laeti/.nvm/versions/node/v24.14.1/bin/node /home/laeti/orsem/scripts/start-at-boot.mjs >> /home/laeti/orsem-data/logs/boot.log 2>&1
+@reboot cd "REPO_ROOT" && flock -n ../orsem-data/orsem-boot.lock "NODE_BINARY" scripts/start-at-boot.mjs >> ../orsem-data/logs/boot.log 2>&1
 ```
 
 Node 24를 업그레이드하거나 옮기면 절대 경로를 수정합니다. 부팅 스크립트는 다른 앱이 이전 Node로 공용 PM2 데몬을 시작했더라도 Orsem의 PM2 자식 프로세스가 이 Node 실행 파일을 사용하도록 고정합니다. 수동 ecosystem 명령에서도 `ORSEM_NODE_BIN`으로 실행 파일을 명시할 수 있습니다.
@@ -165,11 +179,11 @@ Node 24를 업그레이드하거나 옮기면 절대 경로를 수정합니다. 
 실행 중인 프로세스를 바꾸지 않고 검증합니다.
 
 ```bash
-/home/laeti/.nvm/versions/node/v24.14.1/bin/node scripts/start-at-boot.mjs --check
+node scripts/start-at-boot.mjs --check
 npm run test:boot
 ```
 
-부팅 설정을 변경한 뒤에는 해당 스크립트를 한 번 직접 실행해 API 준비 상태, worker 시작, 선택 프로세스를 확인합니다. 다음 실제 부팅 후 `/home/laeti/orsem-data/logs/boot.log`를 확인합니다. 수정 전에 기존 crontab을 백업하며, 이 항목에 별도의 Orsem 부팅 작업이나 전역 `pm2 kill`을 함께 적용하지 않습니다.
+부팅 설정을 변경한 뒤에는 해당 스크립트를 한 번 직접 실행해 API 준비 상태, worker 시작, 선택 프로세스를 확인합니다. 다음 실제 부팅 후 `../orsem-data/logs/boot.log`를 확인합니다. 수정 전에 기존 crontab을 백업하며, 이 항목에 별도의 Orsem 부팅 작업이나 전역 `pm2 kill`을 함께 적용하지 않습니다.
 
 ## 5. Nginx와 TLS
 
@@ -191,15 +205,15 @@ npm run test:boot
 
 ## 2026-09-07 KST 배포 완료 기록
 
-본 배포 백업은 `/home/laeti/orsem-data/backups/metadata-design-20260906T151201Z`입니다. `AddManualNewsTranslations1788405000000`과 `UseNewsMetadataOnly1788411000000` 두 마이그레이션만 적용했습니다. 정리 대상 본문·본문 번역·수정 이력의 본문 사본은 0건이며, 큐 재개 후에도 0건을 확인했습니다. 원본 메타데이터·출처·권리·관계·공시를 포함한 24개 테이블의 보존 해시가 일치했고, 8개 큐를 원래 상태로 복원한 뒤 API와 Worker의 `online` 상태를 확인했습니다. 과거 백업과 공시 원본은 보존했습니다.
+본 배포 백업은 `../orsem-data/backups/metadata-design-20260906T151201Z`입니다. `AddManualNewsTranslations1788405000000`과 `UseNewsMetadataOnly1788411000000` 두 마이그레이션만 적용했습니다. 정리 대상 본문·본문 번역·수정 이력의 본문 사본은 0건이며, 큐 재개 후에도 0건을 확인했습니다. 원본 메타데이터·출처·권리·관계·공시를 포함한 24개 테이블의 보존 해시가 일치했고, 8개 큐를 원래 상태로 복원한 뒤 API와 Worker의 `online` 상태를 확인했습니다. 과거 백업과 공시 원본은 보존했습니다.
 
-뉴스 목록 스크롤과 관련 종목 오인 표시의 후속 배포 백업은 `/home/laeti/orsem-data/backups/news-scroll-followup-20260906T152858Z`입니다. 서버 파일 6개와 웹 파일 80개를 교체하고 API만 재시작했습니다. Worker와 다른 프로세스는 유지했으며 DB·마이그레이션·큐 상태는 변경하지 않았습니다. 격리 환경에서 웹 310개, API 290개, Worker 741개, contracts 25개 테스트와 후속 수정 36개 테스트가 통과했습니다.
+뉴스 목록 스크롤과 관련 종목 오인 표시의 후속 배포 백업은 `../orsem-data/backups/news-scroll-followup-20260906T152858Z`입니다. 서버 파일 6개와 웹 파일 80개를 교체하고 API만 재시작했습니다. Worker와 다른 프로세스는 유지했으며 DB·마이그레이션·큐 상태는 변경하지 않았습니다. 격리 환경에서 웹 310개, API 290개, Worker 741개, contracts 25개 테스트와 후속 수정 36개 테스트가 통과했습니다.
 
 복구에는 가장 최근 배포의 메타데이터 전용 후보를 사용합니다. 후속 배포가 완료된 뒤 이전 백업의 서버 파일을 섞어 복원하지 않습니다. 본문 작성 Worker를 되살리는 과거 `rollback.cjs`는 실행하지 않습니다.
 
 ### 국내 ETF와 뉴스·관심 종목 후속 배포
 
-2026-09-07 01:04:59 KST에 적용을 완료했습니다. 백업은 `/home/laeti/orsem-data/backups/etf-news-20260906T160210Z`, 배포 명세 SHA256은 `d61756ebfab61e97f6a5ef3e97f9296fe4bc84510072dd91d1819723c6211808`입니다. 서버 산출물 24개와 웹 파일 80개를 적용했고 나머지 실행 파일 728개와 기존 해시 웹 자산을 보존했습니다. 새 SQL 마이그레이션은 없습니다.
+2026-09-07 01:04:59 KST에 적용을 완료했습니다. 백업은 `../orsem-data/backups/etf-news-20260906T160210Z`, 배포 명세 SHA256은 `d61756ebfab61e97f6a5ef3e97f9296fe4bc84510072dd91d1819723c6211808`입니다. 서버 산출물 24개와 웹 파일 80개를 적용했고 나머지 실행 파일 728개와 기존 해시 웹 자산을 보존했습니다. 새 SQL 마이그레이션은 없습니다.
 
 공식 토스 목록에서 국내 ETF 1,167개를 등록했으며 영문자가 포함된 6자리 종목 코드도 303개 포함했습니다. API와 Worker를 멈춘 상태에서 기존 기업 127,636개 행 전체가 동일하고 뉴스·공시·출처 데이터의 보존 해시가 일치함을 확인했습니다. 기업 수정·삭제·식별 정보 충돌은 0건입니다. 이름·코드 검색, `069500`과 `0000D0`의 종목 주소 연결, 국내·미국 검색 분리를 실제 운영 DB와 API 서비스로 읽기 전용 검증했습니다.
 
@@ -215,9 +229,9 @@ npm run test:boot
 
 `UseMonthlyMarketLeaders1788412000000`으로 읽기 전용 뷰 두 개를 추가했습니다. 국내·미국 보통주 대표 각 20개와 검증된 주식 유형을 포함한 뉴스 연결 42개가 활성화됐으며, 다음 월간 갱신은 2026-10-01 00:00 KST입니다. 수집·알림은 월간 목록을 사용하고 기존 수동 운영 목록과 개인 그룹의 기록은 보존했습니다. 디스코드의 `market`, `news`, `status`, `recent`, `company` 명령 등록을 실제 Discord API로 확인했습니다. 메신저봇 스크립트도 갱신했으며 Android 기기에서의 스크립트 교체·컴파일은 별도로 필요합니다.
 
-최초 백업은 `/home/laeti/orsem-data/backups/monthly-leaders-20260906T175521Z`입니다. 운영 DB의 `utf8mb4_general_ci` JSON 문자열과 `utf8mb4_unicode_ci` 식별자 비교 충돌로 두 번째 뷰 생성이 중단됐습니다. 바이트 비교와 검증된 DB ID 반환으로 수정하고, 같은 혼합 정렬 규칙의 격리 MySQL에서 오류 재현·재실행·40/42개 결과·기존 데이터 보존을 검증했습니다. 원래 백업과 DB 덤프를 보존한 새 복구 백업 `/home/laeti/orsem-data/backups/monthly-leaders-20260906T180056Z`에서 수정된 마이그레이션 두 산출물만 갱신해 배포를 완료했습니다. 계획 SHA256은 `51cbea83fd3c7c6043e524f7660ed8d59a500b5b95918158fc7992277b16990c`입니다.
+최초 백업은 `../orsem-data/backups/monthly-leaders-20260906T175521Z`입니다. 운영 DB의 `utf8mb4_general_ci` JSON 문자열과 `utf8mb4_unicode_ci` 식별자 비교 충돌로 두 번째 뷰 생성이 중단됐습니다. 바이트 비교와 검증된 DB ID 반환으로 수정하고, 같은 혼합 정렬 규칙의 격리 MySQL에서 오류 재현·재실행·40/42개 결과·기존 데이터 보존을 검증했습니다. 원래 백업과 DB 덤프를 보존한 새 복구 백업 `../orsem-data/backups/monthly-leaders-20260906T180056Z`에서 수정된 마이그레이션 두 산출물만 갱신해 배포를 완료했습니다. 계획 SHA256은 `51cbea83fd3c7c6043e524f7660ed8d59a500b5b95918158fc7992277b16990c`입니다.
 
-후속 조회 검증에서 SQL 예약어 `rank` 별칭을 인용하도록 수정했습니다. 실제 운영 DB에서 읽기 전용으로 국내·미국 각 20개와 종목 주소를 확인하고 API 두 파일만 적용했습니다. 이 백업은 `/home/laeti/orsem-data/backups/monthly-rank-fix-20260906T180545Z`, 계획 SHA256은 `a962e63674debba7773ff2e3097acfe7fa906637c3aa99e4ff7c4d16730c7073`입니다. API만 재시작했으며 Worker·Discord·큐·DB는 변경하지 않았습니다. 관련 API 테스트와 타입 검사가 통과했습니다.
+후속 조회 검증에서 SQL 예약어 `rank` 별칭을 인용하도록 수정했습니다. 실제 운영 DB에서 읽기 전용으로 국내·미국 각 20개와 종목 주소를 확인하고 API 두 파일만 적용했습니다. 이 백업은 `../orsem-data/backups/monthly-rank-fix-20260906T180545Z`, 계획 SHA256은 `a962e63674debba7773ff2e3097acfe7fa906637c3aa99e4ff7c4d16730c7073`입니다. API만 재시작했으며 Worker·Discord·큐·DB는 변경하지 않았습니다. 관련 API 테스트와 타입 검사가 통과했습니다.
 
 최종 공개 웹은 `index-B_WFu_BC.js`와 `index-BJFaqJZk.css`이며 배포 산출물 해시와 일치합니다. 준비 상태 200, 서비스 토큰으로 국내·미국 월간 목록 각 20개와 전체·국내·미국 뉴스 각 5개, 비인증 봇·개인 뉴스 접근 401을 확인했습니다. 기존 기업 128,803개·개인 그룹·공시·뉴스 메타데이터의 정지 상태 보존 검증이 완료됐고 뉴스 본문은 0건입니다. 8개 큐를 원래 상태로 복원했으며 API·Worker·Discord가 정상 실행 중입니다. 봇 시험 메시지는 전송하지 않았습니다. 새 브라우저 로그인 후 화면 검증은 수행하지 않았습니다.
 
@@ -225,7 +239,7 @@ npm run test:boot
 
 ### 조건부 뉴스 확장·자동완성·개인 관심그룹 복사
 
-2026-09-07 12:32:36 KST에 뉴스 확장과 대소문자를 구분하지 않는 자동완성 배포를 완료했습니다. 비공개 백업은 `/home/laeti/orsem-data/backups/free-news-accounts-20260907T033120Z`, 계획 SHA256은 `9e66ad352bb3ecac020603582a7017f35c4103918cee91654b84db172de45e00`입니다. 서버 산출물 108개와 웹 파일 80개를 적용하고 관련 없는 운영 파일 697개를 보존했습니다. API·worker만 재시작했으며 Discord·Ollama와 다른 서비스는 유지했습니다.
+2026-09-07 12:32:36 KST에 뉴스 확장과 대소문자를 구분하지 않는 자동완성 배포를 완료했습니다. 비공개 백업은 `../orsem-data/backups/free-news-accounts-20260907T033120Z`, 계획 SHA256은 `9e66ad352bb3ecac020603582a7017f35c4103918cee91654b84db172de45e00`입니다. 서버 산출물 108개와 웹 파일 80개를 적용하고 관련 없는 운영 파일 697개를 보존했습니다. API·worker만 재시작했으며 Discord·Ollama와 다른 서비스는 유지했습니다.
 
 DB 일관 백업 273,333,054바이트를 보존한 뒤 `AddNewsTitleHash1788413000000`만 적용했습니다. 새 nullable 컬럼과 인덱스·마이그레이션 기록을 확인했고, 마이그레이션 전후 75개 테이블의 기존 데이터 보존 해시가 일치했습니다. 8개 큐를 원래 상태로 복원했으며 뉴스 본문 저장은 0건입니다. Marketaux·Alpha Vantage·Finnhub와 새 IR/RSS 프로필 4개는 비활성·권리 `UNKNOWN` 상태를 유지합니다.
 
@@ -239,7 +253,7 @@ DB 일관 백업 273,333,054바이트를 보존한 뒤 `AddNewsTitleHash17884130
 
 ### 모바일 관심 종목·소식 표시 개선
 
-2026-09-07 13:09:49 KST에 웹 화면 변경을 적용했습니다. 백업은 `/home/laeti/orsem-data/backups/mobile-watchlist-20260907T040948Z`, 계획 SHA256은 `65b05c16c4ae80defec3aaac96710c686789e65efe79c576d6e8fac41c24895b`입니다. 웹 파일 80개 중 새 해시 자산 45개를 추가하고 진입 HTML을 교체했으며, 기존 자산 965개를 보존했습니다. API·worker·DB는 변경하거나 재시작하지 않았습니다. 공개 웹 HTML 해시가 후보와 일치하고 웹·API 준비 상태가 모두 200입니다.
+2026-09-07 13:09:49 KST에 웹 화면 변경을 적용했습니다. 백업은 `../orsem-data/backups/mobile-watchlist-20260907T040948Z`, 계획 SHA256은 `65b05c16c4ae80defec3aaac96710c686789e65efe79c576d6e8fac41c24895b`입니다. 웹 파일 80개 중 새 해시 자산 45개를 추가하고 진입 HTML을 교체했으며, 기존 자산 965개를 보존했습니다. API·worker·DB는 변경하거나 재시작하지 않았습니다. 공개 웹 HTML 해시가 후보와 일치하고 웹·API 준비 상태가 모두 200입니다.
 
 메인과 관심 목록의 카드 테두리·제목·여백·페이지 이동 디자인을 통일했습니다. PC는 종목과 뉴스·공시를 각각 6개씩, 900px 이하에서는 종목 3개·소식 4개씩 표시합니다. 그리드는 최대 2열이며 620px 이하에서는 1열입니다. 모바일의 기본 종목 보기는 목록이고 명시적으로 선택한 보기 방식은 URL에 유지합니다. 기존 API의 limit을 재사용했으며 다른 화면의 기본 조회 한도는 유지합니다. 그룹 목록 캐시와 최신 종목 수가 다를 때도 새 종목으로 페이지 이동이 가능합니다.
 
@@ -251,7 +265,7 @@ DB 일관 백업 273,333,054바이트를 보존한 뒤 `AddNewsTitleHash17884130
 
 ### PC 관심 종목 새창·항상 위·시세 갱신
 
-2026-09-08 23:04:44 KST에 웹과 API 반영을 완료했습니다. 백업은 `/home/laeti/orsem-data/backups/watchlist-popout-20260908T135550Z`, 배포 명세 SHA256은 `6cc9f0d58825fda2373c5ecbf0633d95ae1ef2687eac731f535652fe775c2b27`입니다. DB 일관 스냅샷 456,993,131바이트와 기존 산출물 941개, 비공개 설정 및 큐 정지 상태를 보존했습니다. API만 재시작했으며 Worker·Discord·Ollama·다른 서비스와 DB·마이그레이션·큐는 변경하지 않았습니다.
+2026-09-08 23:04:44 KST에 웹과 API 반영을 완료했습니다. 백업은 `../orsem-data/backups/watchlist-popout-20260908T135550Z`, 배포 명세 SHA256은 `6cc9f0d58825fda2373c5ecbf0633d95ae1ef2687eac731f535652fe775c2b27`입니다. DB 일관 스냅샷 456,993,131바이트와 기존 산출물 941개, 비공개 설정 및 큐 정지 상태를 보존했습니다. API만 재시작했으며 Worker·Discord·Ollama·다른 서비스와 DB·마이그레이션·큐는 변경하지 않았습니다.
 
 API의 관심 그룹 controller·service와 공유 계약 watchlist-groups 모듈만 선별했습니다. 기동 이후 재출력된 나머지 API·계약 파일은 기존 내용과 같음을 AST로 확인했습니다. 웹 후보 76개 파일을 배치하면서 기존 해시 자산을 보존했고 HTML을 마지막에 교체했습니다. 기존·후보의 실제 자산 참조 66개 중 해시 참조를 제외한 변경은 관심 종목 패널 청크 하나이며 CSS는 모두 같습니다. 공개 HTML SHA256은 `6fce5b63ed8411b879572b425cf23c266e709e89a192039e82f33d39ab03b45b`입니다.
 

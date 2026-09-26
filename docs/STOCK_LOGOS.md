@@ -7,10 +7,10 @@
 - Node.js 24 / npm workspaces / TypeScript strict 구조다. 웹은 React 19 + Vite 7, 테스트는 Vitest + Testing Library + jsdom이다. Next.js 또는 이미지 최적화 서버가 아니다.
 - API는 NestJS / Express, DB는 TypeORM / MySQL이며 마이그레이션을 사용한다. `synchronize: false`를 유지한다. API와 contracts 테스트는 TypeScript 컴파일 후 Node 내장 test runner를 실행한다. 로고 기능은 워커에 이미지 수집 작업을 등록하지 않는다.
 - 종목 식별자는 기존 `companies.id` UUID다. `market + stockCode`, `market + ticker`에 별도 유일성이 있다. `stock_code`는 문자열 `CHAR(6)`, `ticker`는 문자열 `VARCHAR(32)`, OpenDART `corp_code`는 별도의 `CHAR(8)`이다. 로고 공유를 이유로 종목 ID, 보통주·우선주, 주식 클래스, 가격 또는 보유 데이터의 식별자를 합치지 않는다.
-- 종목 목록·상세·관심종목·최근 종목 등은 공통 `apps/web/src/components/company-avatar.tsx`를 사용한다. 기존 `brand-logo.tsx`는 서비스 자체 ORSEM 로고다.
+- 종목 목록·상세·관심종목·최근 종목 등은 공통 `apps/web/src/components/company-avatar.tsx`를 사용한다. 기존 `apps/web/src/components/brand-logo.tsx`는 서비스 자체 ORSEM 로고다.
 - Vite는 저장소 루트 `.env`를 읽는다. `VITE_*`는 빌드 시 브라우저에 노출되므로 비밀 키를 넣지 않는다. API/worker는 런타임 설정 검증과 서버 `.env`를 사용한다. PM2의 기존 환경이 남을 수 있어 `ecosystem.config.cjs`의 `fileBackedEnvironment` 목록을 통한 설정 전달을 확인한다. 키 값은 문서나 로그에 출력하지 않는다.
 - 기존 로고 코드는 `source_checkpoints`의 `COMPANY_LOGO` / `COMPANY_LOGO_REQUEST`에 메타데이터를 보관하고 웹 메모리 캐시를 사용했다. 로고 이외의 종목 메타데이터·시세 캐시는 변경 대상이 아니다. `apps/web/public/sw.js`는 알림 전용이며 이미지 요청을 가로채거나 캐시하지 않는다.
-- 작업 전 Python `market/logos.py`는 Finnhub/Tickerlogos 이미지를 서버에서 검증하고 `market/__init__.py`가 60초마다 갱신했다. 이 경로를 새로운 무료 공급자 이미지 수집기로 재사용하지 않는다. 과거 `verifiedAt`는 이미지 로드/형식 검사 결과여서 기업 로고에 대한 수동 검수 증거가 아니다.
+- 작업 전 Python `apps/worker/python/orsem_worker/market/logos.py`는 Finnhub/Tickerlogos 이미지를 서버에서 검증하고 `apps/worker/python/orsem_worker/market/__init__.py`가 60초마다 갱신했다. 이 경로를 새로운 무료 공급자 이미지 수집기로 재사용하지 않는다. 과거 `verifiedAt`는 이미지 로드/형식 검사 결과여서 기업 로고에 대한 수동 검수 증거가 아니다.
 - Nginx 템플릿은 `deploy/nginx/orsem.laetipark.me.conf`다. 기본 `Referrer-Policy`는 `strict-origin-when-cross-origin`, 작업 전 CSP는 popout의 `frame-ancestors` 제한뿐이다. API의 Helmet CSP는 비활성화되어 있다. 새 이미지 CSP를 적용할 때 실제 사용하는 호스트만 허용하며, 템플릿 수정과 운영 Nginx 반영은 구분한다.
 
 ## Logo.dev: 기본 공급자
@@ -129,7 +129,7 @@ npm run typecheck
 
 이미지별 최대 2회 외부 후보·순차 요청·서버 permit은 유지한다. 서로 다른 아바타의 permit을 공유하거나 이미지 파일을 자체 캐시에 저장하지 않는다. 브라우저 기본 캐시 외의 이미지 바이트 캐시는 추가하지 않았으며, 새 아바타 마운트에서 모든 요청이 사라지는 것을 보장하지 않는다.
 
-구현 파일은 `components/company-avatar.tsx`, `lib/use-company-logo.ts`, `lib/logo-failures.ts`, `lib/company-branding.ts`다. 호출 지점의 UUID 전달은 `components/event-row.tsx`, `components/market-selection.tsx`에 반영했다. `components/watchlist-groups-panel.css`는 내 종목·관심종목·팝아웃·같은 구조의 최근조회 로고 padding을 0으로 지정한다. 상세 화면의 고정 크기·padding 0과 모든 이미지의 `object-fit: contain`을 유지한다.
+구현 파일은 `apps/web/src/components/company-avatar.tsx`, `apps/web/src/lib/use-company-logo.ts`, `apps/web/src/lib/logo-failures.ts`, `apps/web/src/lib/company-branding.ts`다. 호출 지점의 UUID 전달은 `apps/web/src/components/event-row.tsx`, `apps/web/src/components/market-selection.tsx`에 반영했다. `apps/web/src/components/watchlist-groups-panel.css`는 내 종목·관심종목·팝아웃·같은 구조의 최근조회 로고 padding을 0으로 지정한다. 상세 화면의 고정 크기·padding 0과 모든 이미지의 `object-fit: contain`을 유지한다.
 
 ## 실제 이미지 확인 범위와 남은 검수
 
@@ -154,9 +154,9 @@ npm run typecheck
 
 2026-09-11 초기 전체 검증은 웹 **596/596**, API **356/356**(skip 0), contracts **31/31**, Python market **70/70**이었다. 격리 API·웹 빌드도 통과했다. API 테스트의 로컬 포트 제한은 허용된 격리 실행에서 해결했고, Redis 예산 테스트는 별도의 임시 Redis를 사용한 뒤 종료했다. 초기 전체 결과는 이후 변경까지 포함한 최신 통합 검증 결과를 대신하지 않는다.
 
-후속 거래소 보완은 웹 로고 **32/32**, API 로고 **15/15**, 격리 API·웹 빌드 통과 후 운영 반영했다. 공개 키 형식·PM2 로고 설정 6개 일치와 health live/ready HTTP 200을 확인했다. 공급자 플래그는 활성화하고 각각 500,000의 내부 상한을 유지했으며 계정·카드·구독·자동 충전 설정은 변경하지 않았다. API 파일 교체 원본은 `/tmp/orsem-logo-release-uBpD6T`에 보관했다.
+후속 거래소 보완은 웹 로고 **32/32**, API 로고 **15/15**, 격리 API·웹 빌드 통과 후 운영 반영했다. 공개 키 형식·PM2 로고 설정 6개 일치와 health live/ready HTTP 200을 확인했다. 공급자 플래그는 활성화하고 각각 500,000의 내부 상한을 유지했으며 계정·카드·구독·자동 충전 설정은 변경하지 않았다. API 파일 교체 원본은 `../../../tmp/orsem-logo-release-uBpD6T`에 보관했다.
 
-이후 로고 padding 0 및 footer의 영문 직접 링크 제거는 출처·공개 라우트·팝아웃 **29/29**와 격리 웹 빌드 통과 후 웹만 반영했다. 이 배포의 index 백업은 `/tmp/orsem-logo-footer-release-y2rlx8_i`다.
+이후 로고 padding 0 및 footer의 영문 직접 링크 제거는 출처·공개 라우트·팝아웃 **29/29**와 격리 웹 빌드 통과 후 웹만 반영했다. 이 배포의 index 백업은 `../../../tmp/orsem-logo-footer-release-y2rlx8_i`다.
 
 **후속 변경은 2026-09-11 01:58:01 KST에 통합 배포를 완료했다.** 로고 범위는 모든 footer의 내부 로고 안내 링크 제거, `/logo-sources` 반응형, 반복 로딩 억제 및 기존 UUID 공유다. 앞선 집중 검사에서 로더/후보 **38/38**, 이벤트/시총 목록 **16/16**이 통과했고, 마지막 시간 경계의 후보 참조 유지 수정 이후 웹 전체 **614/614**(77개 파일), TypeScript·ESLint·빌드를 통과했다. 전체 프로젝트의 격리 `npm run check`와 빌드도 통과했다.
 
@@ -164,10 +164,10 @@ npm run typecheck
 
 통합 배포는 웹 78개와 API `news-content` 산출물 3개를 포함하며 기존 웹 자산을 보존했다. API만 기존 환경으로 재시작했고 Python worker·DB·큐는 변경하지 않았다. 로고 API·외부 이미지 다운로드 경로의 추가 변경은 없다. 백업, 최종 index 해시, 최초 시도의 자동 복구와 재배포 결과는 [화면·로고 후속 배포 기록](DEPLOYMENT.md#2026-09-11-화면로고-후속-정리-배포)을 따른다.
 
-앞선 집중 로더 검증 로그는 `/tmp/orsem-logo-loading-test.log`, `/tmp/orsem-logo-loading-types.log`다. 초기 전체 결과는 `/tmp/orsem-logo-web-final.log`, `/tmp/orsem-logo-api-final-permitted.log`에, 거래소 보완 결과는 `/tmp/orsem-logo-activation-*-test.log`, `/tmp/orsem-logo-activation-*-build.log`에 보관했다. 이 임시 로그의 초기 수치를 최신 통합 결과 대신 사용하지 않는다.
+앞선 집중 로더 검증 로그는 `../../../tmp/orsem-logo-loading-test.log`, `../../../tmp/orsem-logo-loading-types.log`다. 초기 전체 결과는 `../../../tmp/orsem-logo-web-final.log`, `../../../tmp/orsem-logo-api-final-permitted.log`에, 거래소 보완 결과는 `../../../tmp/orsem-logo-activation-*-test.log`, `../../../tmp/orsem-logo-activation-*-build.log`에 보관했다. 이 임시 로그의 초기 수치를 최신 통합 결과 대신 사용하지 않는다.
 
 ## 이전 코드 정리와 배포 자산 보존
 
 이전 Python 로고 수집 원본·전용 테스트와 build·egg-info·옛 로고 pyc 생성물을 제거했다. 워커 담당의 fresh wheel 검사는 소스 파일 66개의 SHA 일치와 옛 로고 모듈·pycache 포함 0개를 확인했다. 이전 공급자 조사 문서도 제거했으며 현재 로고 어댑터·권리 검수와 재발 방지 테스트, 뉴스용 Finnhub 설정은 유지한다.
 
-현재 index에서 참조하지 않는다는 이유만으로 과거 웹 해시 자산을 삭제하지 않는다. 운영에서 사용했던 롤백·열린 탭 및 최근 30일 발행 자산은 보존한다. 일시 제거했던 파일 4개는 원본과 SHA-256 일치를 확인해 복원했으며 기록은 `/tmp/orsem-old-logo-assets-1pv8zsgd/restored-sha256.json`에 있다. 옛 소스 제거와 운영 롤백 산출물 보존은 구분한다.
+현재 index에서 참조하지 않는다는 이유만으로 과거 웹 해시 자산을 삭제하지 않는다. 운영에서 사용했던 롤백·열린 탭 및 최근 30일 발행 자산은 보존한다. 일시 제거했던 파일 4개는 원본과 SHA-256 일치를 확인해 복원했으며 기록은 `../../../tmp/orsem-old-logo-assets-1pv8zsgd/restored-sha256.json`에 있다. 옛 소스 제거와 운영 롤백 산출물 보존은 구분한다.

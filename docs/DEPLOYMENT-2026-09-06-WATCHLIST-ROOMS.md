@@ -14,7 +14,7 @@
 
 ## 백업·배포
 
-비공개 백업: `/home/laeti/orsem-data/backups/watchlist-rooms-20260905T202144Z`
+비공개 백업: `../orsem-data/backups/watchlist-rooms-20260905T202144Z`
 
 DB 백업은 188,631,179바이트이며 기존 API·worker·웹·공통 패키지 산출물과 해시를 함께 보관했습니다. 큐를 잠시 멈추고 진행 작업을 비운 뒤 추가 DB 변경 → API → worker → 웹 순서로 반영하고 원래 큐 상태를 복구했습니다. 첫 배포는 05:26 KST에 완료했습니다. 편집 시작 버전 고정·종목 상세 그룹 선택의 접근 해제 캐시 제거·두 줄 범례·빈 소식 여백·RSI 미사용 높이 보완은 05:39 KST에 웹만 추가 반영했습니다. Ollama·Discord 프로세스는 재시작하지 않았습니다.
 
@@ -37,4 +37,4 @@ DB 백업은 188,631,179바이트이며 기존 API·worker·웹·공통 패키�
 
 일반 전체 빌드나 DB 역마이그레이션을 사용하지 않습니다. 먼저 `/api/v1/watchlist-groups`와 `/api/v1/watchlist-rooms` 접근을 503으로 막은 상태에서 이전 산출물을 복원합니다. 복원된 worker의 그룹 수집 SQL에는 `g.room_id IS NULL` 조건을 더해 방 수집을 차단합니다. 기존 전체 회원 공유 방식이 다시 열리지 않도록 접근 차단을 유지합니다. 추가 테이블·변경 이력·기존 원문과 번역은 보존합니다.
 
-비공개 백업의 `deployment-result.json`, `migration-result.json`, `service-result.json`, `http-browser-result.json`, `queue-state.json`, `web-finalization.json`과 `ui/`에 실제 결과를 보관했습니다. 배포 스크립트 및 격리 산출물은 `/tmp/orsem-rooms-release/`에 있습니다.
+비공개 백업의 `deployment-result.json`, `migration-result.json`, `service-result.json`, `http-browser-result.json`, `queue-state.json`, `web-finalization.json`과 `ui/`에 실제 결과를 보관했습니다. 배포 스크립트 및 격리 산출물은 `../../../tmp/orsem-rooms-release/`에 있습니다.
