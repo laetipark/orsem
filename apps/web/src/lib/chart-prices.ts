@@ -1,6 +1,16 @@
 import type { CandlestickData, Time, UTCTimestamp, WhitespaceData } from 'lightweight-charts';
 import type { PricePoint } from '../types';
 
+const usdPriceFormat = new Intl.NumberFormat('ko-KR', {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 4,
+});
+const krwPriceFormat = new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 0 });
+
+export function chartPriceFormatter(currency: string): Intl.NumberFormat {
+  return currency === 'USD' ? usdPriceFormat : krwPriceFormat;
+}
+
 export function isNoTradePrice(point: PricePoint): boolean {
   return (
     ['TOSS_KR', 'TOSS_US', 'KRX'].includes(point.source) &&

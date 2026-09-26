@@ -1,16 +1,12 @@
 import { companyFieldValue } from '../lib/company-fields';
 import { useQuery } from '@tanstack/react-query';
-import { api } from '../lib/api';
+import { companyInformationQuery } from '../lib/company-query';
 import { formatDate, formatMoney, formatPercent } from '../lib/format';
 import type { CompanyTimeline } from '../types';
 import { Card, CardContent, CardHeader, EmptyState, LoadingState } from './ui';
 
 export function CompanyKeyStats({ companyId }: { companyId: string }) {
-  const query = useQuery({
-    queryKey: ['company-information', companyId],
-    queryFn: ({ signal }) => api.companyInformation(companyId, signal),
-    staleTime: 60_000,
-  });
+  const query = useQuery(companyInformationQuery(companyId));
   const values = [
     ['previousClose', '전 거래일'],
     ['open', '시가'],

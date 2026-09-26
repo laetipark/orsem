@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { api } from '../lib/api';
+import { companyInformationQuery } from '../lib/company-query';
 import { companyFieldValue } from '../lib/company-fields';
 import { ErrorState, LoadingState } from './ui';
 
@@ -26,11 +26,7 @@ const groups = [
   },
 ];
 export function CompanyInformation({ companyId }: { companyId: string }) {
-  const query = useQuery({
-    queryKey: ['company-information', companyId],
-    queryFn: ({ signal }) => api.companyInformation(companyId, signal),
-    staleTime: 60_000,
-  });
+  const query = useQuery(companyInformationQuery(companyId));
   if (query.isPending) return <LoadingState label="종목 기본정보를 불러오는 중입니다." />;
   if (query.isError)
     return (

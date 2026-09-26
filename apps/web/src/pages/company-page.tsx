@@ -12,7 +12,13 @@ import {
   useSearchParams,
   useOutletContext,
 } from 'react-router-dom';
-import { api } from '../lib/api';
+import {
+  companyInformationQuery,
+  companyLivePriceQuery,
+  companyMarketRefreshInterval,
+  companyQuery,
+  companyTimelineQuery,
+} from '../lib/company-query';
 import { hasChartCandles } from '../lib/chart-prices';
 import { domesticFallbackClose, effectiveLiveStatus } from '../lib/live-price';
 import { formatDate, formatKst, formatMoney, formatPercent } from '../lib/format';
@@ -51,7 +57,6 @@ const eventReturnLabels = {
   FILING: '최근 공시 이후',
   NEWS: '최근 뉴스·IR 이후',
 } as const;
-const marketRefreshInterval = 2_000;
 
 export function CompanyPage() {
   const location = useLocation();
@@ -141,15 +146,11 @@ export function CompanyPage() {
   const [interval, setInterval] = useState<'1d' | '1m'>('1d');
   const [clockNow, setClockNow] = useState(Date.now);
   useEffect(() => {
-    const timer = window.setInterval(() => setClockNow(Date.now()), marketRefreshInterval);
+    const timer = window.setInterval(() => setClockNow(Date.now()), companyMarketRefreshInterval);
     return () => window.clearInterval(timer);
   }, []);
   const queryClient = useQueryClient();
-  const company = useQuery({
-    queryKey: ['company', address],
-    queryFn: ({ signal }) => api.company(address, signal),
-    enabled: Boolean(address),
-  });
+  const company = useQuery(companyQuery(address));
   const id = company.data?.id ?? '';
   useEffect(() => {
     // Query refreshes and canonical URL replacements are the same visit.
@@ -168,35 +169,20 @@ export function CompanyPage() {
         state: location.state,
       });
   }, [company.data, location.pathname, location.search, location.hash, location.state, navigate]);
-  const timeline = useQuery({
-    queryKey: ['company-timeline', id, range, interval],
-    queryFn: ({ signal }) => api.companyTimeline(id, range, interval, signal),
-    enabled: Boolean(id),
-    refetchInterval: marketRefreshInterval,
-    refetchIntervalInBackground: false,
-  });
+  const timeline = useQuery(companyTimelineQuery(id, range, interval));
   const dailyTimeline = useQuery({
-    queryKey: ['company-timeline', id, range, '1d'],
-    queryFn: ({ signal }) => api.companyTimeline(id, range, '1d', signal),
+    ...companyTimelineQuery(id, range, '1d'),
     enabled: Boolean(id) && (interval === '1m' || activeTab === 'prices'),
-    refetchInterval: interval === '1m' ? marketRefreshInterval : false,
-    refetchIntervalInBackground: false,
+    refetchInterval: interval === '1m' ? companyMarketRefreshInterval : false,
   });
   const latestDailyPriceAt = (interval === '1m' ? dailyTimeline.data : timeline.data)?.prices.at(
     -1,
   )?.time;
   useEffect(() => {
     if (id && latestDailyPriceAt)
-      void queryClient.invalidateQueries({ queryKey: ['company-information', id] });
+      void queryClient.invalidateQueries({ queryKey: companyInformationQuery(id).queryKey });
   }, [id, latestDailyPriceAt, queryClient]);
-  const livePrice = useQuery({
-    queryKey: ['company-live-price', id],
-    queryFn: ({ signal }) => api.companyLivePrice(id, signal),
-    enabled: Boolean(id),
-    refetchInterval: marketRefreshInterval,
-    refetchIntervalInBackground: false,
-    retry: false,
-  });
+  const livePrice = useQuery(companyLivePriceQuery(id));
 
   if (company.isPending)
     return (

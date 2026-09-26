@@ -1,4 +1,10 @@
 export const smaPeriods = [5, 20, 60, 120] as const;
+export const smaColors: Record<number, string> = {
+  5: '#c57c23',
+  20: '#6289e9',
+  60: '#b477ce',
+  120: '#429986',
+};
 export const rsiPeriods = [7, 14, 21] as const;
 export const indicatorStorageKey = 'orsem-chart-indicators-v1';
 export interface ChartSettings {
