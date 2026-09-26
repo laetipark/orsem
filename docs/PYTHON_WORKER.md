@@ -1,6 +1,6 @@
 # Python 워커
 
-Python 3.12 워커의 설치·검증·운영 명령입니다. 현재 전환 상태와 날짜별 기록은 [배포 문서](DEPLOYMENT.md#python-워커-전환-상태)를 기준으로 확인합니다.
+Python 3.12 워커의 설치·검증·운영 명령입니다. 2026-09-11 전환 과정과 날짜별 결과는 [배포 이력](DEPLOYMENT_HISTORY.md#python-워커-전환-상태)에서 확인합니다.
 
 ## 실행 환경
 
@@ -13,6 +13,14 @@ python3.12 -m venv .venv
 .venv/bin/python -m pip install -r apps/worker/python/requirements-dev.lock
 export ORSEM_WORKER_PYTHON="$PWD/.venv/bin/python"
 python3 scripts/worker.py start
+```
+
+이 호스트의 시스템 Python 3.12처럼 `ensurepip`가 없으면 첫 명령이 실패합니다. 그 경우 pip를 지원하는 Python 3.12 환경을 사용하거나, 검증된 pip 설치용 Python을 별도로 준비한 뒤 다음 방식으로 개발 환경에 의존성을 설치합니다. `PIP_INSTALLER_PYTHON`에는 실제로 `pip --python`을 지원하는 실행 파일의 절대 경로를 지정합니다.
+
+```bash
+python3.12 -m venv --without-pip .venv
+export PIP_INSTALLER_PYTHON=/absolute/path/to/python-with-pip
+"$PIP_INSTALLER_PYTHON" -m pip --python .venv/bin/python install -r apps/worker/python/requirements-dev.lock
 ```
 
 `scripts/worker.py`는 `ORSEM_WORKER_PYTHON`이 지정되면 해당 실행 파일을 사용합니다. 생략하면 루트 `.venv/bin/python`, `apps/worker/python/.venv/bin/python`, 호출한 Python 순서로 선택합니다. 이 실행기는 항상 저장소의 Python 소스를 불러오므로 개발·격리 후보 검증에 사용합니다. 실행 파일을 운영 Python으로 지정해도 설치된 wheel로 전환되지는 않습니다. Python 버전과 의존성을 갖춘 환경을 선택해야 하며 이 실행기가 패키지를 자동 설치하지는 않습니다.
@@ -109,4 +117,4 @@ export ORSEM_REPO_ROOT="$PWD"
 
 검증한 전환·복구 스크립트와 사용 절차는 `../orsem-data/backups/python-worker-20260910/operations`에 보존합니다. 복구에는 해당 시도의 journal과 큐 snapshot을 사용합니다. 최초 시도의 기록을 재전환 기록 대신 사용하지 않으며, 복구 후에도 원래 정지돼 있던 큐는 정지 상태를 유지합니다.
 
-TypeScript 복구 환경은 `../orsem-data/backups/python-worker-20260910/rollback`입니다. 뉴스 메타데이터 전용 동작과 새 종목별 알림 설정을 지원하며 worker만 되돌리는 경로가 있습니다. 과거 본문 수집기를 다시 활성화하거나 DB 전체를 복원하지 않습니다. 기존 소스·중복 스크립트 정리 여부와 관측 완료 여부는 [현재 배포 상태](DEPLOYMENT.md#python-워커-전환-상태)를 기준으로 판단하며 외부 복구 환경과 데이터는 유지합니다.
+2026-09-11 전환 당시의 TypeScript 복구 환경은 `../orsem-data/backups/python-worker-20260910/rollback`입니다. 뉴스 메타데이터 전용 동작과 새 종목별 알림 설정을 지원하며 worker만 되돌리는 경로가 있습니다. 과거 본문 수집기를 다시 활성화하거나 DB 전체를 복원하지 않습니다. 기존 소스·중복 스크립트 정리 여부와 관측 완료 여부는 [전환 기록](DEPLOYMENT_HISTORY.md#python-워커-전환-상태)을 기준으로 판단하며 외부 복구 환경과 데이터는 유지합니다.

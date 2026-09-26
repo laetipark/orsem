@@ -1,6 +1,8 @@
 # 문서 안내
 
-현행 가이드는 실행 방법과 데이터 계약을 설명합니다. 운영 적용 여부·관측 결과·복구 명세는 [배포 문서](DEPLOYMENT.md)를 기준으로 확인합니다. 날짜별 기록의 경로·수치·상태는 당시 사실이며 현재 실행 명령으로 사용하지 않습니다.
+현행 가이드는 실행 방법과 데이터 계약을 설명합니다. [배포 문서](DEPLOYMENT.md)는 적용 절차를, 아래 날짜별 기록은 당시의 적용 결과·관측·복구 근거를 담습니다. 날짜별 기록의 경로·수치·상태를 현재 실행 명령이나 현재 운영 상태로 해석하지 않습니다.
+
+처음 읽는다면 [프로젝트 README](../README.md) → [아키텍처](ARCHITECTURE.md) → 필요한 분야별 가이드 순서로 시작합니다. 변경 전에는 [기여 규칙](../AGENTS.md)과 [테스트 전략](TESTING.md)을 확인합니다.
 
 ## 문서 작성과 경로 기준
 
@@ -19,28 +21,29 @@
 | 문서                                                                                | 내용                                              |
 | ----------------------------------------------------------------------------------- | ------------------------------------------------- |
 | [프로젝트 README](../README.md)                                                     | 로컬 시작과 작업 공간 구성                        |
-| [Python 워커](PYTHON_WORKER.md)                                                     | 개발 소스와 운영 wheel 실행, CLI, 검증, 복구 경로 |
+| [Python 워커](PYTHON_WORKER.md) · [워커 README](../apps/worker/README.md)           | 개발 소스와 운영 wheel 실행, CLI, 검증, 복구 경로 |
 | [아키텍처](ARCHITECTURE.md) · [데이터 구조](DATA_MODEL.md) · [API](API.md)          | 서비스 책임과 저장·조회 계약                      |
-| [운영](OPERATIONS.md) · [배포](DEPLOYMENT.md) · [테스트](TESTING.md)                | 장애 점검, 적용 명세, 격리 검증                   |
+| [운영](OPERATIONS.md) · [배포](DEPLOYMENT.md) · [테스트](TESTING.md)                | 장애 점검, 적용 절차, 격리 검증                   |
 | [자격 증명](CREDENTIALS.md) · [보안](SECURITY.md) · [카카오 로그인](KAKAO_LOGIN.md) | 외부 비밀 파일, 인증과 접근 제어                  |
 
 ## 수집·파싱·이용 권리
 
-| 문서                                                                                                            | 내용                                |
-| --------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
-| [소스 안내](SOURCES.md) · [이용 권리](RIGHTS.md)                                                                | 수집 범위와 소스별 허용 조건        |
-| [파싱 무결성](PARSER_INTEGRITY.md)                                                                              | D001–D005 분류·검토·재검증·감사 CLI |
-| [SEC 수집](SEC_COLLECTION.md) · [누락 복구](SEC_GAP_RECOVERY.md) · [ownership](SEC_OWNERSHIP.md)                | CIK·공시 접수·Form 3/4/5·접근 제한  |
-| [뉴스 수집](NEWS_COLLECTION.md) · [공급자 비교](NEWS_PROVIDER_COMPARISON.md) · [뉴스 번역](NEWS_TRANSLATION.md) | 메타데이터·예산·권리·한국어 표시    |
+| 문서                                                                                             | 내용                                |
+| ------------------------------------------------------------------------------------------------ | ----------------------------------- |
+| [소스 안내](SOURCES.md) · [이용 권리](RIGHTS.md)                                                 | 수집 범위와 소스별 허용 조건        |
+| [파싱 무결성](PARSER_INTEGRITY.md)                                                               | D001–D005 분류·검토·재검증·감사 CLI |
+| [SEC 수집](SEC_COLLECTION.md) · [누락 복구](SEC_GAP_RECOVERY.md) · [ownership](SEC_OWNERSHIP.md) | CIK·공시 접수·Form 3/4/5·접근 제한  |
+| [뉴스 수집](NEWS_COLLECTION.md) · [뉴스 번역](NEWS_TRANSLATION.md)                               | 메타데이터·예산·권리·한국어 표시    |
 
 ## 화면·시장·알림
 
-| 문서                                                                           | 내용                       |
-| ------------------------------------------------------------------------------ | -------------------------- |
-| [웹 안내](../apps/web/README.md) · [종목 화면](COMPANY_SCREEN.md)              | 탐색·차트·종목별 화면      |
-| [관심 그룹](WATCHLIST_GROUPS.md) · [Web Push](WEB_PUSH.md)                     | 개인·공유 목록과 알림 설정 |
-| [월간 시총 목록](MONTHLY_MARKET_LEADERS.md) · [국내 ETF](KOREAN_ETF_MASTER.md) | 선정·식별 정보·수동 검증   |
-| [시장 지표](MARKET_INDICATORS.md) · [종목 로고](STOCK_LOGOS.md)                | 출처·갱신·표시 정책        |
+| 문서                                                                                                           | 내용                       |
+| -------------------------------------------------------------------------------------------------------------- | -------------------------- |
+| [웹 안내](../apps/web/README.md) · [종목 화면](COMPANY_SCREEN.md)                                              | 탐색·차트·종목별 화면      |
+| [관심 그룹](WATCHLIST_GROUPS.md) · [Web Push](WEB_PUSH.md)                                                     | 개인·공유 목록과 알림 설정 |
+| [월간 시총 목록](MONTHLY_MARKET_LEADERS.md) · [국내 ETF](KOREAN_ETF_MASTER.md)                                 | 선정·식별 정보·수동 검증   |
+| [시장 지표](MARKET_INDICATORS.md) · [종목 로고](STOCK_LOGOS.md)                                                | 출처·갱신·표시 정책        |
+| [Discord 봇](../apps/discord-bot/README.md) · [MessengerBotR 브리지](../integrations/messengerbot-r/README.md) | 조회 명령·알림·기기 연결   |
 
 ## 날짜별 기록
 
@@ -48,8 +51,12 @@
 
 - 2026-09-05: [배포](DEPLOYMENT-2026-09-05.md), [번역 편집](TRANSLATION-EDITOR-2026-09-05.md). SEC 수집의 초기 결과는 [SEC 수집 문서의 과거 기록](SEC_COLLECTION.md#과거-실행-기록--2026-09-05-0006-kst)에 있습니다.
 - 2026-09-06: [뉴스 배포](DEPLOYMENT-2026-09-06-WATCHLIST-NEWS.md), [관심방 배포](DEPLOYMENT-2026-09-06-WATCHLIST-ROOMS.md), [커넥터 설정 계획](CONNECTOR-SETUP-PLAN-2026-09-06.md), [커넥터 검증](CONNECTOR-VERIFICATION-2026-09-06.md), [SEC·뉴스 변경 전 분석](SEC_NEWS_IMPLEMENTATION_ANALYSIS.md), [구현 결과](SEC_NEWS_IMPLEMENTATION_RESULT_2026-09-06.md).
+- 2026-09-07: [배포 이력](DEPLOYMENT_HISTORY.md#2026-09-07-kst-배포-완료-기록), [뉴스 공급자 조사·채택 판단](NEWS_PROVIDER_COMPARISON.md). 당시 NAVER 메모리 전용 경로 등 이후 변경된 내용은 [현행 뉴스 수집](NEWS_COLLECTION.md)과 [이용 권리](RIGHTS.md)를 우선합니다.
 - 2026-09-09: [SEC 접근 재설정](SEC_ACCESS_RECONFIGURATION_2026-09-09.md), [SEC 복구 감사](SEC_RECOVERY_AUDIT_2026-09-09.md).
-- 2026-09-10: [SEC Python 접근 검토](SEC_PYTHON_ACCESS_REVIEW_2026-09-10.md). Python 워커 전환의 진행·최종 결과는 [배포 문서](DEPLOYMENT.md#python-워커-전환-상태)에 기록합니다.
-- 2026-09-24: [국내·해외 뉴스 갱신 및 NEW 오인식 복구](NEWS_RECOVERY_2026-09-24.md).
+- 2026-09-10: [SEC Python 접근 검토](SEC_PYTHON_ACCESS_REVIEW_2026-09-10.md).
+- 2026-09-11: [Python 워커 전환과 화면·로고 후속 배포](DEPLOYMENT_HISTORY.md#python-워커-전환-상태).
+- 2026-09-24: [국내·해외 뉴스 갱신 및 NEW 오인식 복구](NEWS_RECOVERY_2026-09-24.md), [SEC User-Agent 점검](SEC_HEADER_REVIEW_2026-09-24.md).
+- 2026-09-25: [통합 뉴스·확정 공시·S&P500 배포](NEWS_UNIFIED_DEPLOYMENT_2026-09-25.md).
+- 2026-09-26: [사설 Ollama 연결 기록](DEPLOYMENT_HISTORY.md#2026-09-26-ollama-연결-기록).
 
 현행 문서 안에도 날짜가 붙은 감사 절이 있습니다. 예를 들어 [소스 안내](SOURCES.md)의 확장 전 repository audit와 [파싱 무결성](PARSER_INTEGRITY.md)의 2026-09-05 회귀 수치는 보존된 과거 기준입니다.

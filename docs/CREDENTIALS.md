@@ -29,7 +29,7 @@
 | EIA WTI 현물 가격           | `../.config/orsem/runtime.env`의 `EIA_API_KEY`                                                                                | worker. [키 등록](https://www.eia.gov/opendata/register.php) 후 이메일로 수신                                     |
 | 빗썸 시세·TradingView 위젯  | 키 불필요                                                                                                                     | 빗썸은 공개 현재가·일봉 API, 미국 지수는 TradingView의 FRED 일별 지수 위젯 사용                                   |
 | OpenDART                    | `../.config/orsem/runtime.env`의 `OPENDART_API_KEY`                                                                           | API·worker. `OPENDART_CREDENTIALS_FILE`은 지원하지 않음                                                           |
-| NAVER 뉴스 검색             | `../.config/orsem/runtime.env`의 `NAVER_API_PROVIDER`, `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET`                               | API·worker. `developers`(기본값) 또는 `ncloud`와 키 발급처를 일치시킴. 전용 JSON 로더 없음                        |
+| NAVER 뉴스 검색             | `../.config/orsem/runtime.env`의 `NAVER_API_PROVIDER`, `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET`                               | API. `developers`(기본값) 또는 `ncloud`와 키 발급처를 일치시킴. 전용 JSON 로더 없음                               |
 | Alpaca 기업 식별 정보       | `../.config/orsem/runtime.env`의 `ALPACA_API_KEY`, `ALPACA_API_SECRET`; 공개 설정 `ALPACA_TRADING_BASE_URL`                   | API·worker. 현재 자산 마스터용이며 가격 수집·주문 실행에 사용하지 않음. 전용 JSON 로더 없음                       |
 | SEC                         | `../.config/orsem/runtime.env` 또는 비밀이 없는 일반 설정의 `SEC_USER_AGENT="Orsem monitored-email@example.com"`              | API·worker. API 키가 아니라 앱 식별 정보와 실제 확인하는 연락처                                                   |
 | Discord                     | `../.config/orsem/runtime.env`의 `DISCORD_BOT_TOKEN`, `DISCORD_SERVICE_TOKEN`; ID·허용 목록은 아래 예시                       | 봇 토큰은 Discord 프로세스, 서비스 토큰은 API와 Discord에 같은 값. 두 토큰은 서로 다른 값. 전용 JSON 로더 없음    |
@@ -165,7 +165,7 @@ PM2의 환경 출력·진단 자료·저장된 프로세스 덤프에는 주입�
 - Web Push: VAPID 키는 외부 업체에서 발급하지 않고 `npm run push:setup`으로 생성합니다. 공개 키만 브라우저로 전달하며 비공개 키는 서버 밖으로 반환하지 않습니다. 재시작마다 재생성하지 않으며, 키를 교체하면 기존 브라우저에서 알림을 해제하고 다시 연결해야 합니다. JSON 파일 권한은 그룹 읽기를 포함해 `0600`만 허용합니다.
 - 카카오·토스: 새 JSON을 같은 비공개 디렉터리의 임시 파일에 작성하고 권한과 형식을 확인한 뒤 원자적으로 교체합니다. 카카오는 API, 토스는 API·worker를 재시작하고 기능 상태를 확인합니다. 이전 환경 값이 JSON보다 우선하지 않는지도 확인합니다.
 - 토스 OAuth: 액세스 토큰을 JSON에 손으로 보관하지 않습니다. worker가 REST·WebSocket용 토큰을 Redis에 공유합니다. 같은 자격 증명을 쓰는 별도 클라이언트를 조정 없이 실행하지 말고 기존 [토스 토큰 운영 정책](OPERATIONS.md#toss-securities-chart-setup)을 따릅니다. Redis 전체를 비워 토큰을 갱신하면 세션과 큐도 영향을 받으므로 사용하지 않습니다.
-- OpenDART·NAVER·Alpaca·AI: 외부 환경 값을 교체하고 API·worker에 다시 주입합니다. 키가 없으면 해당 선택 커넥터만 비활성화됩니다. DB·Redis·필수 인증 비밀의 누락은 운영 시작 실패 원인이므로 선택 커넥터와 구분합니다.
+- OpenDART·Alpaca·AI: 외부 환경 값을 교체하고 사용하는 API·worker에 다시 주입합니다. NAVER 뉴스 검색 키·공급자 선택 변경은 API에 다시 주입합니다. 키가 없으면 해당 선택 커넥터만 비활성화됩니다. DB·Redis·필수 인증 비밀의 누락은 운영 시작 실패 원인이므로 선택 커넥터와 구분합니다.
 - Discord: 공급자 봇 토큰 교체는 Discord 프로세스에 반영합니다. `DISCORD_SERVICE_TOKEN` 교체는 API와 봇을 함께 갱신합니다. 현재 단일 토큰만 검증하므로 양쪽 값이 다르면 내부 요청이 거절됩니다.
 - MessengerBotR: `Database/orsem-state.json`을 카카오 로그인 JSON에 합치지 않습니다. 분실·유출 시 서버에서 기기를 폐기하고 새 연결 코드로 다시 연결합니다. 앱의 비공개 저장소와 암호화된 백업만 사용합니다. [브리지 설정](../integrations/messengerbot-r/README.md)
 - `SESSION_SECRET`: 교체하면 기존 서명 쿠키가 유효하지 않아 사용자가 다시 로그인해야 합니다. 관리자·회원에게 미치는 영향을 고려해 API를 재시작합니다.

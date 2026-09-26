@@ -1,5 +1,7 @@
 # 국내·미국 뉴스 공급자 비교 — 2026-09-07
 
+이 문서는 2026-09-07 당시의 조사·승인 판단을 보존합니다. 이후 변경된 NAVER 저장·화면 동작과 활성 조건은 [뉴스 수집](NEWS_COLLECTION.md), [이용 권리](RIGHTS.md), [운영](OPERATIONS.md)을 기준으로 확인합니다. 아래 무료 한도와 외부 약관은 현재 값으로 검증한 결과가 아닙니다.
+
 이번 확장은 기존 SEC·DART·공식 RSS·NAVER·GDELT·Alpaca News를 유지하고, 등록 RSS와 Marketaux → Alpha Vantage → Finnhub 순으로 보완합니다. [기존 구현 audit](SOURCES.md#2026-09-07-확장-전-repository-audit)을 먼저 완료한 뒤 기존 worker와 저장 경로를 확장했습니다. **신규 소스 중 운영 GO로 승인한 항목은 없습니다.** `CONDITIONAL`은 어댑터 또는 프로필이 있지만 `enabled=false`, `rightsStatus=UNKNOWN`으로 자동 요청을 차단한다는 뜻입니다. 계약 승인·production 수집 활성화는 수행하지 않았습니다.
 
 2026-09-07 12:49 KST에 등록된 실제 키로 세 뉴스 endpoint를 각각 한 번 수동 점검했습니다. 모두 HTTP 200과 비어 있지 않은 뉴스 목록·필수 필드를 확인했고, 기존 요청 예산에 각 1회를 반영했습니다. 기사·응답 전문은 저장하지 않았습니다. 이 결과는 해당 시점의 API 접근 확인이며 무료 플랜·만료일·분당 한도·장기 metadata 저장·AI·재배포 권리 승인이 아닙니다. 운영 승인 상태는 계속 `CONDITIONAL`입니다.

@@ -40,10 +40,16 @@ test('local links resolve relative to their document and decode spaces', () => {
   const source =
     '[root](../README.md) [guide](My%20Guide.md#설치) [image](<../assets/Logo Wide.svg>)';
   assert.deepEqual(
-    checkMarkdown(source, file, root, (target) => {
-      checked.push(target);
-      return true;
-    }),
+    checkMarkdown(
+      source,
+      file,
+      root,
+      (target) => {
+        checked.push(target);
+        return true;
+      },
+      () => '# 설치',
+    ),
     [],
   );
   assert.deepEqual(checked, [
@@ -91,13 +97,49 @@ test('link examples inside code are ignored while normal links are checked', () 
   assert.match(issues[0], /^docs\/README.md:6:/);
 });
 
-test('anchors, remote links and application routes do not query the filesystem', () => {
+test('local anchors resolve without querying the filesystem', () => {
   const source =
-    '[section](#hello) [email](mailto:example@example.org) [api](/api/v1) [remote](//example.org/docs)';
+    '## Hello\n[section](#hello) [email](mailto:example@example.org) [api](/api/v1) [remote](//example.org/docs)';
   assert.deepEqual(
     checkMarkdown(source, file, root, () => assert.fail('Unexpected local lookup')),
     [],
   );
+});
+
+test('GitHub-style headings, duplicates and explicit HTML anchors resolve', () => {
+  const source = [
+    '## 사용법',
+    '## 사용법',
+    '<a id="legacy-target"></a>',
+    '<a data-id="not-an-anchor"></a>',
+    '[first](#사용법) [second](#%EC%82%AC%EC%9A%A9%EB%B2%95-1) [legacy](#legacy-target)',
+    '[missing](#사용법-2) [attribute](#not-an-anchor)',
+    '```md',
+    '# Hidden',
+    '```',
+    '[hidden](#hidden)',
+  ].join('\n');
+  const issues = checkMarkdown(source, file, root);
+  assert.equal(issues.length, 3);
+  assert.match(issues[0], /^docs\/README.md:6: Missing Markdown anchor: #사용법-2$/);
+  assert.match(issues[1], /^docs\/README.md:6: Missing Markdown anchor: #not-an-anchor$/);
+  assert.match(issues[2], /^docs\/README.md:10: Missing Markdown anchor: #hidden$/);
+});
+
+test('cross-document anchors decode fragments and validate only Markdown targets', () => {
+  const checked = [];
+  const read = (target) => {
+    checked.push(target);
+    return '## SEC ownership·메타데이터 뉴스 추가 정책\n<a name="legacy"></a>';
+  };
+  const source = [
+    '[heading](Other.md#sec-ownership메타데이터-뉴스-추가-정책)',
+    '[legacy](Other.md#legacy) [missing](Other.md#missing)',
+    '[asset](../assets/logo.svg#anything)',
+  ].join('\n');
+  const issues = checkMarkdown(source, file, root, () => true, read);
+  assert.deepEqual(checked, [`${root}/docs/Other.md`]);
+  assert.deepEqual(issues, ['docs/README.md:2: Missing Markdown anchor: Other.md#missing']);
 });
 
 test('malformed URL escapes and external filesystem links fail cleanly', () => {

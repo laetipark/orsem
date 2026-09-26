@@ -10,7 +10,7 @@ Python 3.12와 BullMQ로 실행하는 수집·파싱 워커입니다. OpenDART·
 python3 scripts/worker.py start
 ```
 
-개발 실행기는 저장소의 Python 소스를 사용하며, 운영 PM2는 저장소 밖 `../orsem-data/worker/current`에 설치한 wheel을 실행합니다. 설치·검사·운영 CLI·복구 명령은 [Python 워커 안내](../../docs/PYTHON_WORKER.md), 현재 운영 적용 상태는 [배포 문서](../../docs/DEPLOYMENT.md#python-워커-전환-상태)를 따릅니다.
+개발 실행기는 저장소의 Python 소스를 사용하며, 운영 PM2는 저장소 밖 `../orsem-data/worker/current`에 설치한 wheel을 실행합니다. 설치·검사·운영 CLI·복구 명령은 [Python 워커 안내](../../docs/PYTHON_WORKER.md), 2026-09-11 전환 결과는 [배포 이력](../../docs/DEPLOYMENT_HISTORY.md#python-워커-전환-상태)을 따릅니다.
 
 ## 유지할 데이터 계약
 

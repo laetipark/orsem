@@ -162,7 +162,7 @@ npm run typecheck
 
 실제 브라우저의 fixture 화면에서 `/logo-sources`를 280·320·375·420·768·1280px로 확인했다. 가로 넘침은 없었고 Logo.dev 본문 출처 링크를 유지하며 footer의 로고 출처 링크는 0개였다. 이 검증은 화면 배치와 출처 링크 확인이며 위의 실제 이미지 표본이나 기업·상품 매핑 검수 범위를 늘리지 않는다.
 
-통합 배포는 웹 78개와 API `news-content` 산출물 3개를 포함하며 기존 웹 자산을 보존했다. API만 기존 환경으로 재시작했고 Python worker·DB·큐는 변경하지 않았다. 로고 API·외부 이미지 다운로드 경로의 추가 변경은 없다. 백업, 최종 index 해시, 최초 시도의 자동 복구와 재배포 결과는 [화면·로고 후속 배포 기록](DEPLOYMENT.md#2026-09-11-화면로고-후속-정리-배포)을 따른다.
+통합 배포는 웹 78개와 API `news-content` 산출물 3개를 포함하며 기존 웹 자산을 보존했다. API만 기존 환경으로 재시작했고 Python worker·DB·큐는 변경하지 않았다. 로고 API·외부 이미지 다운로드 경로의 추가 변경은 없다. 백업, 최종 index 해시, 최초 시도의 자동 복구와 재배포 결과는 [화면·로고 후속 배포 기록](DEPLOYMENT_HISTORY.md#2026-09-11-화면로고-후속-정리-배포)을 따른다.
 
 앞선 집중 로더 검증 로그는 `../../../tmp/orsem-logo-loading-test.log`, `../../../tmp/orsem-logo-loading-types.log`다. 초기 전체 결과는 `../../../tmp/orsem-logo-web-final.log`, `../../../tmp/orsem-logo-api-final-permitted.log`에, 거래소 보완 결과는 `../../../tmp/orsem-logo-activation-*-test.log`, `../../../tmp/orsem-logo-activation-*-build.log`에 보관했다. 이 임시 로그의 초기 수치를 최신 통합 결과 대신 사용하지 않는다.
 

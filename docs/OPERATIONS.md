@@ -2,7 +2,7 @@
 
 ## Python 워커 실행과 점검
 
-Python 3.12 워커와 관리 CLI의 전환 상태는 [현재 배포 상태](DEPLOYMENT.md#python-워커-전환-상태)를 확인합니다. PM2는 `../orsem-data/worker/current/bin/python -m orsem_worker`를 직접 실행합니다. API·웹·Discord는 기존 TypeScript 프로세스를 유지합니다.
+Python 3.12 워커와 관리 CLI의 전환 기록은 [배포 이력](DEPLOYMENT_HISTORY.md#python-워커-전환-상태)을 확인합니다. PM2는 `../orsem-data/worker/current/bin/python -m orsem_worker`를 직접 실행합니다. API·웹·Discord는 TypeScript 프로세스를 유지합니다.
 
 개발·격리 후보의 설치와 검사 명령은 [Python 워커 안내](PYTHON_WORKER.md#실행-환경)를 따릅니다. 운영 관리 명령은 설치된 wheel을 직접 실행합니다. `scripts/worker.py`와 파서 스크립트는 저장소 소스를 불러오는 개발용 진입점이므로 운영 Python 경로만 지정해 배포본이라고 간주하지 않습니다.
 
@@ -27,7 +27,7 @@ export ORSEM_REPO_ROOT="$PWD"
 | Alpha Vantage        | 00:00, 12:00  | 실행당 10, 최근 24시간 20 | 미국 종목 순환, LOW_FREQUENCY_SUPPLEMENTAL; tickers AND 필터이므로 개별 심볼 |
 | Finnhub Company News | 매시          | 실행당 5, 최근 24시간 120 | 미국 종목 순환; 무료 권한·분당 한도 확인 필수                                |
 
-이 숫자는 Orsem의 보수적인 설정값이다. 공급자의 공표 한도와 동일시하지 않는다. 실제 무료 한도는 [최신 비교](NEWS_PROVIDER_COMPARISON.md)를 참고한다. 기존 BullMQ 수집 작업을 사용하며 신규 큐나 별도 cron 서비스는 없다. 관리자 소유 개인 그룹만 초기 API 범위에 포함하고 회원·관심방 수집 범위를 섞지 않는다.
+이 숫자는 Orsem의 보수적인 설정값이다. 공급자의 공표 한도와 동일시하지 않는다. [2026-09-07 공급자 조사](NEWS_PROVIDER_COMPARISON.md)는 당시 근거이며 실제 계정의 현재 무료 한도와 권리는 별도로 확인한다. 기존 BullMQ 수집 작업을 사용하며 신규 큐나 별도 cron 서비스는 없다. 관리자 소유 개인 그룹만 초기 API 범위에 포함하고 회원·관심방 수집 범위를 섞지 않는다.
 
 각 HTTP 시도 **전** 기존 `source_checkpoints`의 `NEWS_API_BUDGET` 행을 잠가 최근 24시간 예약·cooldown·분당 한도를 검사하고 `api_usage_counters`의 UTC 날짜 카운터를 증가시킨다. 실패·timeout도 호출을 소비한다. 재시작하거나 중복 작업이 들어와도 예산을 초기화하지 않는다. 응답과 관련 기업을 저장한 뒤에만 기존 복구 checkpoint를 commit한다. 무료 한도 때문에 완료하지 못한 page/window는 미완료로 남기고 다음 실행에서 복구한다. 공급자 변경 fallback은 없다.
 

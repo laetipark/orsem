@@ -2,33 +2,27 @@
 
 Orsem은 개인용 비상업 관측 시스템입니다. 공시와 뉴스를 감지하며, 주문을 실행하거나 자동 매수·매도 추천을 생성하지 않습니다.
 
-이 문서는 Python 3.12 워커의 구조를 설명합니다. 현재 운영 전환 상태는 [배포 문서](DEPLOYMENT.md#python-워커-전환-상태)에 별도로 기록합니다.
+이 문서는 Python 3.12 워커의 구조를 설명합니다. 2026-09-11 운영 전환 과정과 검증은 [배포 이력](DEPLOYMENT_HISTORY.md#python-워커-전환-상태)에 기록합니다.
 
 ```text
-OpenDART / SEC / Samsung Global / Federal Reserve / BLS
-                          │
-                          ▼
-            Python worker 수집기 + 영속 체크포인트
-                          │
-                   MySQL job_outbox
-                          │
-                          ▼
-                  BullMQ 후처리 큐
-                          │
-        원본 ZIP ──► 한도가 적용된 파서 ──► 형식화된 사실
-                          │
-                규칙 + 선택적 로컬 AI 검토
-                          │
-                          ▼
-        이벤트 묶음 / 검토 작업 / alert_outbox
-                          │
-          ┌───────────────┼────────────────┐
-          ▼               ▼                ▼
-      NestJS API       Discord 봇     MessengerBotR
-          │
-          ▼
-      React 대시보드
+BullMQ 정기 작업 → Python worker + 소스별 영속 체크포인트
+                        ├─ OpenDART → filings → MySQL job_outbox
+                        │                         ↓
+                        │                  BullMQ ENRICH_FILING
+                        │                         ↓
+                        │                  원본 ZIP/XML 파서 → 분류·검토·이벤트
+                        ├─ SEC → 접수·Form 3/4/5 소유변동
+                        └─ 승인된 RSS/API → 뉴스 메타데이터
+
+NestJS API의 NAVER 검색 → 승인된 뉴스 메타데이터 저장
+                                      ↓
+                 MySQL 사실·권리·시각 / alert_outbox
+                        ├─ NestJS API → React 대시보드
+                        ├─ Discord 봇
+                        └─ MessengerBotR
 ```
+
+`job_outbox`의 공시 후처리와 ZIP/XML 파서는 OpenDART 경로입니다. SEC 공시·ownership과 뉴스는 각 소스의 처리 경로를 사용하며 공시용 ZIP 파서를 거치지 않습니다.
 
 NAVER 뉴스는 정기 대상 순환 또는 종목 뉴스 열람 시 자동 조회합니다. 검색 메타데이터는 기존 `source_items`·`news_items`·`news_articles`·`news_source_companies`에 저장하고 회사 뉴스와 같은 커서로 최신순 조회합니다. 원응답·원문/네이버 링크·발행 문자열·UTC 발행/최초 관측을 보존하며 기사 전문·AI·번역·자동 알림 수집은 하지 않습니다. 저장 뉴스는 현재 등록 정책과 행별 audience 권한을 함께 검사합니다.
 

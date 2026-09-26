@@ -72,7 +72,7 @@ Marketaux·Alpha Vantage·Finnhub는 기존 `MARKET_NEWS` 큐의 `DISCOVER_LINKS
 | ALPHAVANTAGE | 00:00·12:00                      | 10요청      | 20요청                 | 미국 ticker 하나씩; LOW_FREQUENCY_SUPPLEMENTAL                       |
 | FINNHUB      | 매시간 정각                      | 5요청       | 120요청                | 미국 ticker 하나씩; Company News만 사용                              |
 
-예산은 provider의 무료 한도와 별개인 Orsem의 보수적인 상한입니다. `.env.example`에서 낮출 수 있지만 위 기본값을 넘길 수 없습니다. Finnhub는 승인 registry에 실제 계정의 분당 제한을 기록하지 않으면 동작하지 않습니다. 무료 한도·권리는 [공급자 비교](NEWS_PROVIDER_COMPARISON.md)를 따릅니다.
+예산은 provider의 무료 한도와 별개인 Orsem의 보수적인 상한입니다. `.env.example`에서 낮출 수 있지만 위 기본값을 넘길 수 없습니다. Finnhub는 승인 registry에 실제 계정의 분당 제한을 기록하지 않으면 동작하지 않습니다. [2026-09-07 공급자 비교](NEWS_PROVIDER_COMPARISON.md)는 조사 근거이며 활성화 전 실제 계정의 현재 한도·권리를 다시 확인합니다.
 
 모든 신규 env 플래그는 false입니다. 키와 enabled만으로 호출할 수 없습니다. contracts의 현재 provider 정책, 계정 News entitlement, 무료 확인 만료일, 정확한 publisher의 metadata 보관·개인 표시 정책이 모두 있어야 합니다. `APPROVED_FREE_NEWS_ACCESS`는 현재 provider별 null이고 정책은 UNKNOWN입니다. 권리나 실제 응답을 확인하기 전 운영 활성화를 하지 않습니다.
 

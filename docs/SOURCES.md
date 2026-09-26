@@ -38,7 +38,7 @@ NAVER는 공식 기사와 함께 원문 링크로 표시하며, 정기·종목�
 - `ncloud`: **NAVER Cloud 콘솔 → NAVER API HUB → Application → 해당 Application → 인증 정보**의 Client ID·Client Secret을 사용합니다. Application에 **NAVER 검색 → 뉴스**가 선택되어 있어야 합니다. 클라우드 계정의 일반 Access Key·Secret Key와 구분합니다.
 - `developers`: **Application → 내 애플리케이션 → 해당 앱 → 개요**에서 키를 확인하고 **API 설정 → 검색** 사용 여부를 확인합니다. 검색 권한이 없으면 `HTTP 403`도 발생할 수 있습니다. [공식 앱 설정 절차](https://developers.naver.com/docs/serviceapi/search/blog/blog.md), [공통 오류 안내](https://developers.naver.com/docs/common/openapiguide/errorcode.md)
 
-공급자 선택이나 키를 변경한 뒤에는 API·worker에 환경을 다시 주입하고 실제 뉴스 요청 성공을 확인합니다. [Orsem 운영 절차](OPERATIONS.md#naver-news-authentication)를 참고하세요.
+공급자 선택이나 키를 변경한 뒤에는 API에 환경을 다시 주입하고 실제 뉴스 요청 성공을 확인합니다. [Orsem 운영 절차](OPERATIONS.md#naver-news-authentication)를 참고하세요.
 
 ## 기업 아이콘 출처
 
@@ -65,7 +65,7 @@ Logo.dev의 무료 상업용 [출처 표시 조건](https://www.logo.dev/docs/pl
 
 이 절은 위의 기존 최근 건수·GDELT 일반 활성화 안내보다 우선한다. SEC 공식 API는 계속 1차 원본이며 최근 20건 선택은 정기 복구 경로에서 제거했다. [SEC 복구](SEC_GAP_RECOVERY.md)와 [Form 3/4/5](SEC_OWNERSHIP.md)를 따른다. 민간 SEC-API.io는 문서상 대안으로만 남긴다.
 
-GDELT는 정확한 publisher 정책 승인 전 비활성이다. 단순 무료 데이터 검색 가능 여부로 본문·재배포·AI 권리를 승인하지 않는다. 시간 구간 복구와 incomplete 표시는 기존 GDELT recovery 경로를 유지한다. Alpaca News 어댑터의 비활성 경계도 유지한다. 2026-09-07 추가 후보와 현재 판단은 [국내·미국 뉴스 공급자 비교](NEWS_PROVIDER_COMPARISON.md)를 따른다.
+GDELT는 정확한 publisher 정책 승인 전 비활성이다. 단순 무료 데이터 검색 가능 여부로 본문·재배포·AI 권리를 승인하지 않는다. 시간 구간 복구와 incomplete 표시는 기존 GDELT recovery 경로를 유지한다. Alpaca News 어댑터의 비활성 경계도 유지한다. 2026-09-07 추가 후보의 당시 판단은 [국내·미국 뉴스 공급자 비교](NEWS_PROVIDER_COMPARISON.md)에 보존한다. 현재 승인 조건은 [이용 권리](RIGHTS.md)와 코드의 정책 레지스트리를 확인한다.
 
 ## 2026-09-07 확장 전 repository audit
 
