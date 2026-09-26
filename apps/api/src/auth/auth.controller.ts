@@ -14,6 +14,7 @@ import { ensureCsrfToken, Public, RateLimit } from '../security/security';
 import { AuthService } from './auth.service';
 import { MemberService } from './member.service';
 import { regenerateSession } from './session';
+import { authenticatedSessionIsValid } from './session-lifetime';
 
 @Controller('auth')
 export class AuthController {
@@ -25,13 +26,9 @@ export class AuthController {
   @Get('session')
   @Public()
   async session(@Req() request: Request) {
-    const startedAt = Date.parse(request.session.sessionStartedAt ?? '');
     if (
       (request.session.adminId || request.session.memberId) &&
-      (!Number.isFinite(startedAt) ||
-        startedAt > Date.now() + 60_000 ||
-        Date.now() - startedAt > 7 * 24 * 60 * 60 * 1000 ||
-        (request.session.adminId && request.session.memberId))
+      !authenticatedSessionIsValid(request.session)
     )
       await regenerateSession(request);
     const admin = request.session.adminId

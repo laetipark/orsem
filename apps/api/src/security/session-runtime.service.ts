@@ -1,10 +1,17 @@
-import { Inject, Injectable, Logger, OnApplicationShutdown } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  OnApplicationShutdown,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import session, { type Store } from 'express-session';
 import { RedisStore } from 'connect-redis';
 import { createClient } from 'redis';
 import { createHash } from 'node:crypto';
 import { APP_CONFIG, type AppConfig } from '../config/app-config';
 import type { CompanyLogoProvider } from '@orsem/contracts';
+import { applySessionCookieLifetime, SHORT_SESSION_IDLE_MS } from '../auth/session-lifetime';
 
 // Shared by all API processes and users. Reserve before the browser sends one image request.
 // 33 UTC-day buckets conservatively cover every rolling 32-day period and hence any
@@ -36,33 +43,57 @@ export class SessionRuntimeService implements OnApplicationShutdown {
         : 'REDIS_URL is not configured';
       return undefined;
     }
+    let connectedOnce = false;
     const client = createClient({
       url: this.config.redisUrl,
-      socket: { connectTimeout: 1500, reconnectStrategy: false },
+      disableOfflineQueue: true,
+      socket: {
+        connectTimeout: 1500,
+        // Startup must fail promptly; a store that was ready can recover without an API restart.
+        reconnectStrategy: (retries) =>
+          connectedOnce ? Math.min(250 * 2 ** Math.min(retries, 5), 5000) : false,
+      },
     });
-    client.on('error', (error) => {
+    client.on('ready', () => {
+      connectedOnce = true;
+      this.redisReady = true;
+      this.detail = null;
+    });
+    const unavailable = () => {
       this.redisReady = false;
-      this.detail = error.message;
-    });
+      this.detail = 'Redis connection unavailable.';
+    };
+    client.on('error', unavailable);
+    client.on('reconnecting', unavailable);
+    client.on('end', unavailable);
+    let startupDeadline: ReturnType<typeof setTimeout> | undefined;
     try {
-      await client.connect();
+      await Promise.race([
+        client.connect(),
+        new Promise<never>((_, reject) => {
+          startupDeadline = setTimeout(() => reject(new Error('Redis startup timed out.')), 2000);
+        }),
+      ]);
       this.client = client;
       this.redisReady = true;
       this.detail = null;
       return new RedisStore({ client, prefix: `${this.config.redisPrefix}session:` });
-    } catch (error) {
-      this.detail = error instanceof Error ? error.message : String(error);
+    } catch {
+      if (client.isOpen) client.destroy();
+      unavailable();
       if (this.config.nodeEnv === 'production') {
-        throw new Error(`Redis session store unavailable: ${this.detail}`);
+        throw new Error('Redis session store unavailable.');
       }
-      this.logger.error(`Redis session store unavailable; using process memory: ${this.detail}`);
+      this.logger.error('Redis session store unavailable; using process memory.');
       return undefined;
+    } finally {
+      clearTimeout(startupDeadline);
     }
   }
 
   middleware(store?: Store): ReturnType<typeof session> {
     const secret = this.config.sessionSecret ?? 'fixture-session-secret-that-is-not-for-production';
-    return session({
+    const loadSession = session({
       name: 'orsem.sid',
       secret,
       store,
@@ -73,9 +104,22 @@ export class SessionRuntimeService implements OnApplicationShutdown {
         httpOnly: true,
         secure: this.config.nodeEnv === 'production',
         sameSite: 'lax',
-        maxAge: 12 * 60 * 60 * 1000,
+        maxAge: SHORT_SESSION_IDLE_MS,
       },
     });
+    return (request, response, next) => {
+      loadSession(request, response, (error?: unknown) => {
+        // A failed store read is a temporary outage, never an anonymous session.
+        if (error)
+          return next(
+            new ServiceUnavailableException(
+              '로그인 상태를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.',
+            ),
+          );
+        if (request.session) applySessionCookieLifetime(request.session);
+        next();
+      });
+    };
   }
 
   get health(): { ready: boolean; message: string | null } {
@@ -137,14 +181,16 @@ export class SessionRuntimeService implements OnApplicationShutdown {
   ): Promise<boolean> {
     if (!this.client?.isReady) return false;
     try {
-      return (
-        (await this.client.set(
-          this.kakaoStateKey(sessionId, stateHash),
-          JSON.stringify({ nonce, createdAt }),
-          { EX: 300, NX: true },
-        )) === 'OK'
+      const result = await this.client.set(
+        this.kakaoStateKey(sessionId, stateHash),
+        JSON.stringify({ nonce, createdAt }),
+        { EX: 300, NX: true },
       );
-    } catch {
+      this.redisReady = true;
+      this.detail = null;
+      return result === 'OK';
+    } catch (error) {
+      this.recordRedisWriteFailure(error);
       return false;
     }
   }
@@ -152,8 +198,12 @@ export class SessionRuntimeService implements OnApplicationShutdown {
   async consumeKakaoState(sessionId: string, stateHash: string): Promise<string | null> {
     if (!this.client?.isReady) return null;
     try {
-      return await this.client.getDel(this.kakaoStateKey(sessionId, stateHash));
-    } catch {
+      const value = await this.client.getDel(this.kakaoStateKey(sessionId, stateHash));
+      this.redisReady = true;
+      this.detail = null;
+      return value;
+    } catch (error) {
+      this.recordRedisWriteFailure(error);
       return null;
     }
   }
@@ -170,15 +220,37 @@ export class SessionRuntimeService implements OnApplicationShutdown {
       const redisKey = `${this.config.redisPrefix}rate:${key}`;
       const count = await this.client.incr(redisKey);
       if (count === 1) await this.client.pExpire(redisKey, windowMs);
+      this.redisReady = true;
+      this.detail = null;
       return count;
     } catch (error) {
-      this.redisReady = false;
-      this.detail = error instanceof Error ? error.message : String(error);
+      this.recordRedisWriteFailure(error);
       return null;
     }
   }
 
+  private recordRedisWriteFailure(error: unknown): void {
+    this.redisReady = false;
+    const message = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+    // Readiness is public: Redis errors must never expose command arguments or auth state.
+    this.detail = /^MISCONF\b/u.test(message)
+      ? 'Redis persistence failed; writes are blocked.'
+      : 'Redis write failed.';
+  }
+
   async onApplicationShutdown(): Promise<void> {
-    if (this.client?.isOpen) await this.client.quit();
+    const client = this.client;
+    this.client = null;
+    this.redisReady = false;
+    if (!client?.isOpen) return;
+    if (!client.isReady) {
+      client.destroy();
+      return;
+    }
+    try {
+      await client.quit();
+    } catch {
+      if (client.isOpen) client.destroy();
+    }
   }
 }

@@ -26,7 +26,7 @@
 
 ## 서버 자격 증명
 
-저장소 밖의 파일을 API 실행 사용자 소유로 준비하고 권한을 `0600`으로 제한합니다. 권장 경로는 `/home/laeti/.config/orsem/credentials/kakao.json`입니다. 다른 서비스와 함께 관리하는 방법은 [서비스별 자격 증명 관리](CREDENTIALS.md)를 참고합니다. 기존 `/home/laeti/orsem-data/kakao-credentials.json` 경로도 사용할 수 있습니다. 아래 값은 모두 자리표시자입니다.
+저장소 밖의 파일을 API 실행 사용자 소유로 준비하고 권한을 `0600`으로 제한합니다. 권장 경로는 `../.config/orsem/credentials/kakao.json`입니다. 다른 서비스와 함께 관리하는 방법은 [서비스별 자격 증명 관리](CREDENTIALS.md)를 참고합니다. 기존 `../orsem-data/kakao-credentials.json` 경로도 사용할 수 있습니다. 아래 값은 모두 자리표시자입니다.
 
 ```json
 {
@@ -37,12 +37,18 @@
 ```
 
 ```bash
-install -d -m 0700 /home/laeti/.config/orsem/credentials
+install -d -m 0700 ../.config/orsem/credentials
 # 편집기로 위 JSON을 kakao.json에 저장한 뒤 실행합니다.
-chmod 0600 /home/laeti/.config/orsem/credentials/kakao.json
+chmod 0600 ../.config/orsem/credentials/kakao.json
 ```
 
-API 프로세스 환경에 `KAKAO_CREDENTIALS_FILE=/home/laeti/.config/orsem/credentials/kakao.json`을 지정합니다. 저장소 루트 `.env`에는 이 비밀이 아닌 경로만 넣을 수 있습니다. 파일의 `redirectUri`는 생략할 수 있으며, 생략하면 위의 고정 콜백을 사용합니다. 파일을 웹 정적 디렉터리에 두거나 내용을 명령행·로그·저장소에 남기지 않습니다.
+API 프로세스 환경에 파일 경로를 지정합니다. 프로젝트 루트의 셸에서는 다음과 같이 상대 경로를 해석합니다.
+
+```bash
+export KAKAO_CREDENTIALS_FILE="$(realpath ../.config/orsem/credentials/kakao.json)"
+```
+
+저장소 루트 `.env`에는 `realpath`로 구한 비밀이 아닌 경로만 넣을 수 있습니다. `.env`는 명령 치환을 실행하지 않습니다. 파일의 `redirectUri`는 생략할 수 있으며, 생략하면 위의 고정 콜백을 사용합니다. 파일을 웹 정적 디렉터리에 두거나 내용을 명령행·로그·저장소에 남기지 않습니다.
 
 | 환경 변수                | 의미                                                |
 | ------------------------ | --------------------------------------------------- |
@@ -93,8 +99,37 @@ API 프로세스 환경에 `KAKAO_CREDENTIALS_FILE=/home/laeti/.config/orsem/cre
 
 ## 로그인 실패와 로그아웃
 
+카카오 회원 로그인은 로그인 시점부터 최대 30일 유지됩니다. 관리자 로그인은 유휴 12시간·최대 7일 정책을 유지합니다. 기존에 유효한 회원 쿠키는 다음 접속에서 남은 30일 한도로 갱신되고, 이미 만료된 쿠키는 한 번 다시 로그인해야 합니다. 카카오 공급자의 토큰을 보관하거나 갱신하는 방식이 아니라 Orsem의 서버 세션과 HttpOnly 쿠키를 유지하는 방식입니다.
+
+일시적인 세션 확인 실패에는 사용 중인 화면과 재시도 안내를 유지합니다. 앱으로 돌아오면 세션을 다시 확인하며, 실제 로그아웃이나 권한 거절이 확인되면 보호된 화면을 차단합니다. API 재시작 시에는 동일한 세션 서명 키와 Redis 저장소를 유지해야 합니다. Redis 연결은 자동 복구하지만, 이미 유실되거나 만료된 로그인 정보를 복원하지는 않습니다.
+
+서버 재부팅 시 최근 로그인 손실을 줄이려면 Redis 영속 저장을 확인합니다. 2026-09-16 운영 서버에는 기존 RDB 스냅샷을 유지하면서 `appendonly yes`, `appendfsync everysec`를 적용하고 `CONFIG REWRITE` 성공과 AOF 저장 상태를 확인했습니다. 정상 종료 없이 전원이 끊기는 경우에도 최근 약 1초의 쓰기가 유실될 가능성은 남습니다. [Redis 영속 저장 문서](https://redis.io/docs/latest/operate/oss_and_stack/management/persistence/)
+
 버튼이 비활성화되면 키 파일의 존재·읽기 권한·JSON 형식, API 환경 변수 우선순위, 테스트 데이터 모드, 고정 콜백 일치를 확인합니다. 설정이 활성인데 인증 완료가 실패하면 카카오 로그인/OIDC ON, 동일 REST API 키의 시크릿과 등록 콜백, Redis·DB 상태, 서버 시각을 점검합니다. `KOE004`는 로그인 OFF, `KOE006`은 등록 콜백 불일치의 대표적인 원인입니다. 콜백의 코드·토큰·원본 응답을 공유하거나 로그에 남기지 않습니다.
 
 로그인 `state`는 브라우저 세션에 연결되며 5분 동안 한 번만 소비할 수 있습니다. 중단되거나 만료된 로그인은 버튼에서 새로 시작합니다. 인증 실패는 고정된 `/login?kakao=error`로 돌아옵니다.
+
+### 카카오 화면으로 이동하기 전에 실패하는 경우
+
+`enabled=true`는 자격 증명과 콜백 주소가 구성됐다는 뜻입니다. Redis 쓰기 가능 여부나 카카오 계정 인증 완료를 보장하지 않습니다. `/auth/kakao/start`에서 곧바로 `/login?kakao=error`로 돌아오면 로그인 요청을 저장할 Redis부터 확인합니다. 화면의 "처음 가입하면 관리자 승인 후 이용할 수 있습니다"는 일반 가입 안내이며, 이 오류가 관리자 승인 거절을 의미하지는 않습니다.
+
+운영 진단은 다음 순서로 수행합니다.
+
+1. `npm run doctor`에서 데이터 디렉터리의 가용 공간과 Redis persistence 상태를 확인합니다. TCP 연결이나 `PING` 성공만으로 쓰기 가능 상태라고 판단하지 않습니다.
+2. 공간 부족이면 다시 생성할 수 있는 캐시부터 검토합니다. 원문, DB 파일, Redis 스냅샷, 백업은 임의로 삭제하지 않습니다. 캐시 정리 후에도 여유가 적다면 디스크 증설이나 보존 정책에 따른 추가 정리가 필요합니다.
+3. 공간을 확보한 뒤 Redis의 다음 자동 저장 또는 관리 연결에서 `BGSAVE` 성공을 확인합니다. `rdb_last_bgsave_status:ok`와 정상 로그인 시작 요청을 함께 확인합니다. `stop-writes-on-bgsave-error` 보호 설정은 유지합니다. [Redis persistence 공식 문서](https://redis.io/docs/latest/operate/oss_and_stack/management/persistence/)
+4. API의 `/api/v1/health/ready`와 로그인 버튼을 다시 확인합니다. 세션 서비스는 후속 Redis 쓰기가 성공하면 이전 장애 상태를 해제합니다. 기존 인증 시도는 만료될 수 있으므로 로그인 버튼에서 새로 시작합니다.
+
+### 2026-09-12 복구 기록
+
+2026-09-12 운영 장애에서는 디스크 가용 공간이 0이 되어 Redis RDB 저장이 실패했습니다. Redis 로그에 `No space left on device`, persistence 상태에 `rdb_last_bgsave_status:err`가 남았고 `MISCONF`로 쓰기가 차단되어 카카오 로그인 `state`를 저장할 수 없었습니다. npm 다운로드 캐시만 정리해 공간을 확보한 뒤 RDB 저장, 로그인 시작 리다이렉트, 보안 쿠키 발급, 일회용 state 저장·소모를 확인했습니다. 실제 카카오 계정 인증과 관리자 승인은 별도 브라우저 확인 항목입니다.
+
+2026-09-12 17:41 KST에 세션 복구 수정을 운영 API에 반영하고 `/api/v1/health/ready`의 HTTP 200과 카카오 인증 URL로의 HTTP 302, 로그인 쿠키 발급을 확인했습니다. 격리 환경에서 인증·권한·세션 테스트 75개와 API 빌드를 통과했고, 운영 진단 스크립트 테스트 25개도 통과했습니다. 변경한 API 산출물 3개는 `../orsem-data/backups/kakao-session-recovery-20260912T084100Z`에 이전 파일과 해시 명세를 보관했습니다. 이 시점의 데이터 디스크 여유 공간은 1% 미만으로 기록됐고, 이후 추가 정리를 수행했습니다.
+
+같은 날 17:44 KST 후속 확인에서는 운영 Chrome에서 카카오 로그인 버튼을 눌러 `/login?kakao=success`로 복귀한 뒤 회원 대시보드 진입까지 확인했습니다. 기존 회원의 승인 상태는 변경하지 않았습니다. 관련 API 73개, 웹 20개, 진단 스크립트 14개 테스트가 통과했습니다. 후속 디스크 정리에서는 사용하지 않는 Puppeteer 구버전, IntelliJ 인덱스·캐시와 이전 임시 빌드 의존성 약 3.04 GiB를 제거했습니다. 당시 Nginx 설정에서 참조하지 않는 과거 로그 6개는 전체 내용을 압축하고 복원한 내용의 SHA256이 원본과 일치함을 검증한 뒤 원래 파일을 비워 약 5.79 GiB를 추가 확보했습니다. 압축본과 정리 내역은 저장소 밖 `../.local/state/disk-cleanup/20260912`에 보관합니다. 정리 후 가용 공간은 약 11.5 GiB(2.5%)이며, 이 시점에는 관리자 권한이 필요한 MySQL·Docker 저장소의 추가 용량 확인이 남아 있었습니다. DB·원문·백업·자격 증명·사용 중인 실행 환경은 보존했습니다.
+
+위 수치는 각 점검 시점의 기록입니다. 현재 가용 공간과 Redis 상태는 운영 진단으로 다시 확인합니다.
+
+### 로그아웃 범위
 
 Orsem의 `POST /api/v1/auth/logout`은 **Orsem 서비스 세션만 종료**합니다. 브라우저의 카카오계정 로그인, 카카오와 앱의 연결, 카카오 토큰의 폐기를 수행하지 않습니다. 따라서 다음 카카오 로그인에서 계정 입력이 생략될 수 있습니다. 카카오계정 로그아웃과 연결 해제는 별도 기능이며 현재 제공하지 않습니다. 구분은 [카카오 로그인 REST API](https://developers.kakao.com/docs/ko/kakaologin/rest-api)를 참고합니다.

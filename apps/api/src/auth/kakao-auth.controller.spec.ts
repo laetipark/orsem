@@ -161,6 +161,8 @@ test('Kakao config is public and reveals only availability and the local start r
 });
 
 test('Kakao HTTP callback persists a rotated member session without granting administrator access', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+  const signedInAt = Date.now();
   const h = await harness(t);
   const start = await h.request('/auth/kakao/start');
   assert.equal(start.status, 302);
@@ -183,6 +185,9 @@ test('Kakao HTTP callback persists a rotated member session without granting adm
   assert.equal(callback.headers.get('location'), 'https://orsem.example/login?kakao=success');
   noStore(callback);
   const after = cookie(callback);
+  const expires = /; Expires=([^;]+)/u.exec(callback.headers.get('set-cookie')!)?.[1];
+  assert.ok(expires);
+  assert.ok(Math.abs(Date.parse(expires) - signedInAt - 30 * 86400_000) < 1000);
   assert.notEqual(after, before);
   const session = await h.request('/auth/session', after);
   const identity = sessionSchema.parse(await session.json());
@@ -199,6 +204,20 @@ test('Kakao HTTP callback persists a rotated member session without granting adm
   const replay = await h.request(callbackPath, after);
   assert.equal(replay.headers.get('location'), 'https://orsem.example/login?kakao=error');
   assert.deepEqual(h.counts(), { tokenCalls: 1, signIns: 1 });
+
+  // Closing the app overnight, or returning after the old seven-day limit,
+  // must not discard a valid member login. The cookie remains HTTP-only.
+  for (const elapsed of [13 * 3600_000, 8 * 86400_000, 29 * 86400_000]) {
+    t.mock.timers.setTime(signedInAt + elapsed);
+    const revisit = await h.request('/auth/session', after);
+    assert.equal(sessionSchema.parse(await revisit.json()).authenticated, true);
+    const revisitExpiry = /; Expires=([^;]+)/u.exec(revisit.headers.get('set-cookie')!)?.[1];
+    assert.ok(revisitExpiry);
+    assert.ok(Math.abs(Date.parse(revisitExpiry) - signedInAt - 30 * 86400_000) < 1000);
+  }
+  t.mock.timers.setTime(signedInAt + 31 * 86400_000);
+  const expired = await h.request('/auth/session', after);
+  assert.equal(sessionSchema.parse(await expired.json()).authenticated, false);
 });
 
 test('Kakao HTTP failures return to the fixed login page without exposing provider errors', async (t) => {

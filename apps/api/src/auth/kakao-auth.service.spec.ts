@@ -20,6 +20,7 @@ function request(id = 'original-session'): Request {
   const value = { sessionID: id } as Request;
   const replace = () => {
     value.session = {
+      cookie: { maxAge: 12 * 60 * 60 * 1000 },
       save: (callback: (error?: Error) => void) => callback(),
       regenerate: (callback: (error?: Error) => void) => {
         replace();

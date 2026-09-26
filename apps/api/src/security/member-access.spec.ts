@@ -206,7 +206,7 @@ for (const identity of [{ memberId: 'member-1' }, { adminId: 'admin-1' }]) {
   for (const sessionStartedAt of [
     undefined,
     'invalid-date',
-    new Date(Date.now() - 8 * 86_400_000).toISOString(),
+    new Date(Date.now() - ('memberId' in identity ? 31 : 8) * 86_400_000).toISOString(),
   ]) {
     test(`${Object.keys(identity)[0]} requires a valid, unexpired absolute session start (${sessionStartedAt ?? 'missing'})`, async () => {
       const subject = harness();
@@ -219,6 +219,21 @@ for (const identity of [{ memberId: 'member-1' }, { adminId: 'admin-1' }]) {
     });
   }
 }
+
+test('approved member access lasts beyond seven days without extending administrator access', async () => {
+  const subject = harness();
+  const sessionStartedAt = new Date(Date.now() - 8 * 86_400_000).toISOString();
+  assert.equal(
+    await subject.guard.canActivate(
+      httpContext({ memberId: 'member-1', sessionStartedAt }).context,
+    ),
+    true,
+  );
+  await assert.rejects(
+    () => subject.guard.canActivate(httpContext({ adminId: 'admin-1', sessionStartedAt }).context),
+    (error: unknown) => error instanceof HttpException && error.getStatus() === 401,
+  );
+});
 
 test('anonymous users cannot access an annotated member-read route', async () => {
   const subject = harness();

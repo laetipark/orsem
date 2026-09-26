@@ -12,7 +12,10 @@ vi.mock('./lib/watchlist-popout', async (importOriginal) => ({
   watchlistPictureInPictureOwner: vi.fn(() => null),
   postWatchlistPopoutMessage: vi.fn(),
 }));
-vi.mock('./lib/api', () => ({ api: { session: mocks.session } }));
+vi.mock('./lib/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./lib/api')>()),
+  api: { session: mocks.session },
+}));
 vi.mock('./components/app-shell', () => ({ AppShell: () => <div>기본 앱 내비게이션</div> }));
 vi.mock('./pages/login-page', () => ({ LoginPage: () => <div>로그인이 필요합니다</div> }));
 vi.mock('./pages/watchlist-popout-page', () => ({
@@ -106,4 +109,17 @@ it('notifies the verified PiP owner on authorization loss instead of trapping lo
       expect.any(URLSearchParams),
     ),
   );
+});
+
+it('keeps the standalone card mounted and does not notify its owner on a transient session failure', async () => {
+  const owner = {} as Window;
+  vi.mocked(popout.watchlistPictureInPictureOwner).mockReturnValue(owner);
+  const client = show();
+  const card = await screen.findByText('독립 관심 종목 · member');
+  mocks.session.mockRejectedValue(new TypeError('Failed to fetch'));
+  await act(async () => client.refetchQueries({ queryKey: ['session'], exact: true }));
+
+  expect(await screen.findByRole('button', { name: '연결 다시 확인' })).toBeInTheDocument();
+  expect(screen.getByText('독립 관심 종목 · member')).toBe(card);
+  expect(popout.postWatchlistPopoutMessage).not.toHaveBeenCalled();
 });

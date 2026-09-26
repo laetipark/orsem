@@ -1,11 +1,12 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { lazy, Suspense, useLayoutEffect, useRef } from 'react';
 import { Navigate, Outlet, Route, Routes } from 'react-router-dom';
-import { api } from './lib/api';
+import { api, ApiError } from './lib/api';
 import { postWatchlistPopoutMessage, watchlistPictureInPictureOwner } from './lib/watchlist-popout';
 import { RequireLoginRedirect } from './components/login-redirect';
 import { AppShell } from './components/app-shell';
-import { ErrorState, LoadingState } from './components/ui';
+import { Button, ErrorState, LoadingState } from './components/ui';
+import './app-session.css';
 
 const LoginPage = lazy(() =>
   import('./pages/login-page').then((module) => ({ default: module.LoginPage })),
@@ -87,7 +88,17 @@ function SessionApp() {
     retry: false,
     refetchInterval: 60_000,
     refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
   });
+  const sessionRejected = useRef(false);
+  const authorizationError =
+    session.isError &&
+    session.error instanceof ApiError &&
+    (session.error.statusCode === 401 || session.error.statusCode === 403);
+  useLayoutEffect(() => {
+    if (authorizationError) sessionRejected.current = true;
+    else if (session.isSuccess) sessionRejected.current = false;
+  }, [authorizationError, session.isSuccess]);
   const audience = session.data
     ? `${session.data.authenticated}:${session.data.canAccess}:${session.data.user?.role ?? ''}:${session.data.user?.id ?? ''}`
     : null;
@@ -117,10 +128,24 @@ function SessionApp() {
         <LoadingState label="보안 세션을 확인하는 중입니다." />
       </div>
     );
-  if (session.isError)
+  // A failed background check does not invalidate a previously confirmed session.
+  // Explicit authorization errors must still hide the authenticated application.
+  const transientSessionError =
+    session.isError &&
+    (!(session.error instanceof ApiError) ||
+      session.error.statusCode >= 500 ||
+      session.error.statusCode === 408 ||
+      session.error.statusCode === 429);
+  if (
+    !session.data ||
+    (session.isError && !(hasAccess && transientSessionError && !sessionRejected.current))
+  )
     return (
       <div className="fullscreen-state">
-        <ErrorState message={session.error.message} onRetry={() => void session.refetch()} />
+        <ErrorState
+          message={session.error?.message ?? '로그인 상태를 확인하지 못했습니다.'}
+          onRetry={() => void session.refetch()}
+        />
       </div>
     );
 
@@ -151,6 +176,19 @@ function SessionApp() {
         </div>
       }
     >
+      {transientSessionError ? (
+        <div role="status" aria-live="polite" className="session-connection-notice">
+          <span>연결이 원활하지 않아 로그인 상태를 다시 확인하고 있습니다.</span>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={session.isFetching}
+            onClick={() => void session.refetch()}
+          >
+            연결 다시 확인
+          </Button>
+        </div>
+      ) : null}
       <Routes>
         <Route path="/login" element={<LoginPage session={value} />} />
         <Route path="/admin/login" element={<AdminLoginPage session={value} />} />

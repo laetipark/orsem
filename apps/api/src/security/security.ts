@@ -16,6 +16,7 @@ import { APP_CONFIG, type AppConfig } from '../config/app-config';
 import { SessionRuntimeService } from './session-runtime.service';
 import { AuthService } from '../auth/auth.service';
 import { MemberService } from '../auth/member.service';
+import { authenticatedSessionIsValid } from '../auth/session-lifetime';
 
 const PUBLIC_ROUTE = 'orsem:public';
 const SKIP_CSRF = 'orsem:skip-csrf';
@@ -70,12 +71,7 @@ export class AdminSessionGuard implements CanActivate {
       request.session.destroy(() => undefined);
       throw new UnauthorizedException('계정 세션을 다시 시작해 주세요.');
     }
-    const startedAt = Date.parse(request.session.sessionStartedAt ?? '');
-    if (
-      !Number.isFinite(startedAt) ||
-      startedAt > Date.now() + 60_000 ||
-      Date.now() - startedAt > 7 * 24 * 60 * 60 * 1000
-    ) {
+    if (!authenticatedSessionIsValid(request.session)) {
       request.session.destroy(() => undefined);
       throw new UnauthorizedException('세션의 최대 사용 기간이 지났습니다. 다시 로그인하세요.');
     }

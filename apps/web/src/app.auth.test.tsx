@@ -1,10 +1,11 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { focusManager, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { App } from './app';
 import { ThemeProvider } from './theme';
 import type { Session } from './types';
+import { ApiError } from './lib/api';
 
 const mocks = vi.hoisted(() => ({
   session: vi.fn(),
@@ -18,7 +19,8 @@ const mocks = vi.hoisted(() => ({
   unsubscribeNotifications: vi.fn(),
   companyLogoCredits: vi.fn(async () => ({ items: [] })),
 }));
-vi.mock('./lib/api', () => ({
+vi.mock('./lib/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./lib/api')>()),
   isFixtureMode: false,
   api: {
     session: mocks.session,
@@ -108,7 +110,99 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  focusManager.setFocused(undefined);
   vi.restoreAllMocks();
+});
+
+it.each([
+  new TypeError('Failed to fetch'),
+  new ApiError(503, 'UNAVAILABLE', '일시적으로 연결할 수 없습니다.'),
+])(
+  'keeps the mounted authenticated page during a transient session check failure: %s',
+  async (error) => {
+    const client = show();
+    const page = await screen.findByText('관측 대시보드');
+    client.setQueryData(['news', 'private'], { title: 'cached news' });
+    mocks.session.mockRejectedValue(error);
+    await act(async () => client.refetchQueries({ queryKey: ['session'], exact: true }));
+
+    expect(await screen.findByRole('button', { name: '연결 다시 확인' })).toBeInTheDocument();
+    expect(screen.getByText('관측 대시보드')).toBe(page);
+    expect(client.getQueryData(['session'])).toEqual(administrator);
+    expect(client.getQueryData(['news', 'private'])).toEqual({ title: 'cached news' });
+    expect(screen.queryByRole('button', { name: '카카오 로그인' })).not.toBeInTheDocument();
+
+    mocks.session.mockResolvedValue(administrator);
+    fireEvent.click(screen.getByRole('button', { name: '연결 다시 확인' }));
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: '연결 다시 확인' })).not.toBeInTheDocument(),
+    );
+    expect(screen.getByText('관측 대시보드')).toBe(page);
+    client.clear();
+  },
+);
+
+it('keeps an initial session failure outside the authenticated application', async () => {
+  mocks.session.mockRejectedValue(new TypeError('Failed to fetch'));
+  const client = show();
+  expect(await screen.findByText('Failed to fetch')).toBeInTheDocument();
+  expect(screen.queryByText('관측 대시보드')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: '연결 다시 확인' })).not.toBeInTheDocument();
+
+  client.clear();
+});
+
+it.each([401, 403])(
+  'hides the authenticated page after an explicit %i session rejection',
+  async (status) => {
+    const client = show();
+    await screen.findByText('관측 대시보드');
+    mocks.session.mockRejectedValue(
+      new ApiError(status, 'ACCESS_DENIED', '로그인 권한이 없습니다.'),
+    );
+    await act(async () => client.refetchQueries({ queryKey: ['session'], exact: true }));
+
+    expect(await screen.findByText('로그인 권한이 없습니다.')).toBeInTheDocument();
+    expect(screen.queryByText('관측 대시보드')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '연결 다시 확인' })).not.toBeInTheDocument();
+
+    mocks.session.mockRejectedValue(new TypeError('Failed to fetch'));
+    await act(async () => client.refetchQueries({ queryKey: ['session'], exact: true }));
+    expect(await screen.findByText('Failed to fetch')).toBeInTheDocument();
+    expect(screen.queryByText('관측 대시보드')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '연결 다시 확인' })).not.toBeInTheDocument();
+    client.clear();
+  },
+);
+
+it('removes private content when a recovered session check confirms logout', async () => {
+  const client = show();
+  await screen.findByText('관측 대시보드');
+  client.setQueryData(['news', 'private'], { title: 'cached news' });
+  mocks.session.mockRejectedValue(new TypeError('Failed to fetch'));
+  await act(async () => client.refetchQueries({ queryKey: ['session'], exact: true }));
+  await screen.findByRole('button', { name: '연결 다시 확인' });
+
+  mocks.session.mockResolvedValue(anonymous);
+  fireEvent.click(screen.getByRole('button', { name: '연결 다시 확인' }));
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: '카카오 로그인' })).toBeInTheDocument(),
+  );
+  expect(screen.queryByText('관측 대시보드')).not.toBeInTheDocument();
+  expect(client.getQueryData(['news', 'private'])).toBeUndefined();
+  client.clear();
+});
+
+it('rechecks the session when the application returns to the foreground', async () => {
+  const client = show();
+  await screen.findByText('관측 대시보드');
+  act(() => focusManager.setFocused(false));
+  mocks.session.mockResolvedValue(anonymous);
+  act(() => focusManager.setFocused(true));
+
+  expect(await screen.findByRole('button', { name: '카카오 로그인' })).toBeInTheDocument();
+  expect(screen.queryByText('관측 대시보드')).not.toBeInTheDocument();
+  client.clear();
 });
 
 it('serves public logo attribution without requiring a session or a working authentication API', async () => {
@@ -138,7 +232,7 @@ it('logs out through the mounted App without losing its session subscription', a
   client.setQueryData(['operation-runs'], { private: true });
   sessionStorage.setItem('orsem-news-edit-v1:admin:article', 'private draft');
   expect(await screen.findByText('관측 대시보드')).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: '로그아웃' }));
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: '로그아웃' })));
   expect(await screen.findByRole('button', { name: '카카오 로그인' })).toBeInTheDocument();
   expect(screen.queryByLabelText('관리자 이메일')).not.toBeInTheDocument();
   expect(screen.queryByText('관측 대시보드')).not.toBeInTheDocument();

@@ -112,12 +112,23 @@ test('mixed or expired authentication state is replaced before rendering the pub
     h.request.session.memberId = memberId;
     h.request.session.sessionStartedAt =
       mode === 'expired'
-        ? new Date(Date.now() - 8 * 86400_000).toISOString()
+        ? new Date(Date.now() - 31 * 86400_000).toISOString()
         : new Date().toISOString();
     if (mode === 'mixed') h.request.session.adminId = adminId;
     const response = sessionSchema.parse(await h.controller.session(h.request));
     assert.equal(response.authenticated, false);
     assert.equal(response.canAccess, false);
     assert.equal(h.regenerations(), 1);
+  }
+});
+
+test('a member remains signed in after a week while an administrator must authenticate again', async () => {
+  for (const identity of ['memberId', 'adminId'] as const) {
+    const h = harness('APPROVED');
+    h.request.session[identity] = identity === 'memberId' ? memberId : adminId;
+    h.request.session.sessionStartedAt = new Date(Date.now() - 8 * 86400_000).toISOString();
+    const response = sessionSchema.parse(await h.controller.session(h.request));
+    assert.equal(response.authenticated, identity === 'memberId');
+    assert.equal(h.regenerations(), identity === 'memberId' ? 0 : 1);
   }
 });
