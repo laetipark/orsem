@@ -34,9 +34,10 @@
     "doctor": "node scripts/doctor.mjs",
     "push:setup": "node scripts/setup-web-push.mjs",
     "check:messenger-script": "node --check integrations/messengerbot-r/orsem-api2.js",
+    "check:docs": "node scripts/check-docs.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "check": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run check:messenger-script",
+    "check": "npm run format:check && npm run check:docs && npm run lint && npm run typecheck && npm test && npm run check:messenger-script",
     "check:isolated": "python3 scripts/verify-in-isolation.py"
   },
   "devDependencies": {

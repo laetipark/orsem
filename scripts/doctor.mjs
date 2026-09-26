@@ -1,7 +1,9 @@
 import { access, constants, readFile, stat } from 'node:fs/promises';
 import net from 'node:net';
 import path from 'node:path';
+import { checkDiskSpace } from './check-disk-space.mjs';
 import { checkKakaoConfig } from './check-kakao-config.mjs';
+import { checkRedisHealth } from './check-redis-health.mjs';
 
 try {
   process.loadEnvFile(path.resolve('.env'));
@@ -28,6 +30,9 @@ if (dataDir === repository || dataDir.startsWith(`${repository}${path.sep}`)) {
     add('Data directory', 'WARN', `${dataDir} is not ready`);
   }
 }
+
+const diskCheck = await checkDiskSpace(dataDir);
+add('Data disk space', diskCheck.state, diskCheck.detail);
 
 async function tcpCheck(name, value, defaultPort) {
   if (!value) {
@@ -56,7 +61,8 @@ async function tcpCheck(name, value, defaultPort) {
 }
 
 await tcpCheck('MySQL', process.env.DATABASE_URL, 3306);
-await tcpCheck('Redis', process.env.REDIS_URL, 6379);
+const redisCheck = await checkRedisHealth(process.env);
+add('Redis', redisCheck.state, redisCheck.detail);
 
 async function aiClassifierCheck() {
   if (process.env.AI_ENABLED?.trim().toLowerCase() !== 'true') {

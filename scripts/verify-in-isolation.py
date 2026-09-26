@@ -58,9 +58,13 @@ def main():
             for key, value in os.environ.items()
             if key not in ("DATABASE_URL", "REDIS_URL", "ORSEM_REPO_ROOT")
         }
-        environment["NODE_ENV"] = "test"
-        for command in (["npm", "run", "check"], ["npm", "run", "build"]):
-            subprocess.run(command, cwd=target, env=environment, check=True)
+        for task, node_environment in (("check", "test"), ("build", "production")):
+            subprocess.run(
+                ["npm", "run", task],
+                cwd=target,
+                env={**environment, "NODE_ENV": node_environment},
+                check=True,
+            )
 
 
 if __name__ == "__main__":
