@@ -38,16 +38,12 @@ import {
   NEWS_RSS_FEEDS,
   newsCompanyIdsSchema,
   sourceKindForSource,
-  candleSourceSchema,
   matchesRegion,
   marketsForRegion,
   hasParseTypeInvariant,
   largeHoldingSchema,
   isSupportedFilingType,
-  formatDisclosureSummary,
-  displayDisclosureText,
   type Region,
-  type CandleSource,
   type Company,
   type CompanySummaryView,
   type CompanyTimeline,
@@ -112,6 +108,15 @@ import {
 import { APP_CONFIG, type AppConfig } from '../config/app-config';
 import { parseWith } from '../common/zod';
 import { cursorInstant, decodeCursor } from '../common/cursor';
+import { kstDateFromInstant } from '../common/kst-date';
+import { buildCompanyTimeline, mapTimelinePrice } from './company-timeline';
+import {
+  mapCompanySummary,
+  mapEventSummary,
+  mapFilingRecord,
+  mapEventFromRelations,
+  type EventFilingFacts,
+} from './resource-projections';
 import {
   finishPage,
   pageRows,
@@ -255,14 +260,6 @@ const supportedEventFilingsSql = `NOT EXISTS (SELECT 1 FROM event_cluster_items 
   WHERE integrity_item.event_cluster_id = event.id AND integrity_item.item_type = 'FILING'
     AND integrity_filing.canonical_type IS NOT NULL
     AND integrity_filing.canonical_type NOT IN ('D001','D002','D003','D004','D005'))`;
-
-type EventFilingFacts = FilingSummary & {
-  transactions?: Array<
-    Pick<FilingDetail['transactions'][number], 'nature' | 'direction' | 'eventDate'>
-  >;
-  largeHolding?: Pick<NonNullable<FilingDetail['largeHolding']>, 'changes'> | null;
-  tradePlan?: Pick<NonNullable<FilingDetail['tradePlan']>, 'plannedStartDate'> | null;
-};
 
 @Injectable()
 export class OrsemDataService {
@@ -606,21 +603,7 @@ export class OrsemDataService {
         .take(interval === '1m' ? 1000 : 366)
         .getMany();
       rows.reverse();
-      const toPrice = (row: PriceBarEntity): CompanyTimeline['prices'][number] => ({
-        time:
-          interval === '1m'
-            ? row.barAt.toISOString()
-            : (row.sessionDate ?? kstDateFromInstant(row.barAt.toISOString())!),
-        sessionDate: row.sessionDate ?? kstDateFromInstant(row.barAt.toISOString())!,
-        observedAt: dateToIso(row.observedAt),
-        open: Number(row.open),
-        high: Number(row.high),
-        low: Number(row.low),
-        close: Number(row.close),
-        volume: Number(row.volume),
-        source: candleSourceSchema.parse(row.source),
-        rightsMode: row.rightsMode,
-      });
+      const toPrice = (row: PriceBarEntity) => mapTimelinePrice(row, interval);
       prices = rows.map(toPrice);
       // 최대 120봉 이동평균을 첫 표시 봉부터 계산할 수 있도록 이전 119봉만 보충합니다.
       // API 조회는 저장된 동일 공급자·동일 주기 데이터만 사용하며 외부 수집을 유발하지 않습니다.
@@ -638,93 +621,17 @@ export class OrsemDataService {
         indicatorWarmupPrices = warmup.reverse().map(toPrice);
       }
     }
-    const priceSources = [
-      ...new Map(
-        prices.map((price) => [price.source, priceSourceMetadata(price.source, price.rightsMode)]),
-      ).values(),
-    ];
     const events =
       interval === '1d' ? (await this.listEvents({ companyId, limit: 100 })).items : [];
     const eventViews = await Promise.all(events.map((event) => this.eventSummaryView(event)));
-    const markerSeeds: Array<{
-      time: string;
-      kind: 'TRADE' | 'FILING' | 'NEWS';
-      eventId: string;
-      label: string;
-      detailType: EventSummaryView['detailType'];
-    }> = [];
-    for (const event of eventViews) {
-      if (!event.rceptDate) {
-        if (event.detailType === 'SEC') continue;
-        const time = kstDateFromInstant(event.publishedAt);
-        if (time) {
-          markerSeeds.push({
-            time,
-            kind: 'NEWS',
-            eventId: event.id,
-            label: 'N · 뉴스·IR',
-            detailType: event.detailType,
-          });
-        }
-        continue;
-      }
-      // D005의 eventAt은 실제 거래일이 아닌 계획 시작일입니다.
-      // D001/D002의 실제 변동일에만 사건·거래 마커를 표시합니다.
-      if (event.eventAt && (event.detailType === 'D001' || event.detailType === 'D002')) {
-        markerSeeds.push({
-          time: event.eventAt,
-          kind: 'TRADE',
-          eventId: event.id,
-          label: event.detailType === 'D002' ? 'T · 거래·변동일' : 'E · 지분변동일',
-          detailType: event.detailType,
-        });
-      }
-      markerSeeds.push({
-        time: event.rceptDate,
-        kind: 'FILING',
-        eventId: event.id,
-        label: `F · ${displayDisclosureText(event.detailType)}`,
-        detailType: event.detailType,
-      });
-    }
-    const markers = markerSeeds
-      .map((marker) => ({
-        ...marker,
-        returnWindows: timelineReturnWindows(prices, marker.time),
-      }))
-      .sort(
-        (left, right) => left.time.localeCompare(right.time) || left.kind.localeCompare(right.kind),
-      );
-    // 수익률 계산에서 분봉을 거래일 단위로 취급하지 않습니다.
-    const dailyPrices = interval === '1d' ? prices : [];
-    const latest = dailyPrices.at(-1);
-    const previous = dailyPrices.at(-2);
-    const monthBase = dailyPrices.at(Math.max(0, dailyPrices.length - 22));
-    const latestEventTime = markers.at(-1)?.time;
-    const latestEventIndex = latestEventTime
-      ? dailyPrices.findIndex((price) => price.time >= latestEventTime)
-      : -1;
-    return {
-      companyId,
-      currency: isUs ? 'USD' : 'KRW',
-      provider: 'toss',
+    return buildCompanyTimeline({
+      company,
+      configured,
       interval,
-      status: !configured ? 'NOT_CONFIGURED' : prices.length ? 'READY' : 'PENDING',
       prices,
       indicatorWarmupPrices,
-      priceSources,
-      markers,
-      returns: {
-        oneDay: percentageReturn(previous?.close, latest?.close),
-        oneMonth: percentageReturn(monthBase?.close, latest?.close),
-        sinceLatestEvent:
-          latestEventIndex >= 0
-            ? percentageReturn(dailyPrices[latestEventIndex]?.close, latest?.close)
-            : null,
-        benchmarkOneMonth: null,
-      },
-      latestCloseAt: prices.at(-1)?.time ?? null,
-    };
+      events: eventViews,
+    });
   }
 
   async listFilings(query: ListQuery): Promise<CursorPage<FilingSummary>> {
@@ -3927,11 +3834,11 @@ export class OrsemDataService {
           sourceItems.push(mapSourceItem(source));
         }
       }
-      return this.eventFromRelations(
+      return mapEventFromRelations(
         row,
         row.companyId ? (companyById.get(row.companyId) ?? null) : null,
         filingRow,
-        filingRow && filingCompany ? this.filingSummary(filingRow, filingCompany, parse) : null,
+        filingRow && filingCompany ? mapFilingRecord(filingRow, filingCompany, parse) : null,
         parse,
         sourceItems,
       );
@@ -3956,7 +3863,7 @@ export class OrsemDataService {
         }
       }
       return companies.map((company) =>
-        this.companySummary(company, priorities.get(company.id), latest.get(company.id) ?? null),
+        mapCompanySummary(company, priorities.get(company.id), latest.get(company.id) ?? null),
       );
     }
     const [watches, latest] = await Promise.all([
@@ -3985,7 +3892,7 @@ export class OrsemDataService {
       latest.map((row) => [row.companyId, new Date(row.lastEventAt).toISOString()]),
     );
     return companies.map((company) =>
-      this.companySummary(company, priorities.get(company.id), latestById.get(company.id) ?? null),
+      mapCompanySummary(company, priorities.get(company.id), latestById.get(company.id) ?? null),
     );
   }
 
@@ -4099,7 +4006,7 @@ export class OrsemDataService {
       }
       const company = event.company ?? facts?.company;
       const sec = event.sourceItems.find((source) => source.source === 'SEC');
-      return this.eventSummary(
+      return mapEventSummary(
         event,
         facts,
         company ? priorities.get(company.id) : undefined,
@@ -4111,27 +4018,7 @@ export class OrsemDataService {
   private async companySummaryView(company: Company): Promise<CompanySummaryView> {
     const watch = await this.watchForCompany(company.id);
     const latest = (await this.listEvents({ companyId: company.id, limit: 1 })).items[0] ?? null;
-    return this.companySummary(company, watch?.priority, latest?.firstObservedAt ?? null);
-  }
-
-  private companySummary(
-    company: Company,
-    priority: WatchlistItem['priority'] | undefined,
-    lastEventAt: string | null,
-  ): CompanySummaryView {
-    return {
-      id: company.id,
-      nameKo: company.nameKo,
-      nameEn: company.nameEn,
-      stockCode: company.stockCode,
-      ticker: company.ticker,
-      market: company.market,
-      sector: '미분류',
-      priority: priority ?? null,
-      isListed: company.isListed,
-      isWatchlisted: priority !== undefined,
-      lastEventAt,
-    };
+    return mapCompanySummary(company, watch?.priority, latest?.firstObservedAt ?? null);
   }
 
   private async eventSummaryView(event: Event): Promise<EventSummaryView> {
@@ -4143,67 +4030,7 @@ export class OrsemDataService {
       secSource && !this.fixtureMode
         ? await this.source().getRepository(SourceItemEntity).findOneBy({ id: secSource.id })
         : null;
-    return this.eventSummary(event, filing, watch?.priority, secRow);
-  }
-
-  private eventSummary(
-    event: Event,
-    filing: EventFilingFacts | null,
-    priority: WatchlistItem['priority'] | undefined,
-    secRow: SourceItemEntity | null,
-  ): EventSummaryView {
-    const transaction = filing?.transactions?.[0] ?? null;
-    const holdingChange = filing?.largeHolding?.changes[0] ?? null;
-    const company = event.company ?? filing?.company ?? null;
-    const secSource = event.sourceItems.find((item) => item.source === 'SEC');
-    const source = secSource ?? event.sourceItems[0] ?? null;
-    const secFilingDate = secRow?.rawMetadataJson?.filingDate;
-    const secForm = secRow?.rawMetadataJson?.form;
-    const detailType: EventSummaryView['detailType'] =
-      filing?.detailType ?? (secSource ? 'SEC' : 'NEWS');
-    return {
-      id: event.id,
-      companyId: company?.id ?? 'unresolved',
-      companyName: company?.nameKo ?? '회사 미확인',
-      stockCode: company?.stockCode ?? null,
-      ticker: company?.ticker ?? null,
-      market: company?.market ?? 'OTHER',
-      priority: priority ?? (filing || secSource ? 'P3' : 'P4'),
-      detailType,
-      title: filing?.reportName ?? source?.title ?? event.canonicalEventType,
-      translation: !filing && detailType === 'NEWS' ? (source?.translation ?? null) : null,
-      summary: event.summary,
-      nature: transaction?.nature ?? (filing?.detailType === 'D005' ? 'UNKNOWN' : null),
-      direction: transaction?.direction ?? holdingChange?.direction ?? 'UNKNOWN',
-      eventAt: secSource
-        ? null
-        : (transaction?.eventDate ??
-          holdingChange?.eventDate ??
-          filing?.tradePlan?.plannedStartDate ??
-          kstDateFromInstant(event.occurredAt) ??
-          null),
-      rceptDate:
-        filing?.rceptDate ??
-        (typeof secFilingDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(secFilingDate)
-          ? secFilingDate
-          : null),
-      publishedAt: event.publishedAt,
-      firstObservedAt: event.firstObservedAt,
-      processedAt: event.processedAt,
-      submissionKind:
-        filing?.submissionKind ??
-        (typeof secForm === 'string' && secForm.endsWith('/A') ? 'CORRECTION' : 'INITIAL'),
-      effectiveState: filing?.effectiveState ?? 'ACTIVE',
-      evidenceGrade: event.evidenceGrade,
-      classificationStatus: event.classificationResult ?? 'REVIEW_REQUIRED',
-      sourceName: filing
-        ? 'OpenDART'
-        : (source?.sourceName ?? source?.source ?? '공식 소스 확인 대기'),
-      rightsMode: filing
-        ? RightsMode.OFFICIAL_PUBLIC_DATA
-        : (source?.rightsMode ?? RightsMode.LINK_ONLY),
-      officialUrl: filing?.officialUrl ?? source?.url ?? 'https://opendart.fss.or.kr/',
-    };
+    return mapEventSummary(event, filing, watch?.priority, secRow);
   }
 
   private async mapFilingSummary(row: FilingEntity): Promise<FilingSummary> {
@@ -4211,31 +4038,7 @@ export class OrsemDataService {
     const company = await source.getRepository(CompanyEntity).findOneBy({ id: row.companyId });
     if (!company) throw new Error(`Company ${row.companyId} is missing for filing ${row.id}`);
     const parse = await this.activeParseRun(row);
-    return this.filingSummary(row, company, parse);
-  }
-
-  private filingSummary(
-    row: FilingEntity,
-    company: CompanyEntity,
-    parse: ParseRunEntity | null,
-  ): FilingSummary {
-    return {
-      id: row.id,
-      rceptNo: row.rceptNo,
-      detailType: isSupportedFilingType(row.canonicalType) ? row.canonicalType : row.detailType,
-      reportName: row.reportName,
-      filerName: row.filerName,
-      rceptDate: row.rceptDate,
-      submissionKind: row.submissionKind,
-      effectiveState: row.effectiveState,
-      firstObservedAt: row.firstObservedAt.toISOString(),
-      lastSeenAt: row.lastSeenAt.toISOString(),
-      processedAt: dateToIso(parse?.finishedAt),
-      parseStatus: parse?.status ?? null,
-      parserConfidence: parse?.confidence ? Number(parse.confidence) : null,
-      company: mapCompany(company),
-      officialUrl: `https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${encodeURIComponent(row.rceptNo)}`,
-    };
+    return mapFilingRecord(row, company, parse);
   }
 
   private async mapEvent(
@@ -4275,7 +4078,7 @@ export class OrsemDataService {
         ? mapSourceItem(sourceRow)
         : null;
     });
-    return this.eventFromRelations(
+    return mapEventFromRelations(
       row,
       company,
       filingRow,
@@ -4283,53 +4086,6 @@ export class OrsemDataService {
       parse,
       sourceItems.filter((item): item is SourceItem => item !== null),
     );
-  }
-
-  private eventFromRelations(
-    row: EventClusterEntity,
-    company: CompanyEntity | null,
-    filingRow: FilingEntity | null,
-    filing: FilingSummary | null,
-    parse: ParseRunEntity | null,
-    sourceItems: SourceItem[],
-  ): Event {
-    const canonicalEventTypes = {
-      D001: 'LARGE_HOLDER',
-      D002: 'INSIDER_OWNERSHIP',
-      D003: 'PROXY_SOLICITATION',
-      D004: 'TENDER_OFFER',
-      D005: 'TRADE_PLAN',
-    } as const;
-    const requiresParseReview = Boolean(filingRow && !parse);
-    return {
-      id: row.id,
-      canonicalEventType: filingRow
-        ? isSupportedFilingType(filingRow.canonicalType)
-          ? canonicalEventTypes[filingRow.canonicalType]
-          : 'OTHER'
-        : row.canonicalEventType,
-      occurredAt: dateToIso(row.occurredAt),
-      publishedAt: dateToIso(row.publishedAt),
-      firstObservedAt: row.firstObservedAt.toISOString(),
-      processedAt: dateToIso(row.processedAt),
-      state:
-        requiresParseReview &&
-        row.state !== EventState.CANCELLED &&
-        row.state !== EventState.SUPERSEDED
-          ? EventState.REVIEW_REQUIRED
-          : row.state,
-      evidenceGrade: row.evidenceGrade,
-      classificationResult: parse?.classificationResult ?? null,
-      summary: requiresParseReview
-        ? `원문 검증 대기 — ${filingRow!.reportName}`
-        : (formatDisclosureSummary(
-            parse?.resultJson?.parsed,
-            company?.nameKo ?? filing?.company.nameKo,
-          ) ?? row.summary),
-      company: company ? mapCompany(company) : null,
-      filing,
-      sourceItems,
-    };
   }
 
   private async activeParseRun(filing: FilingEntity): Promise<ParseRunEntity | null> {
@@ -4396,51 +4152,6 @@ function firstRows<T>(rows: T[], key: (row: T) => string): Map<string, T> {
   const first = new Map<string, T>();
   for (const row of rows) if (!first.has(key(row))) first.set(key(row), row);
   return first;
-}
-
-function kstDateFromInstant(value: string | null): string | null {
-  if (!value) return null;
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return null;
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Seoul',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(parsed);
-}
-
-function percentageReturn(before: number | undefined, after: number | undefined): number | null {
-  if (before === undefined || after === undefined || before === 0) return null;
-  return ((after - before) / before) * 100;
-}
-
-function timelineReturnWindows(
-  prices: readonly { time: string; close: number }[],
-  markerDate: string,
-): { pre1d: number | null; post1d: number | null; post5d: number | null; post20d: number | null } {
-  const index = prices.findIndex((price) => price.time >= markerDate);
-  if (index < 0) return { pre1d: null, post1d: null, post5d: null, post20d: null };
-  const base = prices[index]?.close;
-  return {
-    pre1d: percentageReturn(prices[index - 1]?.close, base),
-    post1d: percentageReturn(base, prices[index + 1]?.close),
-    post5d: percentageReturn(base, prices[index + 5]?.close),
-    post20d: percentageReturn(base, prices[index + 20]?.close),
-  };
-}
-
-function priceSourceMetadata(source: CandleSource, rightsMode: RightsMode) {
-  return {
-    source,
-    sourceName: '토스증권 Open API',
-    rightsMode,
-    feed: 'REST 캔들',
-    adjustment: 'RAW',
-    attribution: '출처: 토스증권 Open API',
-    limitation:
-      '비조정 가격입니다. 개인 화면에만 표시하며, 실시간 체결과 캔들의 집계 범위는 다를 수 있습니다.',
-  };
 }
 
 function sha256(value: string): string {
