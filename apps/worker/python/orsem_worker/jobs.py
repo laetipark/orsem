@@ -66,6 +66,11 @@ class Review(Payload):
     parseRunId: Uuid
 
 
+class AnalysisJob(Payload):
+    model_config = ConfigDict(strict=True, extra="forbid")
+    jobId: Uuid
+
+
 class Discovery(Payload):
     connectors: list[
         Literal[
@@ -163,6 +168,7 @@ class AlpacaAssets(Payload):
 
 
 MODELS: dict[str, type[Payload]] = {
+    "process-analysis-job": AnalysisJob,
     "poll-opendart": Poll,
     "backfill-opendart": Poll,
     "enrich-filing": Enrich,

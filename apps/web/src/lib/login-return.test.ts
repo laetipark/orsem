@@ -14,6 +14,11 @@ describe('notification login return', () => {
   it('allows known same-origin screens and rejects external, API and malformed destinations', () => {
     expect(safeLoginReturn(eventPath)).toBe(eventPath);
     expect(safeLoginReturn('/settings/notifications')).toBe('/settings/notifications');
+    expect(safeLoginReturn('/analysis?companyId=example')).toBe('/analysis?companyId=example');
+    expect(safeLoginReturn('/news/naver')).toBe('/news/naver');
+    expect(safeLoginReturn('/companies/NASDAQ:AAPL?range=1y')).toBe(
+      '/companies/NASDAQ:AAPL?range=1y',
+    );
     expect(safeLoginReturn('/watchlist/popout?watchGroup=recent')).toBe(
       '/watchlist/popout?watchGroup=recent',
     );

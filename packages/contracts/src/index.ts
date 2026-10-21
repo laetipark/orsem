@@ -14,3 +14,5 @@ export * from './watchlist-rooms';
 export * from './news-company-matching';
 export * from './company-logos';
 export * from './disclosure-summary';
+export * from './disclosure-analysis';
+export * from './public';

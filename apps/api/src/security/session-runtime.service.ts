@@ -108,6 +108,13 @@ export class SessionRuntimeService implements OnApplicationShutdown {
       },
     });
     return (request, response, next) => {
+      // Public read responses never vary by account or depend on the session store.
+      // Authentication and all mutation routes continue through the normal session middleware.
+      if (
+        ['GET', 'HEAD'].includes(request.method) &&
+        /^\/api\/v1\/public(?:\/|$)/u.test(request.path)
+      )
+        return next();
       loadSession(request, response, (error?: unknown) => {
         // A failed store read is a temporary outage, never an anonymous session.
         if (error)

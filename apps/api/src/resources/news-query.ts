@@ -63,11 +63,19 @@ export function visibleEventSourceSql(alias: string, audience: NewsAudience = 'M
 /** An event summary may contain facts from every member; hide mixed events before counting. */
 export function eventAudienceSql(alias: string, audience: NewsAudience = 'MEMBER_UI'): string {
   if (!/^[a-z_][a-z0-9_]*$/iu.test(alias)) throw new Error('Invalid event identifier.');
-  return `NOT EXISTS (SELECT 1 FROM event_cluster_items audience_item
-    LEFT JOIN news_items audience_news ON audience_item.item_type='NEWS_ITEM' AND audience_news.id=audience_item.item_id
-    JOIN source_items audience_source ON (audience_item.item_type='SOURCE_ITEM' AND audience_source.id=audience_item.item_id)
-      OR audience_source.id=audience_news.source_item_id
-    WHERE audience_item.event_cluster_id=${alias}.id AND COALESCE((${newsAudienceSql('audience_source', audience)}), false) = false)`;
+  const denied = `COALESCE((${newsAudienceSql('audience_source', audience)}), false) = false`;
+  // Keep each membership path as a primary-key join. An OR between the direct
+  // and news-item paths makes MySQL scan source_items for every candidate event.
+  // Both anti-joins remain necessary: one restricted member hides the whole event.
+  return `(NOT EXISTS (SELECT 1 FROM event_cluster_items audience_item
+    JOIN source_items audience_source ON audience_source.id=audience_item.item_id
+    WHERE audience_item.event_cluster_id=${alias}.id AND audience_item.item_type='SOURCE_ITEM'
+      AND ${denied})
+    AND NOT EXISTS (SELECT 1 FROM event_cluster_items audience_item
+    JOIN news_items audience_news ON audience_news.id=audience_item.item_id
+    JOIN source_items audience_source ON audience_source.id=audience_news.source_item_id
+    WHERE audience_item.event_cluster_id=${alias}.id AND audience_item.item_type='NEWS_ITEM'
+      AND ${denied}))`;
 }
 export function newsFiltersSql(alias: string, query: NewsFilters): string {
   const clauses = [

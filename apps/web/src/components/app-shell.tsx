@@ -33,6 +33,7 @@ const navigation = [
   { to: '/markets', label: '시장', icon: ChartNoAxesCombined },
   { to: '/companies', label: '종목', icon: Building2 },
   { to: '/events', label: '이벤트', icon: FileSearch },
+  { to: '/analysis', label: '공시 분석실', icon: FileSearch },
   { to: '/news', label: '뉴스', icon: Newspaper },
   { to: '/watchlist', label: '관심 종목', icon: Star },
 ];
@@ -50,6 +51,7 @@ const routeTitles: Array<[RegExp, string]> = [
   [/^\/news\//, '뉴스 상세'],
   [/^\/events\/[^/]+$/, '이벤트 근거'],
   [/^\/events/, '이벤트 탐색'],
+  [/^\/analysis/, '공시 분석실'],
   [/^\/companies$/, '종목 탐색'],
   [/^\/companies\//, '종목 정보'],
   [/^\/watchlist/, '관심 종목'],
@@ -87,7 +89,9 @@ export function AppShell({ session }: { session: Session }) {
   const previousAudience = useRef(audienceIdentity);
   useLayoutEffect(() => {
     if (previousAudience.current !== audienceIdentity) {
-      queryClient.removeQueries({ predicate: (query) => query.queryKey[0] !== 'session' });
+      queryClient.removeQueries({
+        predicate: (query) => query.queryKey[0] !== 'session' && query.queryKey[0] !== 'public',
+      });
       previousAudience.current = audienceIdentity;
     }
   }, [audienceIdentity, queryClient]);
@@ -99,10 +103,12 @@ export function AppShell({ session }: { session: Session }) {
     },
     onSuccess: async (nextSession) => {
       clearNewsEditDrafts();
-      await queryClient.cancelQueries();
-      queryClient.removeQueries({ predicate: (query) => query.queryKey[0] !== 'session' });
+      await queryClient.cancelQueries({ predicate: (query) => query.queryKey[0] !== 'public' });
+      queryClient.removeQueries({
+        predicate: (query) => query.queryKey[0] !== 'session' && query.queryKey[0] !== 'public',
+      });
       queryClient.setQueryData(['session'], nextSession);
-      void navigate('/login', { replace: true });
+      void navigate('/', { replace: true });
     },
   });
   useEffect(() => {

@@ -6,9 +6,13 @@ import { AppModule } from './app.module';
 import { APP_CONFIG, type AppConfig } from './config/app-config';
 import { SessionRuntimeService } from './security/session-runtime.service';
 import { registerBodyParsers } from './common/body-parser';
+import { failBootstrap } from './common/bootstrap-failure';
+
+let application: NestExpressApplication | undefined;
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: true });
+  application = app;
   const config = app.get<AppConfig>(APP_CONFIG);
   const sessions = app.get(SessionRuntimeService);
   const store = await sessions.createStore();
@@ -27,4 +31,4 @@ async function bootstrap(): Promise<void> {
   await app.listen(config.port, '127.0.0.1');
 }
 
-void bootstrap();
+void bootstrap().catch(() => failBootstrap(async () => application?.close()));

@@ -1,4 +1,5 @@
 // Deterministic illustrative values for the explicitly enabled development fixture mode only.
+import { MARKET_INSTRUMENTS } from '@orsem/contracts';
 import type { MarketHistory, MarketQuote, WatchlistItem, WatchlistQuote } from '../types';
 
 export const marketFixtureTime = '2026-09-03T08:42:00.000Z';
@@ -54,27 +55,27 @@ const seeds: Array<
   },
   {
     id: 'sp500',
-    name: 'S&P500',
+    name: 'S&P500 ETF · SPY',
     region: 'us',
-    category: 'INDEX',
-    currency: null,
-    unit: 'pt',
-    provider: 'FRED',
-    symbol: 'SP500',
+    category: 'ETF',
+    currency: 'USD',
+    unit: 'USD/주',
+    provider: 'TOSS',
+    symbol: 'SPY',
     historyKind: 'close',
-    value: '0',
+    value: '600.25',
   },
   {
     id: 'nasdaq',
-    name: '나스닥종합',
+    name: '나스닥종합 ETF · ONEQ',
     region: 'us',
-    category: 'INDEX',
-    currency: null,
-    unit: 'pt',
-    provider: 'TRADINGVIEW',
-    symbol: 'FRED:NDQCOM',
+    category: 'ETF',
+    currency: 'USD',
+    unit: 'USD/주',
+    provider: 'TOSS',
+    symbol: 'ONEQ',
     historyKind: 'close',
-    value: '0',
+    value: '90.45',
   },
   {
     id: 'us2y',
@@ -163,23 +164,26 @@ const seeds: Array<
 ];
 
 export const marketFixtures: MarketQuote[] = seeds.map((seed, index) => {
-  const widget = seed.provider === 'TRADINGVIEW' || seed.provider === 'FRED';
+  const widget = seed.provider === 'TRADINGVIEW';
+  const definition =
+    seed.category === 'ETF' ? MARKET_INSTRUMENTS.find((item) => item.id === seed.id) : undefined;
   const value = Number(seed.value);
   return {
     ...seed,
     value: widget ? null : seed.value,
     sourceUrl:
-      seed.provider === 'FRED'
-        ? 'https://fred.stlouisfed.org/series/SP500'
-        : widget
-          ? `https://www.tradingview.com/symbols/${seed.symbol.replace(':', '-')}/`
-          : 'https://example.com/development-fixture',
-    attribution: widget ? seed.provider : `${seed.provider} · 개발용 예시`,
-    rightsMode: 'PRIVATE_DISPLAY_ONLY',
+      definition?.sourceUrl ??
+      (widget
+        ? `https://www.tradingview.com/symbols/${seed.symbol.replace(':', '-')}/`
+        : 'https://example.com/development-fixture'),
+    attribution:
+      definition?.attribution ?? (widget ? seed.provider : `${seed.provider} · 개발용 예시`),
+    rightsMode: widget ? 'LINK_ONLY' : 'PRIVATE_DISPLAY_ONLY',
     displayKind: widget ? 'WIDGET' : 'NATIVE',
-    widgetSymbol: seed.provider === 'FRED' ? 'FRED:SP500' : widget ? seed.symbol : null,
+    widgetSymbol: widget ? seed.symbol : null,
     description:
-      seed.id === 'wti' ? 'Cushing WTI 현물 · 일별 관측' : `${seed.name} 개발용 모의 데이터`,
+      definition?.description ??
+      (seed.id === 'wti' ? 'Cushing WTI 현물 · 일별 관측' : `${seed.name} 개발용 모의 데이터`),
     status: widget ? 'EMBEDDED' : seed.id === 'silver' ? 'STALE' : 'AVAILABLE',
     change: widget ? null : seed.category === 'BOND' ? '-3' : String(value * 0.01),
     changePercent: widget ? null : index % 2 === 0 ? '1.02' : '-0.48',

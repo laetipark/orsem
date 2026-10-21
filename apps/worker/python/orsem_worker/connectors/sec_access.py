@@ -10,7 +10,7 @@ import httpx
 
 from orsem_worker.core import identifier, utcnow
 
-from .common import Checkpoints, instant, iso, request_bytes, retry_after
+from .common import Checkpoints, decoded_response, instant, iso, request_bytes, retry_after
 
 SEC_HOSTS = frozenset(("sec.gov", "www.sec.gov", "data.sec.gov"))
 STREAM = "ACCESS_COOLDOWN"
@@ -221,12 +221,7 @@ class SecHttp:
                                         )
                             except Exception:  # noqa: BLE001 - safe per-provider/document boundary; preserve diagnostics without source or credentials
                                 raise SecAccessPolicyError() from None
-                        return httpx.Response(
-                            response.status_code,
-                            headers=response.headers,
-                            content=b"".join(chunks),
-                            request=response.request,
-                        )
+                        return decoded_response(response, b"".join(chunks))
             finally:
                 if lease:
                     try:

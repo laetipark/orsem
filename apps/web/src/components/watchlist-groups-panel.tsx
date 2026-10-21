@@ -485,6 +485,11 @@ export function WatchlistGroupsPanel({
               </Button>
             ) : null}
             {headerActions}
+            {selected && scopeReady && !compact && !floating ? (
+              <Link className="button button--ghost button--sm" to={`/analysis?groupId=${encodeURIComponent(selected.id)}`}>
+                그룹 재무 비교
+              </Link>
+            ) : null}
           </div>
         </header>
         {popupBlocked ? (

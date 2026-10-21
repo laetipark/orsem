@@ -182,6 +182,18 @@ def public_url(value, *, https=False, allowed_hosts=None):
     return url
 
 
+def decoded_response(response: httpx.Response, content: bytes) -> httpx.Response:
+    """Rebuild a buffered response whose content was already decoded by HTTPX."""
+    headers = httpx.Headers(response.headers)
+    # aiter_bytes() has removed both content compression and transport framing.
+    # Reusing their wire headers would decode twice or advertise the wrong size.
+    for name in ("content-encoding", "content-length", "transfer-encoding"):
+        headers.pop(name, None)
+    return httpx.Response(
+        response.status_code, headers=headers, content=content, request=response.request
+    )
+
+
 async def request_bytes(
     ctx,
     url,
@@ -203,12 +215,7 @@ async def request_bytes(
                 if size > max_bytes:
                     raise ValueError("Connector response exceeded its size limit.")
                 chunks.append(chunk)
-            return httpx.Response(
-                response.status_code,
-                headers=response.headers,
-                content=b"".join(chunks),
-                request=response.request,
-            )
+            return decoded_response(response, b"".join(chunks))
 
 
 async def fetch_json(
@@ -274,6 +281,8 @@ async def pinned_https_bytes(url, timeout_ms, max_bytes, headers=None):
             except (OSError, TimeoutError):
                 if index == len(addresses) - 1:
                     raise
+        if writer is None:
+            raise ConnectionError("Feed connection unavailable.")
         try:
             connection = h11.Connection(h11.CLIENT, max_incomplete_event_size=65536)
             values = {

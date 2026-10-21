@@ -1,5 +1,18 @@
 # REST API
 
+## 비로그인 차트·뉴스
+
+아래 경로는 `/api/v1` 아래의 공개 읽기 전용 경로입니다. 세션 쿠키와 무관한 동일한 응답을 반환하며, 수집·외부 검색·로고 허가 작업을 실행하지 않습니다. 회원용 조회 API의 인증은 유지합니다.
+
+- `GET /public/markets/overview?region=all|kr|us&historyRange=1m`: 공개 허용된 `us2y`, `us10y`, `wti`만 기존 시장 응답 형식으로 반환합니다.
+- `GET /public/markets/:id/history?range=1m|3m|1y`: 카탈로그와 저장 관측값 모두 `OFFICIAL_PUBLIC_DATA`인 이력만 반환합니다. 공개 대상이 아닌 ID는 `404`입니다.
+- `GET /public/companies?q=...&region=all|kr|us&cursor=...&limit=20`: 공식 출처로 확인된 종목 식별 정보만 검색합니다. 종목명·코드·거래소·출처·차트 위젯 심볼을 포함하고 가격·메모·공시·회원 정보는 포함하지 않습니다.
+- `GET /public/companies/:id`: 동일한 공개 종목 조건을 적용한 단건 조회입니다. 기존 UUID와 검증된 종목 코드·거래소:티커 주소를 지원합니다.
+- `GET /public/news?q=...&region=all|kr|us&companyId=...&cursor=...&limit=20`: Fed 보도자료·연설, BLS 최신 발표, EIA Today in Energy·보도자료의 공개 허용 메타데이터만 반환합니다. 저장 정책과 현재 정책 모두 허용해야 하며 권한 필터는 페이지네이션 전에 적용합니다.
+- `GET /public/news/:id`: 목록과 같은 조건으로 제목·허용 요약·번역·출처·발행/최초 관측 시각·원문 URL만 제공합니다. 비공개 항목은 `404`입니다.
+
+종목·뉴스 목록은 `{items, nextCursor}`이며 `limit`은 기본 20, 최대 50입니다. 공개 GET/HEAD는 세션 저장소를 읽거나 세션 쿠키를 만들지 않습니다. 요청 제한은 기존 IP 기준 제한을 적용합니다. 데이터가 없거나 출처 설정이 없으면 실제 빈 상태 또는 미설정 상태를 반환하며 회원 데이터로 대체하지 않습니다.
+
 ## 조건부 개인 뉴스 metadata v2 (2026-09-07)
 
 기존 뉴스·검색·대시보드 경로를 재사용한다. 신규 provider별 조회 endpoint나 범용 RSS proxy는 없다. 서버가 인증된 사용자에서 독자를 정하고 신규 개인용 뉴스는 관리자 세션의 `ADMIN_UI`로만 반환한다. 회원·공유방·봇에는 별도 승인이 없는 한 해당 레코드, 제목·요약·번역, 연결 회사, 개수·정렬 영향과 공식 참조를 노출하지 않는다. 클라이언트가 audience query로 권리를 올릴 수 없다.

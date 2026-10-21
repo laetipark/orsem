@@ -72,7 +72,11 @@ class OpenDartClient:
         return self.ctx.config.openDartApiKey
 
     async def fetch(self, endpoint: str, params: dict, max_bytes: int) -> bytes:
-        params = {"crtfc_key": self.configured_key(), **params}
+        key = self.configured_key()
+        gate = getattr(self.ctx, "services", {}).get("analysis_dart_gate")
+        if gate is not None:
+            await gate.before_request()
+        params = {"crtfc_key": key, **params}
         try:
             async with self.ctx.http.stream(
                 "GET",

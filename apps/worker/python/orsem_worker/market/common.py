@@ -90,11 +90,12 @@ def _insert_values(row, entity):
 
 async def insert(db, table: str, row: dict, update: list[str] | None = None, entity=True):
     values = _insert_values(row, entity)
-    assert all(re.fullmatch(r"[a-z_]+", key) for key in [table, *values])
+    assert all(re.fullmatch(r"[a-z_][a-z0-9_]*", key) for key in [table, *values])
     columns = ",".join("`" + k + "`" for k in values)
     sql = f"INSERT INTO `{table}` ({columns}) VALUES ({','.join(':' + k for k in values)})"
     if update is not None:
         updates = [snake(k) for k in update]
+        assert all(re.fullmatch(r"[a-z_][a-z0-9_]*", key) and key in values for key in updates)
         sql += " ON DUPLICATE KEY UPDATE " + ",".join(f"`{k}`=VALUES(`{k}`)" for k in updates)
     await db.execute(sql, values)
     return values.get("id")
@@ -111,7 +112,7 @@ async def insert_many(db, table, rows, update=None, *, chunk_size=200, entity=Tr
         names = list(values[0])
         updates = [snake(key) for key in update] if update is not None else []
         if (
-            not all(re.fullmatch(r"[a-z_]+", key) for key in [table, *names, *updates])
+            not all(re.fullmatch(r"[a-z_][a-z0-9_]*", key) for key in [table, *names, *updates])
             or any(set(row) != set(names) for row in values)
             or any(key not in names for key in updates)
         ):
@@ -144,6 +145,7 @@ async def update(db, table: str, row_id: str, patch: dict):
         )
         for k, v in patch.items()
     }
+    assert all(re.fullmatch(r"[a-z_][a-z0-9_]*", key) for key in [table, *values])
     sql = f"UPDATE `{table}` SET " + ",".join(f"`{k}`=:{k}" for k in values) + " WHERE id=:row_id"
     await db.execute(sql, {**values, "row_id": row_id})
 

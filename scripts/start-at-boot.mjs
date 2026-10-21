@@ -6,11 +6,14 @@ import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as util from 'node:util';
+import { createClient } from 'redis';
 
 const executeFile = util.promisify(execFile);
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PROCESS_NAMES = new Set(['orsem-api', 'orsem-worker', 'orsem-ollama', 'orsem-discord']);
 const READY_TIMEOUT_MS = 180_000;
+const API_READY_TIMEOUT_MS = 30_000;
+const API_START_GRACE_MS = 60_000;
 
 export class StartupError extends Error {}
 
@@ -90,7 +93,16 @@ export function parsePm2Processes(stdout) {
       if (!Array.isArray(rows)) continue;
       return rows.flatMap((row) =>
         row && typeof row.name === 'string'
-          ? [{ name: row.name, status: row.pm2_env?.status }]
+          ? [
+              {
+                name: row.name,
+                status: row.pm2_env?.status,
+                ...(Number.isInteger(row.pid) && row.pid >= 0 ? { pid: row.pid } : {}),
+                ...(Number.isFinite(row.pm2_env?.pm_uptime)
+                  ? { startedAt: row.pm2_env.pm_uptime }
+                  : {}),
+              },
+            ]
           : [],
       );
     } catch {
@@ -107,11 +119,13 @@ export function startupPlan(requestedNames, processes) {
   for (const name of requestedNames) {
     if (!PROCESS_NAMES.has(name)) throw new StartupError('Refusing a non-Orsem process target.');
     const matches = processes.filter((process) => process.name === name);
-    if (matches.some((process) => ['online', 'launching'].includes(process.status))) {
+    if (matches.length === 1 && matches[0].status === 'online') {
       active.push(name);
     } else if (
       matches.length === 0 ||
-      matches.every((process) => ['stopped', 'errored'].includes(process.status))
+      (matches.length === 1 &&
+        (['stopped', 'errored'].includes(matches[0].status) ||
+          (matches[0].status === 'waiting restart' && matches[0].pid === 0)))
     ) {
       start.push(name);
     } else {
@@ -201,6 +215,44 @@ function tcpReady(target, timeoutMs) {
   });
 }
 
+export async function redisReady(url, timeoutMs, clientFactory = createClient) {
+  let client;
+  let timer;
+  try {
+    client = clientFactory({
+      url,
+      disableOfflineQueue: true,
+      socket: { connectTimeout: timeoutMs, reconnectStrategy: false },
+    });
+    client.on('error', () => {});
+    return await Promise.race([
+      (async () => {
+        await client.connect();
+        return (await client.ping()) === 'PONG';
+      })(),
+      new Promise((resolve) => {
+        timer = setTimeout(() => resolve(false), timeoutMs);
+      }),
+    ]);
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+    try {
+      if (client?.isOpen) client.destroy();
+    } catch {
+      // Never expose server messages or credentials through cleanup errors.
+    }
+  }
+}
+
+export function dependencyProbe(environment) {
+  return (target, timeoutMs) =>
+    target.name === 'Redis'
+      ? redisReady(environment.REDIS_URL, timeoutMs)
+      : tcpReady(target, timeoutMs);
+}
+
 export async function waitForDependencies(
   targets,
   {
@@ -208,23 +260,170 @@ export async function waitForDependencies(
     now = () => performance.now(),
     pause = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
     probe = tcpReady,
+    singleAttempt = false,
   } = {},
 ) {
   if (targets.length === 0) return;
   const deadline = now() + timeoutMs;
   let pending = targets;
-  while (now() < deadline) {
+  do {
     const results = await Promise.all(
-      pending.map((target) => probe(target, Math.max(1, Math.min(1_500, deadline - now())))),
+      targets.map((target) => probe(target, Math.max(1, Math.min(1_500, deadline - now())))),
     );
-    pending = pending.filter((_target, index) => !results[index]);
+    pending = targets.filter((_target, index) => !results[index]);
     if (pending.length === 0) return;
+    if (singleAttempt) break;
     const remaining = deadline - now();
     if (remaining > 0) await pause(Math.min(2_000, remaining));
-  }
+  } while (now() < deadline);
   throw new StartupError(
-    `Startup readiness timed out: ${pending.map((target) => target.name).join(', ')}.`,
+    singleAttempt
+      ? `Recovery deferred; dependencies unavailable: ${pending.map((target) => target.name).join(', ')}.`
+      : `Startup readiness timed out: ${pending.map((target) => target.name).join(', ')}.`,
   );
+}
+
+export function apiReadyUrl(environment) {
+  const configured = environment.PORT?.trim() || '3210';
+  const port = Number(configured);
+  if (!/^\d+$/u.test(configured) || !Number.isInteger(port) || port < 1 || port > 65535)
+    throw new StartupError('API port configuration is invalid.');
+  // Never use a public origin, arbitrary host, redirect, or credential-bearing URL.
+  return `http://127.0.0.1:${port}/api/v1/health/ready`;
+}
+
+export async function apiHealth(url, timeoutMs, request = fetch) {
+  try {
+    const parsed = new URL(url);
+    if (
+      parsed.protocol !== 'http:' ||
+      parsed.hostname !== '127.0.0.1' ||
+      parsed.username ||
+      parsed.password ||
+      parsed.pathname !== '/api/v1/health/ready' ||
+      parsed.search ||
+      parsed.hash
+    )
+      return 'unavailable';
+    const response = await request(url, {
+      redirect: 'error',
+      signal: AbortSignal.timeout(timeoutMs),
+      headers: { Accept: 'application/json' },
+    });
+    if (response.status !== 200) {
+      await response.body?.cancel();
+      // A live API deliberately reporting dependency degradation will not benefit from
+      // repeated restarts (e.g. Redis MISCONF still answers PING successfully).
+      return response.status === 503 ? 'degraded' : 'unavailable';
+    }
+    const body = await response.json();
+    return body?.status === 'ready' &&
+      body.database?.ready === true &&
+      body.sessions?.ready === true
+      ? 'ready'
+      : 'degraded';
+  } catch {
+    return 'unavailable';
+  }
+}
+
+export async function apiReady(url, timeoutMs, request = fetch) {
+  return (await apiHealth(url, timeoutMs, request)) === 'ready';
+}
+
+export async function waitForApiReady(
+  url,
+  {
+    timeoutMs = API_READY_TIMEOUT_MS,
+    probe = apiHealth,
+    now = () => performance.now(),
+    pause = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+  } = {},
+) {
+  const deadline = now() + timeoutMs;
+  do {
+    const state = await probe(url, Math.max(1, Math.min(1_500, Math.ceil(deadline - now()))));
+    if (state === true || state === 'ready') return true;
+    if (state === 'degraded')
+      throw new StartupError(
+        'API reports degraded dependencies; recovery deferred without a restart.',
+      );
+    const remaining = deadline - now();
+    if (remaining > 0) await pause(Math.min(1_000, remaining));
+  } while (now() < deadline);
+  return false;
+}
+
+export async function ensureStartup(
+  context,
+  names,
+  {
+    recover = false,
+    probeDependency = dependencyProbe(context.environment),
+    probeApi = apiHealth,
+    pm2 = runPm2,
+    now = () => performance.now(),
+    wallNow = () => Date.now(),
+    pause = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+    log = console.log,
+  } = {},
+) {
+  if (!names.includes('orsem-api'))
+    throw new StartupError('API must be included in Orsem startup.');
+  startupPlan(names, []);
+  const url = apiReadyUrl(context.environment);
+  const targets = dependencyTargets(context.environment);
+  const dependencies = (singleAttempt) =>
+    waitForDependencies(targets, {
+      timeoutMs: singleAttempt ? 1_500 : READY_TIMEOUT_MS,
+      singleAttempt,
+      probe: probeDependency,
+      now,
+      pause,
+    });
+  const health = (timeoutMs = API_READY_TIMEOUT_MS) =>
+    waitForApiReady(url, { timeoutMs, probe: probeApi, now, pause });
+  // Even jlist may create a PM2 daemon. Do not contact PM2 while dependencies are down.
+  await dependencies(recover);
+  const processes = parsePm2Processes(await pm2(context, ['jlist']));
+  const plan = startupPlan(names, processes);
+  if (plan.start.length > 0) {
+    await pm2(context, startArguments(context.root, plan.start));
+    log(`Started: ${plan.start.join(', ')}`);
+  }
+  if (plan.start.includes('orsem-api')) {
+    if (!(await health())) throw new StartupError('API did not become ready after startup.');
+  } else if (plan.active.includes('orsem-api') && !(await health(5_000))) {
+    // Recheck identity after health retries to avoid interrupting a concurrent restart.
+    const previous = processes.find((process) => process.name === 'orsem-api');
+    const current = parsePm2Processes(await pm2(context, ['jlist'])).filter(
+      (process) => process.name === 'orsem-api',
+    );
+    const api = current[0];
+    if (
+      current.length !== 1 ||
+      api.status !== 'online' ||
+      !api.pid ||
+      api.pid !== previous.pid ||
+      api.startedAt !== previous.startedAt ||
+      (recover && (!api.startedAt || wallNow() - api.startedAt < API_START_GRACE_MS))
+    ) {
+      throw new StartupError(
+        'API is not ready; recovery deferred while its process is starting or changing.',
+      );
+    }
+    await dependencies(true);
+    await pm2(context, ['restart', ...startArguments(context.root, ['orsem-api']).slice(1)]);
+    log('Restarted unresponsive orsem-api once.');
+    if (!(await health()))
+      throw new StartupError('API did not become ready after one recovery attempt.');
+  }
+  if (plan.deferred.length > 0) {
+    throw new StartupError(
+      `Startup deferred for transitional processes: ${plan.deferred.join(', ')}.`,
+    );
+  }
+  if (!recover) log('Orsem API readiness confirmed; startup complete.');
 }
 
 async function isExecutable(file) {
@@ -252,11 +451,14 @@ export function safeErrorMessage(error) {
 
 export async function main(args = process.argv.slice(2)) {
   if (args.includes('--help')) {
-    console.log('Usage: node scripts/start-at-boot.mjs [--check | --help]');
+    console.log('Usage: node scripts/start-at-boot.mjs [--check | --recover | --help]');
     console.log('--check selects startup names only; it does not contact PM2 or start services.');
+    console.log(
+      '--recover checks dependencies once and attempts bounded recovery of Orsem services.',
+    );
     return;
   }
-  if (args.some((argument) => argument !== '--check'))
+  if (args.some((argument) => !['--check', '--recover'].includes(argument)) || args.length > 1)
     throw new StartupError('Unknown startup argument.');
   assertSupportedNode(process.versions.node);
   let fileEnvironment;
@@ -267,37 +469,31 @@ export async function main(args = process.argv.slice(2)) {
   }
   const environment = childEnvironment(fileEnvironment, process.env, process.execPath, homedir());
   const names = selectStartupNames(environment, await isExecutable(ollamaBinaryPath(environment)));
-  console.log(`Requested Orsem startup: ${names.join(', ')}`);
+  const recover = args.includes('--recover');
+  if (!recover) console.log(`Requested Orsem startup: ${names.join(', ')}`);
   if (args.includes('--check')) {
     console.log('Dry run complete; no PM2 or service state was changed.');
     return;
   }
-  const targets = dependencyTargets(environment);
-  console.log('Waiting up to 180 seconds for configured MySQL and Redis TCP readiness.');
-  await waitForDependencies(targets);
+  if (!recover)
+    console.log(
+      'Waiting up to 180 seconds for configured MySQL TCP and authenticated Redis readiness.',
+    );
   const context = {
     root: repositoryRoot,
     nodeBin: process.execPath,
     pm2Cli: await findPm2Cli(environment),
     environment,
   };
-  const plan = startupPlan(names, parsePm2Processes(await runPm2(context, ['jlist'])));
-  if (plan.active.length > 0) console.log(`Already active: ${plan.active.join(', ')}`);
-  if (plan.start.length > 0) {
-    await runPm2(context, startArguments(repositoryRoot, plan.start));
-    console.log(`Started: ${plan.start.join(', ')}`);
-  }
-  if (plan.deferred.length > 0) {
-    throw new StartupError(
-      `Startup deferred for transitional processes: ${plan.deferred.join(', ')}.`,
-    );
-  }
-  console.log('Orsem startup complete; unrelated PM2 processes were left unchanged.');
+  await ensureStartup(context, names, {
+    recover,
+    log: (message) => console.log(`[${new Date().toISOString()}] ${message}`),
+  });
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main().catch((error) => {
-    console.error(safeErrorMessage(error));
+    console.error(`[${new Date().toISOString()}] ${safeErrorMessage(error)}`);
     process.exitCode = 1;
   });
 }

@@ -19,6 +19,7 @@ import { MarketWidget } from './market-widget';
 
 const categoryIcons = {
   INDEX: ChartNoAxesCombined,
+  ETF: ChartNoAxesCombined,
   FX: Coins,
   BOND: Landmark,
   METAL: Coins,
@@ -63,7 +64,9 @@ export function MarketCard({
   history?: MarketHistory;
   compact?: boolean;
 }) {
-  const Icon = categoryIcons[item.category];
+  const Icon = Object.hasOwn(categoryIcons, item.category)
+    ? categoryIcons[item.category]
+    : ChartNoAxesCombined;
   const emoji = marketEmoji(item.id);
   const time = marketCardTime(item);
   return (
@@ -93,7 +96,7 @@ export function MarketCard({
         ) : null}
         <ArrowUpRight size={15} aria-hidden="true" />
       </Link>
-      {item.displayKind === 'WIDGET' && (item.widgetSymbol || item.id === 'sp500') ? (
+      {item.displayKind === 'WIDGET' && item.widgetSymbol ? (
         <MarketWidget
           instrumentId={item.id}
           symbol={item.widgetSymbol ?? ''}

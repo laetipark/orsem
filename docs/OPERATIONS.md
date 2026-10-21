@@ -1,5 +1,7 @@
 # 운영
 
+배포 백업과 워커 릴리스의 보관 기간·용량 기준, 모의 실행과 정기 정리는 [저장 용량과 보관 정책](STORAGE_RETENTION.md)을 참고합니다.
+
 ## Python 워커 실행과 점검
 
 Python 3.12 워커와 관리 CLI의 전환 기록은 [배포 이력](DEPLOYMENT_HISTORY.md#python-워커-전환-상태)을 확인합니다. PM2는 `../orsem-data/worker/current/bin/python -m orsem_worker`를 직접 실행합니다. API·웹·Discord는 TypeScript 프로세스를 유지합니다.

@@ -22,7 +22,7 @@ import { api } from '../lib/api';
 import { formatKst } from '../lib/format';
 import { availableHistoryRanges, historyForRange, marketUnit } from '../lib/market-format';
 import { marketHistoryLabels } from '../lib/market-display';
-import { marketOverviewQuery } from '../lib/market-query';
+import { marketOverviewQuery, normalizeMarketHistory } from '../lib/market-query';
 import { marketCollectionTime, marketSourceTime } from '../lib/market-time';
 
 export function MarketsPage() {
@@ -30,7 +30,10 @@ export function MarketsPage() {
   return (
     <div className="page-stack markets-page">
       <div className="page-lead">
-        <p>국내·미국 지수부터 원자재와 가상자산까지, 출처와 기준 시각을 함께 확인합니다.</p>
+        <p>
+          국내 지수·미국 지수 추종 ETF부터 원자재와 가상자산까지, 출처와 기준 시각을 함께
+          확인합니다.
+        </p>
       </div>
       <RegionTabs />
       <MarketOverview region={region} />
@@ -53,21 +56,19 @@ export function MarketDetailPage() {
   const history = useQuery({
     queryKey: ['market-history', id, '1y'],
     queryFn: ({ signal }) => api.marketHistory(id, '1y', signal),
+    select: normalizeMarketHistory,
     enabled: Boolean(item && item.displayKind === 'NATIVE'),
     staleTime: 60_000,
   });
-  const hasFredChart = item?.displayKind === 'WIDGET' && item.id === 'sp500';
   const availableRanges = useMemo(
     () =>
-      hasFredChart
-        ? (['1m', '3m', '1y'] as const)
-        : item?.displayKind === 'WIDGET'
-          ? []
-          : availableHistoryRanges(
-              history.data?.points ?? [],
-              history.data?.asOf ?? new Date().toISOString(),
-            ),
-    [hasFredChart, item?.displayKind, history.data],
+      item?.displayKind === 'WIDGET'
+        ? []
+        : availableHistoryRanges(
+            history.data?.points ?? [],
+            history.data?.asOf ?? new Date().toISOString(),
+          ),
+    [item?.displayKind, history.data],
   );
   const activeRange = availableRanges.includes(range) ? range : '1m';
   const points = useMemo(
@@ -127,7 +128,7 @@ export function MarketDetailPage() {
               {item.message ?? '현재 새 시세를 확인할 수 없어 마지막 관측값을 표시합니다.'}
             </p>
           ) : null}
-          {item.displayKind === 'NATIVE' || hasFredChart ? (
+          {item.displayKind === 'NATIVE' ? (
             <div className="market-chart-toolbar">
               <span>
                 {kind}
@@ -154,7 +155,7 @@ export function MarketDetailPage() {
               </div>
             </div>
           ) : null}
-          {item.displayKind === 'WIDGET' && (item.widgetSymbol || hasFredChart) ? (
+          {item.displayKind === 'WIDGET' && item.widgetSymbol ? (
             <div>
               <p className="market-page-note">{item.description}</p>
               <MarketWidget

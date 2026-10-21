@@ -113,6 +113,94 @@ def parse_toss_indicators(payload, now):
     return result
 
 
+def toss_etf_definition(instrument):
+    definition = DEFINITIONS.get(instrument, {})
+    if (
+        instrument not in ("sp500", "nasdaq")
+        or definition.get("provider") != "TOSS"
+        or definition.get("displayKind") != "NATIVE"
+        or definition.get("region") != "us"
+        or definition.get("currency") != "USD"
+        or not isinstance(definition.get("symbol"), str)
+        or not re.fullmatch(r"[A-Z][A-Z0-9.-]{0,14}", definition["symbol"])
+    ):
+        raise ValueError("Invalid Toss ETF instrument")
+    return definition
+
+
+def toss_etf_raw(raw, definition, endpoint):
+    return {
+        **raw,
+        "requestProvenance": {
+            "provider": "TOSS",
+            "endpoint": endpoint,
+            "symbol": definition["symbol"],
+            "sessionTimeZone": "America/New_York",
+            **({"interval": "1d", "adjusted": False} if endpoint.endswith("/candles") else {}),
+        },
+    }
+
+
+def parse_toss_etf_quote(payload, instrument, now):
+    definition = toss_etf_definition(instrument)
+    rows = records(obj(payload).get("result"), 1)
+    if not rows:
+        return []
+    raw = rows[0]
+    if (
+        raw.get("symbol") != definition["symbol"]
+        or raw.get("currency") != "USD"
+        or not isinstance(raw.get("lastPrice"), str)
+        or raw.get("timestamp") is not None
+        and not isinstance(raw["timestamp"], str)
+    ):
+        raise ValueError("Invalid Toss ETF quote")
+    at = provider_time(raw["timestamp"], now) if raw.get("timestamp") is not None else None
+    row = quote(
+        instrument,
+        number(raw.get("lastPrice"), True),
+        at,
+        toss_etf_raw(raw, definition, "/api/v1/prices"),
+    )
+    row["sourceDate"] = day(at, "America/New_York") if at else None
+    return [row]
+
+
+def parse_toss_etf_daily(payload, instrument, now):
+    definition = toss_etf_definition(instrument)
+    page = obj(obj(payload).get("result"))
+    if "symbol" in page and page["symbol"] != definition["symbol"]:
+        raise ValueError("Unexpected Toss ETF symbol")
+    rows = []
+    for raw in records(page.get("candles"), 200):
+        # Candle responses identify the requested symbol through the request, not a required field.
+        if (
+            raw.get("currency") != "USD"
+            or "symbol" in raw
+            and raw["symbol"] != definition["symbol"]
+            or not isinstance(raw.get("closePrice"), str)
+            or not isinstance(raw.get("timestamp"), str)
+        ):
+            raise ValueError("Invalid Toss ETF candle")
+        at = provider_time(raw.get("timestamp"), now)
+        source = day(at, "America/New_York")
+        rows.append(
+            {
+                "instrumentId": instrument,
+                "kind": "DAILY",
+                "period": source,
+                "sourceDate": source,
+                "providerAt": at,
+                "value": number(raw.get("closePrice"), True),
+                "raw": toss_etf_raw(raw, definition, "/api/v1/candles"),
+            }
+        )
+    cursor = page.get("nextBefore")
+    if cursor is not None:
+        instant(cursor)
+    return rows, cursor
+
+
 def parse_toss_fx(payload, now):
     raw = obj(obj(payload).get("result"))
     if raw.get("baseCurrency") != "USD" or raw.get("quoteCurrency") != "KRW":
@@ -438,12 +526,14 @@ class Indicators:
             return [
                 ("TOSS", ["kospi", "kosdaq"], self.toss.enabled),
                 ("TOSS", ["usd-krw"], self.toss.enabled),
+                ("TOSS", ["sp500"], self.toss.enabled),
+                ("TOSS", ["nasdaq"], self.toss.enabled),
                 ("BITHUMB", ["btc", "eth"], True),
                 ("GOLD_API", ["gold"], True),
                 ("GOLD_API", ["silver"], True),
             ]
         return (
-            [("TOSS", [i], self.toss.enabled) for i in ("kospi", "kosdaq")]
+            [("TOSS", [i], self.toss.enabled) for i in ("kospi", "kosdaq", "sp500", "nasdaq")]
             + [("BITHUMB", [i], True) for i in ("btc", "eth")]
             + [("TREASURY", ["us2y", "us10y"], True)]
             + [("GOLD_API", [i], bool(self.ctx.config.goldApiKey)) for i in ("gold", "silver")]
@@ -453,12 +543,24 @@ class Indicators:
     async def collect(self, source, ids, mode, now):
         instrument = ids[0]
         start = now - timedelta(days=370)
+        history_start = (
+            day(start, "America/New_York")
+            if instrument in ("sp500", "nasdaq")
+            else start.date().isoformat()
+        )
         if mode == "quotes":
             if source == "TOSS" and instrument == "kospi":
                 return parse_toss_indicators(
                     await self.toss.get(
                         "/api/v1/market-indicators/prices", {"symbols": "KOSPI,KOSDAQ"}
                     ),
+                    now,
+                )
+            if source == "TOSS" and instrument in ("sp500", "nasdaq"):
+                definition = toss_etf_definition(instrument)
+                return parse_toss_etf_quote(
+                    await self.toss.get("/api/v1/prices", {"symbols": definition["symbol"]}),
+                    instrument,
                     now,
                 )
             if source == "TOSS":
@@ -484,12 +586,22 @@ class Indicators:
             before = None
             for _ in range(3 if source == "TOSS" else 2):
                 if source == "TOSS":
-                    part, cursor = parse_toss_daily(
+                    etf = instrument in ("sp500", "nasdaq")
+                    definition = toss_etf_definition(instrument) if etf else None
+                    parser = parse_toss_etf_daily if etf else parse_toss_daily
+                    part, cursor = parser(
                         await self.toss.get(
-                            f"/api/v1/market-indicators/{instrument.upper()}/candles",
+                            "/api/v1/candles"
+                            if etf
+                            else f"/api/v1/market-indicators/{instrument.upper()}/candles",
                             {
                                 "interval": "1d",
                                 "count": "200",
+                                **(
+                                    {"symbol": definition["symbol"], "adjusted": "false"}
+                                    if definition
+                                    else {}
+                                ),
                                 **({"before": before} if before else {}),
                             },
                         ),
@@ -517,13 +629,15 @@ class Indicators:
                     or source == "BITHUMB"
                     and len(part) < 200
                     or source == "TOSS"
-                    and any(r["sourceDate"] < start.date().isoformat() for r in part)
+                    and any(r["sourceDate"] < history_start for r in part)
                 ):
                     break
-                if before and cursor >= before:
+                if before and (
+                    instant(cursor) >= instant(before) if source == "TOSS" else cursor >= before
+                ):
                     raise ValueError("Indicator history pagination made no progress")
                 before = cursor
-            return [r for r in rows if r["sourceDate"] >= start.date().isoformat()]
+            return [r for r in rows if r["sourceDate"] >= history_start]
         if source == "TREASURY":
             rows = []
             for year in range(start.year, now.year + 1):
@@ -592,7 +706,7 @@ class Indicators:
             current.extend(
                 camel(row)
                 for row in await tx.fetch_all(
-                    "SELECT instrument_id,kind,period,value,source_date,provider_at,first_observed_at FROM market_observations WHERE "
+                    "SELECT instrument_id,kind,period,value,source_date,provider_at,first_observed_at,source FROM market_observations WHERE "
                     + " OR ".join(clauses)
                     + " FOR UPDATE",
                     params,
@@ -612,6 +726,8 @@ class Indicators:
         daily: dict[str, dict[str, dict[str, Any]]] = {}
 
         def add(row):
+            if row["instrumentId"] in ("sp500", "nasdaq") and row.get("source", "TOSS") != "TOSS":
+                return
             source_date = date_text(row.get("sourceDate"))
             if source_date is not None:
                 daily.setdefault(row["instrumentId"], {})[source_date] = row
@@ -619,14 +735,19 @@ class Indicators:
         for offset in range(0, len(targets), 200):
             clauses, params = [], {}
             for i, (instrument, before) in enumerate(targets[offset : offset + 200]):
+                etf = instrument in ("sp500", "nasdaq")
                 clauses.append(
-                    f"(instrument_id=:instrument{i} AND kind='DAILY' AND source_date="
+                    f"(instrument_id=:instrument{i} AND kind='DAILY' "
+                    + ("AND source='TOSS' " if etf else "")
+                    + "AND source_date="
                     f"(SELECT MAX(prior.source_date) FROM market_observations prior "
-                    f"WHERE prior.instrument_id=:instrument{i} AND prior.kind='DAILY' AND prior.source_date<:before{i}))"
+                    f"WHERE prior.instrument_id=:instrument{i} AND prior.kind='DAILY' "
+                    + ("AND prior.source='TOSS' " if etf else "")
+                    + f"AND prior.source_date<:before{i}))"
                 )
                 params.update({f"instrument{i}": instrument, f"before{i}": before})
             for row in await tx.fetch_all(
-                "SELECT instrument_id,source_date,value FROM market_observations WHERE "
+                "SELECT instrument_id,source_date,value,source FROM market_observations WHERE "
                 + " OR ".join(clauses),
                 params,
             ):

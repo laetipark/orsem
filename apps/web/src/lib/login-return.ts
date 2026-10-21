@@ -2,7 +2,7 @@ const storageKey = 'orsem-login-return-v1';
 const maxAge = 30 * 60_000;
 const uuid = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 const destinationPattern = new RegExp(
-  `^/(?:events(?:/${uuid})?|companies(?:/(?:[A-Z]+:)?[A-Z0-9][A-Z0-9.-]{0,63})?|news(?:/${uuid})?|operations|settings/notifications|watchlist(?:/popout)?|reviews|markets(?:/[a-z0-9-]{1,32})?|search|sources)?$`,
+  `^/(?:events(?:/${uuid})?|companies(?:/(?:[A-Z]+:)?[A-Z0-9][A-Z0-9.-]{0,63})?|news(?:/${uuid}|/naver)?|analysis|operations|settings/notifications|watchlist(?:/popout)?|reviews|markets(?:/[a-z0-9-]{1,32})?|search|sources)?$`,
   'i',
 );
 

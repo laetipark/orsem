@@ -24,10 +24,12 @@ class RawDocumentStore:
                 "RAW_DOCUMENT_DIR must be an absolute directory outside the repository."
             )
 
-    async def put(self, data: bytes) -> dict:
-        return await asyncio.to_thread(self._put, bytes(data))
+    async def put(self, data: bytes, *, extension: str = "zip") -> dict:
+        return await asyncio.to_thread(self._put, bytes(data), extension)
 
-    def _put(self, data: bytes) -> dict:
+    def _put(self, data: bytes, extension: str = "zip") -> dict:
+        if extension not in ("zip", "json", "xml", "html", "xlsx"):
+            raise ValueError("Unsupported raw object extension.")
         digest = hashlib.sha256(data).hexdigest()
         directory = self.root / digest[:2]
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -44,7 +46,7 @@ class RawDocumentStore:
                     path.unlink()
             except FileNotFoundError:
                 pass
-        target = directory / f"{digest}.zip"
+        target = directory / f"{digest}.{extension}"
         temporary = directory / f".{digest}.tmp-{os.getpid()}-{uuid4()}"
         created = False
         try:

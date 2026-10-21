@@ -10,8 +10,8 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { resolve } from 'node:path';
-import { APP_CONFIG, loadAppConfig } from './config/app-config';
-import { DatabaseRuntimeService } from './persistence/database-runtime.service';
+import { PersistenceModule } from './persistence/persistence.module';
+import { AnalysisModule } from './analysis/analysis.module';
 import { FixtureStoreService } from './fixtures/fixture-store.service';
 import { OrsemDataService } from './resources/orsem-data.service';
 import { LivePriceService } from './resources/live-price.service';
@@ -41,7 +41,10 @@ import { WorkerQueueService } from './operations/worker-queue.service';
 import { SearchController } from './search/search.controller';
 import { SearchService } from './search/search.service';
 import { MarketsController } from './markets/markets.controller';
+import { PublicMarketsController } from './markets/public-markets.controller';
 import { MarketsService } from './markets/markets.service';
+import { PublicResourcesController } from './public/public-resources.controller';
+import { PublicResourcesService } from './public/public-resources.service';
 import { NotificationsController } from './notifications/notifications.controller';
 import { NotificationsService } from './notifications/notifications.service';
 import { NaverNewsSearchController } from './news-search/naver-news-search.controller';
@@ -59,6 +62,8 @@ import { WatchlistGroupsService } from './watchlist-groups/watchlist-groups.serv
       cache: true,
       envFilePath: resolve(__dirname, '../../../.env'),
     }),
+    PersistenceModule,
+    AnalysisModule,
   ],
   controllers: [
     CompanyLogoController,
@@ -70,6 +75,8 @@ import { WatchlistGroupsService } from './watchlist-groups/watchlist-groups.serv
     WatchlistGroupsController,
     WatchlistRoomsController,
     MarketsController,
+    PublicMarketsController,
+    PublicResourcesController,
     NotificationsController,
     ...RESOURCE_CONTROLLERS,
     HealthController,
@@ -79,8 +86,6 @@ import { WatchlistGroupsService } from './watchlist-groups/watchlist-groups.serv
     DiscordBotController,
   ],
   providers: [
-    { provide: APP_CONFIG, useFactory: loadAppConfig },
-    DatabaseRuntimeService,
     SessionRuntimeService,
     FixtureStoreService,
     OrsemDataService,
@@ -101,6 +106,7 @@ import { WatchlistGroupsService } from './watchlist-groups/watchlist-groups.serv
     WatchlistRoomsService,
     CompanyObservationService,
     MarketsService,
+    PublicResourcesService,
     NotificationsService,
     BotService,
     WorkerQueueService,

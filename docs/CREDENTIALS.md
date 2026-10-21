@@ -27,7 +27,7 @@
 | 모바일·브라우저 알림        | `../.config/orsem/credentials/web-push.json` → `WEB_PUSH_CREDENTIALS_FILE`; JSON은 `publicKey`, `privateKey`, `subject`       | API·worker. `npm run push:setup`으로 한 번 생성. 저장소 밖 절대 경로와 파일 `0600` 필수. [설정 안내](WEB_PUSH.md) |
 | Gold API 금·은 이력         | `../.config/orsem/runtime.env`의 `GOLD_API_KEY`                                                                               | worker. [로그인·무료 가입](https://gold-api.com/login) 후 계정에서 API 키 확인. 현재가에는 키 불필요              |
 | EIA WTI 현물 가격           | `../.config/orsem/runtime.env`의 `EIA_API_KEY`                                                                                | worker. [키 등록](https://www.eia.gov/opendata/register.php) 후 이메일로 수신                                     |
-| 빗썸 시세·TradingView 위젯  | 키 불필요                                                                                                                     | 빗썸은 공개 현재가·일봉 API, 미국 지수는 TradingView의 FRED 일별 지수 위젯 사용                                   |
+| 빗썸 시세                   | 키 불필요                                                                                                                     | 공개 현재가·일봉 API                                                                                              |
 | OpenDART                    | `../.config/orsem/runtime.env`의 `OPENDART_API_KEY`                                                                           | API·worker. `OPENDART_CREDENTIALS_FILE`은 지원하지 않음                                                           |
 | NAVER 뉴스 검색             | `../.config/orsem/runtime.env`의 `NAVER_API_PROVIDER`, `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET`                               | API. `developers`(기본값) 또는 `ncloud`와 키 발급처를 일치시킴. 전용 JSON 로더 없음                               |
 | Alpaca 기업 식별 정보       | `../.config/orsem/runtime.env`의 `ALPACA_API_KEY`, `ALPACA_API_SECRET`; 공개 설정 `ALPACA_TRADING_BASE_URL`                   | API·worker. 현재 자산 마스터용이며 가격 수집·주문 실행에 사용하지 않음. 전용 JSON 로더 없음                       |
@@ -43,6 +43,8 @@
 | KIS·한국투자증권            | 현재 커넥터·자격 증명 변수 없음                                                                                               | 키를 배치해도 연결되지 않음                                                                                       |
 | KRX 가격                    | 현재 키 설정 없음                                                                                                             | 이전 가격 수집은 종료됨. 토스의 국내 시세에 나오는 KRX 표시는 별도 KRX 키가 필요하다는 뜻이 아님                  |
 | Telegram                    | 현재 봇 구현·자격 증명 변수 없음                                                                                              | 계약의 채널 유형에 이름이 있어도 `TELEGRAM_BOT_TOKEN`을 읽거나 전송하지 않음                                      |
+
+미국 시장 카드의 SPY·ONEQ ETF 현재가·일봉은 같은 토스증권 연결과 공유 토큰을 사용하며, 추가 공급자 키는 필요하지 않습니다.
 
 단일 사용자 운영에서는 환경 변수 전용 값을 `../.config/orsem/runtime.env`에 모으면 설정 누락을 줄일 수 있습니다. 프로세스별 운영 계정이나 배포가 나뉘면 해당 외부 설정 디렉터리에 API·worker·Discord별 환경 파일을 나누어 필요한 값만 전달합니다. 현재 PM2 템플릿은 이 분리를 자동으로 수행하지 않습니다.
 

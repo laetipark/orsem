@@ -205,6 +205,7 @@ class WorkerQueueName(StrEnum):
 
 
 class WorkerJobName(StrEnum):
+    PROCESS_ANALYSIS_JOB = "process-analysis-job"
     POLL_OPENDART = "poll-opendart"
     BACKFILL_OPENDART = "backfill-opendart"
     SYNC_CORP_CODES = "sync-opendart-corp-codes"

@@ -11,6 +11,7 @@ dependencies = [
   "bullmq==2.26.0", "SQLAlchemy>=2.0,<2.1", "asyncmy>=0.2,<0.3",
   "httpx>=0.28,<0.29", "pydantic>=2,<3", "redis==7.4.0",
   "websockets>=15,<17", "pywebpush>=2,<3", "python-dotenv>=1,<2",
+  "openpyxl==3.1.5",
   "lxml>=5,<7", "defusedxml>=0.7,<0.8", "charset-normalizer>=3,<4", "regex>=2024.11.6",
 ]
 

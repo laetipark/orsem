@@ -25,7 +25,7 @@ export function LoginPage({ session }: { session: Session }) {
     enabled: !session.authenticated,
   });
   const refreshSession = useMutation({
-    mutationFn: api.session,
+    mutationFn: () => api.session(),
     onSuccess: (nextSession) => queryClient.setQueryData(['session'], nextSession),
   });
   const logout = useMutation({
@@ -34,10 +34,12 @@ export function LoginPage({ session }: { session: Session }) {
       return api.logout();
     },
     onSuccess: async (nextSession) => {
-      await queryClient.cancelQueries();
-      queryClient.removeQueries({ predicate: (query) => query.queryKey[0] !== 'session' });
+      await queryClient.cancelQueries({ predicate: (query) => query.queryKey[0] !== 'public' });
+      queryClient.removeQueries({
+        predicate: (query) => query.queryKey[0] !== 'session' && query.queryKey[0] !== 'public',
+      });
       queryClient.setQueryData(['session'], nextSession);
-      void navigate('/login', { replace: true });
+      void navigate('/', { replace: true });
     },
   });
   if (session.authenticated && session.canAccess)

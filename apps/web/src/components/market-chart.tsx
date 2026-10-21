@@ -10,7 +10,7 @@ import {
 } from 'lightweight-charts';
 import { useTheme } from '../theme';
 import { formatDate } from '../lib/format';
-import { marketAmount } from '../lib/market-format';
+import { marketAmount, marketValueUnit } from '../lib/market-format';
 import './market-chart.css';
 
 export function MarketChart({
@@ -133,7 +133,8 @@ export function MarketChart({
             </select>
           </label>
           <strong>
-            {marketAmount(selected.value, currency)} <small>{unit}</small>
+            {marketAmount(selected.value, currency)}{' '}
+            <small>{marketValueUnit(unit, currency)}</small>
           </strong>
         </div>
       ) : null}

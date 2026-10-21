@@ -1,12 +1,14 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { lazy, Suspense, useLayoutEffect, useRef } from 'react';
-import { Navigate, Outlet, Route, Routes } from 'react-router-dom';
-import { api, ApiError } from './lib/api';
+import { lazy, Suspense, useLayoutEffect, useMemo, useRef } from 'react';
+import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom';
+import { ApiError, isTemporaryApiError } from './lib/api';
+import { sessionQueryOptions } from './lib/session-query';
 import { postWatchlistPopoutMessage, watchlistPictureInPictureOwner } from './lib/watchlist-popout';
-import { RequireLoginRedirect } from './components/login-redirect';
 import { AppShell } from './components/app-shell';
 import { Button, ErrorState, LoadingState } from './components/ui';
 import './app-session.css';
+
+const GuestRoutes = lazy(() => import('./guest-routes'));
 
 const LoginPage = lazy(() =>
   import('./pages/login-page').then((module) => ({ default: module.LoginPage })),
@@ -28,6 +30,11 @@ const CompaniesPage = lazy(() =>
 );
 const CompanyPage = lazy(() =>
   import('./pages/company-page').then((module) => ({ default: module.CompanyPage })),
+);
+const DisclosureAnalysisPage = lazy(() =>
+  import('./pages/disclosure-analysis-page').then((module) => ({
+    default: module.DisclosureAnalysisPage,
+  })),
 );
 const WatchlistPage = lazy(() =>
   import('./pages/watchlist-page').then((module) => ({ default: module.WatchlistPage })),
@@ -81,15 +88,14 @@ export function App() {
 }
 
 function SessionApp() {
+  const location = useLocation();
+  const publicPath =
+    /^(?:\/(?:markets|companies|news)(?:\/[^/]+)?|\/)\/?$/.test(location.pathname) &&
+    location.pathname.replace(/\/+$/, '') !== '/news/naver';
   const queryClient = useQueryClient();
-  const session = useQuery({
-    queryKey: ['session'],
-    queryFn: api.session,
-    retry: false,
-    refetchInterval: 60_000,
-    refetchIntervalInBackground: false,
-    refetchOnWindowFocus: true,
-  });
+  const options = useMemo(sessionQueryOptions, []);
+  const session = useQuery(options);
+  const transientSessionError = session.isError && isTemporaryApiError(session.error);
   const sessionRejected = useRef(false);
   const authorizationError =
     session.isError &&
@@ -99,16 +105,27 @@ function SessionApp() {
     if (authorizationError) sessionRejected.current = true;
     else if (session.isSuccess) sessionRejected.current = false;
   }, [authorizationError, session.isSuccess]);
-  const audience = session.data
-    ? `${session.data.authenticated}:${session.data.canAccess}:${session.data.user?.role ?? ''}:${session.data.user?.id ?? ''}`
-    : null;
+  const sessionUsable =
+    Boolean(session.data) &&
+    (!session.isError || (transientSessionError && !sessionRejected.current));
+  const audience =
+    sessionUsable && session.data
+      ? `${session.data.authenticated}:${session.data.canAccess}:${session.data.user?.role ?? ''}:${session.data.user?.id ?? ''}`
+      : session.isPending
+        ? null
+        : 'unconfirmed';
   const previousAudience = useRef(audience);
-  const hasAccess = session.data?.authenticated && session.data.canAccess;
+  const hasAccess = sessionUsable && session.data?.authenticated && session.data.canAccess;
   useLayoutEffect(() => {
     if (audience === null) return;
     if (previousAudience.current !== null && previousAudience.current !== audience) {
       // Standalone authenticated routes need the same account isolation as AppShell.
-      queryClient.removeQueries({ predicate: (query) => query.queryKey[0] !== 'session' });
+      const privateQueries = {
+        predicate: (query: { queryKey: readonly unknown[] }) =>
+          query.queryKey[0] !== 'session' && query.queryKey[0] !== 'public',
+      };
+      void queryClient.cancelQueries(privateQueries);
+      queryClient.removeQueries(privateQueries);
     }
     previousAudience.current = audience;
     if (!hasAccess) {
@@ -122,6 +139,26 @@ function SessionApp() {
     }
   }, [audience, hasAccess, queryClient]);
 
+  const connectionFailed = useRef(false);
+  useLayoutEffect(() => {
+    if (transientSessionError) connectionFailed.current = true;
+    else if (session.isSuccess && connectionFailed.current) {
+      connectionFailed.current = false;
+      // Resume visible data that failed during the same outage, after account isolation above.
+      void queryClient.refetchQueries(
+        {
+          type: 'active',
+          predicate: (query) =>
+            query.queryKey[0] !== 'session' &&
+            query.state.status === 'error' &&
+            isTemporaryApiError(query.state.error),
+        },
+        { cancelRefetch: false },
+      );
+    }
+  }, [transientSessionError, session.isSuccess, queryClient]);
+
+  if (session.isPending && publicPath) return <GuestRoutes />;
   if (session.isPending)
     return (
       <div className="fullscreen-state">
@@ -130,40 +167,74 @@ function SessionApp() {
     );
   // A failed background check does not invalidate a previously confirmed session.
   // Explicit authorization errors must still hide the authenticated application.
-  const transientSessionError =
-    session.isError &&
-    (!(session.error instanceof ApiError) ||
-      session.error.statusCode >= 500 ||
-      session.error.statusCode === 408 ||
-      session.error.statusCode === 429);
-  if (
-    !session.data ||
-    (session.isError && !(hasAccess && transientSessionError && !sessionRejected.current))
-  )
+  if (!sessionUsable) {
+    if (publicPath)
+      return (
+        <>
+          <div role="status" className="session-connection-notice">
+            <span>
+              {transientSessionError
+                ? '로그인 상태를 확인하지 못했습니다. 공개 차트와 뉴스는 계속 이용할 수 있습니다.'
+                : (session.error?.message ?? '로그인 상태를 확인하지 못했습니다.')}
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={session.isFetching}
+              onClick={() => void session.refetch()}
+            >
+              연결 다시 확인
+            </Button>
+          </div>
+          <GuestRoutes />
+        </>
+      );
     return (
       <div className="fullscreen-state">
-        <ErrorState
-          message={session.error?.message ?? '로그인 상태를 확인하지 못했습니다.'}
-          onRetry={() => void session.refetch()}
-        />
+        {transientSessionError ? (
+          <section className="session-unavailable" role="status" aria-live="polite">
+            <h1>서버에 잠시 연결할 수 없습니다</h1>
+            <p>서버가 다시 시작 중이거나 연결이 지연되고 있습니다.</p>
+            <p>잠시 후 자동으로 다시 연결합니다.</p>
+            <Button disabled={session.isFetching} onClick={() => void session.refetch()}>
+              {session.isFetching ? '연결 확인 중…' : '다시 연결'}
+            </Button>
+          </section>
+        ) : (
+          <ErrorState
+            message={session.error?.message ?? '로그인 상태를 확인하지 못했습니다.'}
+            onRetry={() => void session.refetch()}
+          />
+        )}
       </div>
     );
+  }
 
-  const value = session.data;
+  const connectionNotice = transientSessionError ? (
+    <div role="status" aria-live="polite" className="session-connection-notice">
+      <span>서버 연결이 원활하지 않습니다. 잠시 후 자동으로 다시 연결합니다.</span>
+      <Button
+        variant="ghost"
+        size="sm"
+        disabled={session.isFetching}
+        onClick={() => void session.refetch()}
+      >
+        연결 다시 확인
+      </Button>
+    </div>
+  ) : null;
+  const value = session.data!;
   if (!value.authenticated || !value.canAccess) {
     return (
       <Suspense
         fallback={
           <div className="fullscreen-state">
-            <LoadingState label="로그인 화면을 준비하는 중입니다." />
+            <LoadingState label="화면을 준비하는 중입니다." />
           </div>
         }
       >
-        <Routes>
-          <Route path="/login" element={<LoginPage session={value} />} />
-          <Route path="/admin/login" element={<AdminLoginPage session={value} />} />
-          <Route path="*" element={<RequireLoginRedirect />} />
-        </Routes>
+        {connectionNotice}
+        <GuestRoutes session={value} />
       </Suspense>
     );
   }
@@ -176,19 +247,7 @@ function SessionApp() {
         </div>
       }
     >
-      {transientSessionError ? (
-        <div role="status" aria-live="polite" className="session-connection-notice">
-          <span>연결이 원활하지 않아 로그인 상태를 다시 확인하고 있습니다.</span>
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={session.isFetching}
-            onClick={() => void session.refetch()}
-          >
-            연결 다시 확인
-          </Button>
-        </div>
-      ) : null}
+      {connectionNotice}
       <Routes>
         <Route path="/login" element={<LoginPage session={value} />} />
         <Route path="/admin/login" element={<AdminLoginPage session={value} />} />
@@ -207,6 +266,7 @@ function SessionApp() {
           <Route path="events/:id" element={<EventDetailPage />} />
           <Route path="companies" element={<CompaniesPage />} />
           <Route path="companies/:id" element={<CompanyPage />} />
+          <Route path="analysis" element={<DisclosureAnalysisPage />} />
           <Route path="settings/notifications" element={<NotificationsPage />} />
           <Route path="sources" element={<SourcesPage />} />
           <Route path="watchlist" element={<WatchlistPage />} />

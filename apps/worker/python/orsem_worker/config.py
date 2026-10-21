@@ -171,6 +171,9 @@ def load_config(environment: Mapping[str, str] | None = None) -> Config:
     for key, variable in optional_fields.items():
         values[key] = _text(env.get(variable))
     for key, variable, default in [
+        ("analysisEnabled", "ANALYSIS_ENABLED", False),
+        ("analysisDocumentsEnabled", "ANALYSIS_DOCUMENTS_ENABLED", False),
+        ("analysisNotesEnabled", "ANALYSIS_NOTES_ENABLED", False),
         ("secForm4Enabled", "SEC_FORM4_ENABLED", True),
         ("gdeltEnabled", "GDELT_ENABLED", False),
         ("alpacaNewsEnabled", "ALPACA_NEWS_ENABLED", False),

@@ -705,7 +705,7 @@ export interface MarketInstrument {
   id: string;
   name: string;
   region: 'kr' | 'us' | 'global';
-  category: 'INDEX' | 'FX' | 'BOND' | 'METAL' | 'ENERGY' | 'CRYPTO';
+  category: 'INDEX' | 'ETF' | 'FX' | 'BOND' | 'METAL' | 'ENERGY' | 'CRYPTO';
   currency: 'KRW' | 'USD' | null;
   unit: string;
   provider: string;

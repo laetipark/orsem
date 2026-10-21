@@ -128,11 +128,18 @@ node --version
 
 ```cron
 @reboot cd "REPO_ROOT" && flock -n ../orsem-data/orsem-boot.lock "NODE_BINARY" scripts/start-at-boot.mjs >> ../orsem-data/logs/boot.log 2>&1
+*/2 * * * * cd "REPO_ROOT" && flock -n ../orsem-data/orsem-boot.lock "NODE_BINARY" scripts/start-at-boot.mjs --recover >> ../orsem-data/logs/recovery.log 2>&1
 ```
 
 Node 24를 업그레이드하거나 옮기면 절대 경로를 수정합니다. 부팅 스크립트는 다른 앱이 이전 Node로 공용 PM2 데몬을 시작했더라도 Orsem의 PM2 자식 프로세스가 이 Node 실행 파일을 사용하도록 고정합니다. 수동 ecosystem 명령에서도 `ORSEM_NODE_BIN`으로 실행 파일을 명시할 수 있습니다.
 
-스크립트는 MySQL·Redis TCP 연결을 최대 3분 기다린 뒤 API와 worker를 시작하고, 필요한 설정이 있을 때만 로컬 Ollama·Discord를 시작합니다. 이미 실행 중이거나 시작 중인 Orsem 프로세스는 건드리지 않습니다. 패키지 설치, 코드 빌드, 마이그레이션, 전역 PM2 저장본 복원, 다른 애플리케이션의 중지·재시작은 수행하지 않습니다. 기존 `cron`, MySQL, Redis, Nginx 서비스를 활성화 상태로 유지합니다. 사용자 crontab 부팅 작업에는 데스크톱 로그인이나 `loginctl enable-linger`가 필요하지 않습니다.
+부팅 스크립트는 MySQL 연결과 인증된 Redis `PING`을 최대 3분 기다린 뒤 API와 worker를 시작하고, 필요한 설정이 있을 때만 로컬 Ollama·Discord를 시작합니다. 모든 의존 서비스를 매 시도마다 다시 확인하며, API의 실제 `/api/v1/health/ready` 응답까지 확인해야 시작 완료로 보고합니다. PM2의 `online` 표시만으로는 준비가 끝났다고 판단하지 않습니다.
+
+`--recover`는 의존 서비스를 한 차례 확인하고 사용할 수 없으면 PM2 변경 없이 종료합니다. 부팅 시 Redis가 늦게 복구되어도 2분 주기 작업이 이어서 시작할 수 있습니다. 동일한 `flock` 파일로 부팅·주기 작업의 중복 실행을 막습니다. 실행 중인 정상 프로세스와 시작·종료 중인 프로세스는 유지하며, 실제 PID가 없는 `waiting restart` 상태는 다시 시작할 수 있습니다. API가 응답하지 않을 때만 제한적으로 복구하며, 새로 시작한 API에는 60초 유예를 줍니다.
+
+API가 의존성 문제를 나타내는 503을 응답하면 재시작을 반복하지 않고 원인 해결을 기다립니다. 최초 MySQL 초기화에 실패한 API가 DB 복구 후에도 503을 유지할 때는 운영자가 API를 명시적으로 재시작해야 합니다. 정상 주기 점검은 로그를 남기지 않으며 실제 시작·복구·오류에는 UTC ISO 시각을 기록합니다.
+
+패키지 설치, 코드 빌드, 마이그레이션, 전역 PM2 저장본 복원, 다른 애플리케이션의 중지·재시작은 수행하지 않습니다. 손상된 Redis 파일을 주기 작업에서 자동으로 잘라내거나 삭제하지 않습니다. 기존 `cron`, MySQL, Redis, Nginx 서비스를 활성화 상태로 유지합니다. 사용자 crontab 부팅 작업에는 데스크톱 로그인이나 `loginctl enable-linger`가 필요하지 않습니다.
 
 실행 중인 프로세스를 바꾸지 않고 검증합니다.
 
@@ -141,7 +148,7 @@ node scripts/start-at-boot.mjs --check
 npm run test:boot
 ```
 
-부팅 설정을 변경한 뒤에는 해당 스크립트를 한 번 직접 실행해 API 준비 상태, worker 시작, 선택 프로세스를 확인합니다. 다음 실제 부팅 후 `../orsem-data/logs/boot.log`를 확인합니다. 수정 전에 기존 crontab을 백업하며, 이 항목에 별도의 Orsem 부팅 작업이나 전역 `pm2 kill`을 함께 적용하지 않습니다.
+부팅 설정을 변경한 뒤에는 해당 스크립트를 한 번 직접 실행해 API 준비 상태, worker 시작, 선택 프로세스를 확인합니다. 다음 실제 부팅 후 `../orsem-data/logs/boot.log`와 `recovery.log`를 확인합니다. 수정 전에 기존 crontab을 백업하며, 각 Orsem 항목은 하나씩만 유지합니다. 별도의 Orsem 부팅 작업이나 전역 `pm2 kill`을 함께 적용하지 않습니다. 커널 충돌과 Redis AOF 손상 대응은 [2026년 10월 장애 기록](INCIDENT-2026-10-09.md)을 참고합니다.
 
 ## 5. Nginx와 TLS
 

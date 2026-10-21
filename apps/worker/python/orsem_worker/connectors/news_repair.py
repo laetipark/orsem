@@ -4,6 +4,7 @@ import json
 import unicodedata
 from copy import deepcopy
 from pathlib import Path
+from typing import Any
 
 from orsem_worker.admin_cli.common import (
     AdminError,
@@ -219,7 +220,7 @@ def repair_projection(
     if metadata != (source.get("raw_metadata_json") or {}):
         source_patch["raw_metadata_json"] = metadata
     news_patch = {"id": news["id"]} if news else None
-    if news:
+    if news and news_patch is not None:
         if news.get("company_id") != primary:
             news_patch["company_id"] = primary
         tickers = sorted(strings(news.get("tickers_json")) - removed_symbols) or None
@@ -266,7 +267,7 @@ async def repair_news_company_links(db, company_ids, output_dir, *, apply=False,
     )
     if len(snapshots) > max_sources:
         raise AdminError("NEWS_REPAIR_SOURCE_LIMIT")
-    summary = {
+    summary: dict[str, Any] = {
         "mode": "APPLY" if apply else "DRY_RUN",
         "matcherVersion": NEWS_MATCHER_VERSION,
         "companyIds": sorted(target_ids),

@@ -177,7 +177,7 @@ test('A Toss quote without provider time shows its observation time without an i
   assert.match(result.message!, /제공 시각 미확인/u);
 });
 
-test('Market region filters preserve global assets only under all and widgets contain no synthetic quotes', async () => {
+test('Market region filters preserve global assets only under all and unconfigured ETFs contain no synthetic quotes', async () => {
   const config = loadAppConfig({ NODE_ENV: 'test', FIXTURE_MODE: 'true' });
   const service = new MarketsService(config, {} as DatabaseRuntimeService);
   const kr = await service.overview('kr');
@@ -192,10 +192,131 @@ test('Market region filters preserve global assets only under all and widgets co
     ['sp500', 'nasdaq', 'us2y', 'us10y'],
   );
   assert.ok(all.items.some((item) => item.id === 'btc'));
-  assert.equal(us.items[0]!.status, 'EMBEDDED');
-  assert.equal(us.items[0]!.value, null);
+  for (const item of us.items.filter((item) => item.category === 'ETF')) {
+    assert.equal(item.status, 'NOT_CONFIGURED');
+    assert.equal(item.value, null);
+    assert.equal(item.currency, 'USD');
+    assert.equal(item.displayKind, 'NATIVE');
+    assert.equal(item.widgetSymbol, null);
+    assert.equal((await service.history(item.id, '1m')).status, 'NOT_CONFIGURED');
+  }
   assert.equal((await service.history('gold', '1m')).status, 'NOT_CONFIGURED');
   await assert.rejects(() => service.history('unknown', '1m'), /시장 지표/);
+});
+
+test('US ETF comparison dates follow New York sessions across UTC midnight', () => {
+  const checked = new Date('2026-09-05T00:31:00Z');
+  const result = projectMarketQuote(
+    instrument('sp500'),
+    [
+      row('sp500', '550', {
+        sourceDate: null,
+        providerAt: new Date('2026-09-05T00:30:00Z'),
+        lastObservedAt: checked,
+      }),
+      row('sp500', '548', { kind: 'DAILY', sourceDate: '2026-09-04' }),
+      row('sp500', '540', { kind: 'DAILY', sourceDate: '2026-09-03' }),
+    ],
+    undefined,
+    true,
+    checked,
+  );
+  assert.equal(result.valueDate, '2026-09-04');
+  assert.equal(result.referenceDate, '2026-09-03');
+  assert.equal(result.referenceValue, '540');
+  assert.equal(result.change, '10');
+  assert.equal(result.currency, 'USD');
+});
+
+test('US ETF closed-session freshness respects the latest weekday close, DST and regular hours', () => {
+  const cases: Array<[string, string, MarketQuoteStatus]> = [
+    ['2026-09-05T12:00:00Z', '2026-09-04T20:00:00Z', 'AVAILABLE'],
+    ['2026-09-05T12:00:00Z', '2026-09-03T20:00:00Z', 'STALE'],
+    ['2026-09-05T12:00:00Z', '2026-09-04T16:00:00Z', 'STALE'],
+    ['2026-09-04T16:00:00Z', '2026-09-04T15:50:00Z', 'STALE'],
+    ['2026-11-07T12:00:00Z', '2026-11-06T21:00:00Z', 'AVAILABLE'],
+    ['2026-11-07T12:00:00Z', '2026-11-06T20:00:00Z', 'STALE'],
+    ['2026-11-09T14:00:00Z', '2026-11-06T21:00:00Z', 'AVAILABLE'],
+    ['2026-11-09T15:00:00Z', '2026-11-06T21:00:00Z', 'STALE'],
+  ];
+  for (const [checkedAt, tradedAt, expected] of cases) {
+    const checked = new Date(checkedAt);
+    const value = projectMarketQuote(
+      instrument('nasdaq'),
+      [row('nasdaq', '80', { providerAt: new Date(tradedAt), lastObservedAt: checked })],
+      undefined,
+      true,
+      checked,
+    );
+    assert.equal(value.status, expected, `${checkedAt} / ${tradedAt}`);
+    if (expected === 'AVAILABLE') assert.equal(value.message, '최근 거래 시세 · 정규장 종료');
+  }
+});
+
+type MarketQuoteStatus = 'AVAILABLE' | 'STALE';
+
+test('US ETF weekend quotes remain stale when collection stops or that instrument fails', () => {
+  const checked = new Date('2026-09-05T12:00:00Z');
+  const quote = row('sp500', '550', {
+    providerAt: new Date('2026-09-04T20:00:00Z'),
+    lastObservedAt: checked,
+  });
+  assert.equal(
+    projectMarketQuote(
+      instrument('sp500'),
+      [{ ...quote, lastObservedAt: new Date('2026-09-05T11:50:00Z') }],
+      undefined,
+      true,
+      checked,
+    ).status,
+    'STALE',
+  );
+  const health = Object.assign(new ConnectorHealthEntity(), {
+    status: 'DEGRADED',
+    metadataJson: { quoteStatus: 'DEGRADED', quoteUnavailableInstruments: ['sp500'] },
+  });
+  assert.equal(
+    projectMarketQuote(instrument('sp500'), [quote], health, true, checked).status,
+    'STALE',
+  );
+  assert.equal(
+    projectMarketQuote(instrument('sp500'), [], health, true, checked).status,
+    'UNAVAILABLE',
+  );
+});
+
+test('US ETF histories keep USD session values and exclude the next UTC date before New York midnight', async () => {
+  const checked = new Date('2026-09-05T00:30:00Z');
+  const service = new MarketsService(
+    loadAppConfig({
+      NODE_ENV: 'test',
+      FIXTURE_MODE: 'true',
+      TOSS_CLIENT_ID: 'test-client',
+      TOSS_CLIENT_SECRET: 'test-secret',
+    }),
+    {} as DatabaseRuntimeService,
+  );
+  const rows = ['2026-09-03', '2026-09-04', '2026-09-05'].map((date, index) =>
+    row('nasdaq', String(80 + index), {
+      kind: 'DAILY',
+      sourceDate: date,
+      lastObservedAt: checked,
+      providerAt: null,
+    }),
+  );
+  const current = await service.history('nasdaq', '1m', { rows, health: [], now: checked });
+  assert.equal(current.status, 'AVAILABLE');
+  assert.equal(current.instrument.currency, 'USD');
+  assert.deepEqual(current.points, [
+    { date: '2026-09-03', value: '80' },
+    { date: '2026-09-04', value: '81' },
+  ]);
+  const old = await service.history('nasdaq', '1m', {
+    rows: [rows[0]!],
+    health: [],
+    now: checked,
+  });
+  assert.equal(old.status, 'STALE');
 });
 
 function persistedService(

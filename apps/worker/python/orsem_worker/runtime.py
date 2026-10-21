@@ -29,7 +29,7 @@ from .scheduling import RETIRED_NAMES, advance_scheduler, configure, require_nat
 log = logging.getLogger("orsem.worker")
 QUEUE_JOBS = {
     Q.POLL: {"poll-opendart", "backfill-opendart", "sync-opendart-corp-codes"},
-    Q.FILING: {"enrich-filing", "apply-parse-projection"},
+    Q.FILING: {"enrich-filing", "apply-parse-projection", "process-analysis-job"},
     Q.AI_REVIEW: {"review-parse-with-ai"},
     Q.NEWS_TRANSLATION: {"translate-news-batch"},
     Q.OUTBOX: {"dispatch-processing-outbox"},
@@ -236,7 +236,7 @@ async def make_context(config=None):
 async def register_modules(ctx):
     modules = [
         importlib.import_module("." + name, "orsem_worker")
-        for name in ("push", "connectors", "disclosures", "market", "outbox")
+        for name in ("push", "connectors", "disclosures", "market", "outbox", "analysis")
     ]
     handlers = {}
     for module in modules:

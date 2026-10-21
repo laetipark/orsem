@@ -1,5 +1,6 @@
 import { Shield } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import { BrandLogo } from './brand-logo';
 import { ThemeButton } from './app-shell';
 
@@ -32,6 +33,9 @@ export function LoginLayout({
           <p>{description}</p>
         </div>
         {children}
+        <div className="login-switch">
+          <Link to="/">로그인 없이 둘러보기</Link>
+        </div>
       </section>
     </main>
   );

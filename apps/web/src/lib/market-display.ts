@@ -63,7 +63,7 @@ export const marketGroups: readonly MarketGroupDefinition[] = [
     region: 'us',
     label: '미국',
     english: 'UNITED STATES',
-    description: '미국 지수와 국채 수익률',
+    description: '미국 지수 추종 ETF와 국채 수익률',
   },
   ...globalMarketGroups,
 ];

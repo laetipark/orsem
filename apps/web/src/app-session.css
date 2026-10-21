@@ -10,3 +10,23 @@
   color: var(--text);
   font-size: 0.875rem;
 }
+
+.session-unavailable {
+  max-width: 480px;
+  padding: 24px;
+  text-align: center;
+}
+
+.session-unavailable h1 {
+  margin-bottom: 16px;
+  font-size: 1.4rem;
+}
+
+.session-unavailable p {
+  margin-bottom: 12px;
+  color: var(--muted);
+}
+
+.session-unavailable .button {
+  margin-top: 8px;
+}

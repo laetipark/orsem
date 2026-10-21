@@ -14,6 +14,7 @@ import {
   Public,
   ReadOnlyMemberAccess,
   OwnNotificationAccess,
+  OwnAnalysisAccess,
   ServiceRoute,
 } from './security';
 
@@ -34,6 +35,9 @@ class TestRoutes {
 
   @OwnNotificationAccess()
   ownNotification() {}
+
+  @OwnAnalysisAccess()
+  ownAnalysis() {}
 }
 
 interface TestMember {
@@ -141,6 +145,25 @@ for (const status of ['PENDING', 'REJECTED', 'MISSING'] as const) {
     await assert.rejects(() => subject.guard.canActivate(context), denied);
   });
 }
+
+for (const method of ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE']) {
+  test(`approved members may use owner-checked analysis ${method} routes`, async () => {
+    const subject = harness();
+    const context = httpContext({ memberId: 'member-1' }, method, 'ownAnalysis').context;
+    assert.equal(await subject.guard.canActivate(context), true);
+    subject.setMember({ status: 'REJECTED' });
+    await assert.rejects(() => subject.guard.canActivate(context), denied);
+  });
+}
+
+test('analysis write access does not bypass CSRF protection', () => {
+  const context = httpContext(
+    { memberId: 'member-1', csrfToken: 'expected' },
+    'POST',
+    'ownAnalysis',
+  ).context;
+  assert.throws(() => new CsrfGuard(new Reflector()).canActivate(context), denied);
+});
 
 test('approved member cannot read an unannotated private route or claim admin through session role', async () => {
   const subject = harness();

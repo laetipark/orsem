@@ -103,6 +103,11 @@ export function EventDetailPage() {
           >
             공식 원문 <ArrowUpRight size={16} />
           </a>
+          {data.companyId ? (
+            <Link className="button button--secondary button--md" to={`/analysis?companyId=${encodeURIComponent(data.companyId)}&eventId=${encodeURIComponent(data.id)}&tab=documents`}>
+              공시 분석실
+            </Link>
+          ) : null}
         </div>
       </section>
 
@@ -125,8 +130,8 @@ export function EventDetailPage() {
           <div>
             <strong>SEC 공시 접수 기록입니다.</strong>
             <p>
-              공시 종류·접수일·원문 링크를 제공합니다. Form 4 거래 내역이나 8-K 본문 분석은 포함하지
-              않습니다.
+              이 화면에서는 공시 종류·접수일·원문 링크를 제공합니다. Form 3·4·5의 거래·보유·각주는
+              공시 분석실에서 원문 수집 상태와 함께 확인할 수 있습니다.
             </p>
           </div>
         </div>

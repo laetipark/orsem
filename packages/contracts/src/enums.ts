@@ -243,6 +243,7 @@ export const WorkerJobName = {
   BACKFILL_OPENDART: 'backfill-opendart',
   SYNC_CORP_CODES: 'sync-opendart-corp-codes',
   ENRICH_FILING: 'enrich-filing',
+  PROCESS_ANALYSIS_JOB: 'process-analysis-job',
   APPLY_PARSE_PROJECTION: 'apply-parse-projection',
   REVIEW_PARSE_WITH_AI: 'review-parse-with-ai',
   TRANSLATE_NEWS_BATCH: 'translate-news-batch',

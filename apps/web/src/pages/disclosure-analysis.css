@@ -1,0 +1,242 @@
+.analysis-page {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+}
+.analysis-heading,
+.analysis-toolbar,
+.analysis-heading-actions,
+.analysis-chips {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.analysis-heading {
+  justify-content: space-between;
+}
+.analysis-heading h1 {
+  margin: 0 0 6px;
+  font-size: 26px;
+  letter-spacing: -0.04em;
+}
+.analysis-heading p,
+.analysis-muted {
+  color: var(--muted);
+  font-size: 13px;
+}
+.analysis-filters {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+.analysis-filters label,
+.analysis-field {
+  display: grid;
+  gap: 7px;
+  font-size: 13px;
+  min-width: 0;
+}
+.analysis-filters input,
+.analysis-filters select,
+.analysis-field input,
+.analysis-field select {
+  width: 100%;
+}
+.analysis-wide {
+  grid-column: 1 / -1;
+}
+.analysis-company-results {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-height: 200px;
+  overflow: auto;
+  margin-top: 8px;
+}
+.analysis-chips {
+  margin-top: 8px;
+}
+.analysis-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 9px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  font-size: 12px;
+}
+.analysis-chip button {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+}
+.analysis-tabs {
+  display: flex;
+  gap: 5px;
+  overflow: auto;
+  border-bottom: 1px solid var(--border, #dce2e9);
+  padding-bottom: 10px;
+}
+.analysis-tabs button {
+  white-space: nowrap;
+}
+.analysis-workspace {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+}
+.analysis-workspace.has-evidence {
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
+}
+.analysis-evidence {
+  align-self: start;
+  position: sticky;
+  top: 20px;
+  border-left: 3px solid var(--teal);
+}
+.analysis-evidence dl {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+.analysis-evidence dt {
+  color: var(--muted);
+  font-size: 11px;
+}
+.analysis-evidence dd {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.analysis-table-wrap {
+  overflow: auto;
+  max-width: 100%;
+}
+.analysis-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.analysis-table th,
+.analysis-table td {
+  padding: 12px;
+  border-bottom: 1px solid var(--border, #dce2e9);
+  text-align: left;
+  vertical-align: top;
+  white-space: nowrap;
+}
+.analysis-table th {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+.analysis-table td.analysis-numeric {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.analysis-number {
+  background: transparent;
+  border: 0;
+  border-bottom: 1px dotted currentColor;
+  padding: 0;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  color: var(--teal);
+  cursor: pointer;
+}
+.analysis-table small {
+  display: block;
+  white-space: normal;
+  color: var(--muted);
+  margin-top: 5px;
+}
+.analysis-table--document td {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  min-width: 90px;
+}
+.analysis-list {
+  display: grid;
+  gap: 12px;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.analysis-list > li,
+.analysis-note {
+  border: 1px solid var(--border, #dce2e9);
+  border-radius: 8px;
+  padding: 14px;
+}
+.analysis-list header {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.analysis-note p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+.analysis-checkbox {
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.analysis-checkbox input {
+  width: auto !important;
+}
+.analysis-progress {
+  display: grid;
+  gap: 10px;
+}
+.analysis-warning {
+  padding: 12px;
+  background: var(--surface-2);
+  border-radius: 6px;
+  font-size: 13px;
+}
+.analysis-metrics {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.analysis-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.analysis-mapping {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 1000px) {
+  .analysis-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .analysis-workspace.has-evidence {
+    grid-template-columns: 1fr;
+  }
+  .analysis-evidence {
+    position: static;
+  }
+}
+@media (max-width: 600px) {
+  .analysis-filters,
+  .analysis-split {
+    grid-template-columns: 1fr;
+  }
+  .analysis-heading h1 {
+    font-size: 22px;
+  }
+  .analysis-table th,
+  .analysis-table td {
+    padding: 9px;
+  }
+}

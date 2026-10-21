@@ -70,7 +70,18 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+export function isTemporaryApiError(error: unknown): boolean {
+  return (
+    error != null &&
+    (!(error instanceof ApiError) ||
+      error.statusCode === 0 ||
+      error.statusCode === 408 ||
+      error.statusCode === 429 ||
+      error.statusCode >= 500)
+  );
+}
+
+export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const url = `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`;
   if (isFixtureMode) return (await import('./fixtures')).fixtureRequest<T>(url, init);
 
@@ -80,25 +91,39 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   headers.set('Accept', 'application/json');
   if (init?.body) headers.set('Content-Type', 'application/json');
   if (changesState && csrfToken) headers.set('X-CSRF-Token', csrfToken);
-  const response = await fetch(url, {
-    ...init,
-    credentials: 'include',
-    headers,
-  });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      ...init,
+      credentials: 'include',
+      headers,
+    });
+  } catch (error) {
+    if (init?.signal?.aborted) throw error;
+    if (error instanceof TypeError)
+      throw new ApiError(
+        0,
+        'NETWORK_ERROR',
+        '서버에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.',
+      );
+    throw error;
+  }
 
   if (!response.ok) {
     const fallback = {
       statusCode: response.status,
       code: 'HTTP_ERROR',
-      message: '요청을 처리하지 못했습니다.',
+      message:
+        response.status >= 500
+          ? '서버에 일시적인 문제가 있습니다. 잠시 후 다시 시도해 주세요.'
+          : '요청을 처리하지 못했습니다.',
     };
-    const body = (await response.json().catch(() => fallback)) as Partial<typeof fallback> & {
-      details?: unknown;
-    };
+    const parsed: unknown = await response.json().catch(() => null);
+    const body = (parsed && typeof parsed === 'object' ? parsed : {}) as Record<string, unknown>;
     throw new ApiError(
-      body.statusCode ?? response.status,
-      body.code ?? fallback.code,
-      body.message ?? fallback.message,
+      response.status,
+      typeof body.code === 'string' ? body.code : fallback.code,
+      typeof body.message === 'string' ? body.message : fallback.message,
       body.details,
     );
   }
@@ -332,10 +357,27 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify({ status }),
     }),
-  session: async () => {
-    const session = await request<Session>('/auth/session');
-    setCsrfToken(session.csrfToken);
-    return session;
+  session: async (signal?: AbortSignal) => {
+    const timeout = new AbortController();
+    const timer = setTimeout(() => timeout.abort(), 15_000);
+    try {
+      const session = await request<Session>('/auth/session', {
+        signal: signal ? AbortSignal.any([signal, timeout.signal]) : timeout.signal,
+        cache: 'no-store',
+      });
+      setCsrfToken(session.csrfToken);
+      return session;
+    } catch (error) {
+      if (timeout.signal.aborted && !signal?.aborted)
+        throw new ApiError(
+          408,
+          'REQUEST_TIMEOUT',
+          '서버 응답이 지연되고 있습니다. 잠시 후 다시 시도해 주세요.',
+        );
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
   },
   login: async (payload: {
     email: string;

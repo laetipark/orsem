@@ -1,4 +1,9 @@
-import { focusManager, QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import {
+  focusManager,
+  QueryClient,
+  QueryClientProvider,
+  QueryObserver,
+} from '@tanstack/react-query';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -38,6 +43,15 @@ vi.mock('./lib/web-push', () => ({ disconnectPushOnLogout: mocks.disconnectPush 
 vi.mock('./pages/dashboard-page', () => ({ DashboardPage: () => <div>관측 대시보드</div> }));
 vi.mock('./pages/event-detail-page', () => ({
   EventDetailPage: () => <div>알림으로 연 이벤트</div>,
+}));
+vi.mock('./pages/guest-pages', () => ({
+  GuestHomePage: () => <div>공개 관측 홈</div>,
+  GuestMarketsPage: () => <div>공개 시장 차트</div>,
+  GuestMarketDetailPage: () => <div>공개 시장 상세</div>,
+  GuestCompaniesPage: () => <div>공개 종목 검색</div>,
+  GuestCompanyPage: () => <div>공개 종목 차트</div>,
+  GuestNewsPage: () => <div>공개 뉴스 목록</div>,
+  GuestNewsDetailPage: () => <div>공개 뉴스 상세</div>,
 }));
 
 const anonymous: Session = {
@@ -116,6 +130,7 @@ afterEach(() => {
 
 it.each([
   new TypeError('Failed to fetch'),
+  new ApiError(502, 'HTTP_ERROR', '요청을 처리하지 못했습니다.'),
   new ApiError(503, 'UNAVAILABLE', '일시적으로 연결할 수 없습니다.'),
 ])(
   'keeps the mounted authenticated page during a transient session check failure: %s',
@@ -142,13 +157,21 @@ it.each([
   },
 );
 
-it('keeps an initial session failure outside the authenticated application', async () => {
+it('explains an initial outage in Korean and recovers the requested page without a reload', async () => {
   mocks.session.mockRejectedValue(new TypeError('Failed to fetch'));
-  const client = show();
-  expect(await screen.findByText('Failed to fetch')).toBeInTheDocument();
+  const client = show('/events/12345678-1234-4234-8234-123456789abc');
+  expect(
+    await screen.findByRole('heading', { name: '서버에 잠시 연결할 수 없습니다' }),
+  ).toBeVisible();
+  expect(screen.getByText('잠시 후 자동으로 다시 연결합니다.')).toBeVisible();
+  expect(screen.queryByText('Failed to fetch')).not.toBeInTheDocument();
   expect(screen.queryByText('관측 대시보드')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: '카카오 로그인' })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: '연결 다시 확인' })).not.toBeInTheDocument();
 
+  mocks.session.mockResolvedValue(administrator);
+  fireEvent.click(screen.getByRole('button', { name: '다시 연결' }));
+  expect(await screen.findByText('알림으로 연 이벤트')).toBeVisible();
   client.clear();
 });
 
@@ -164,16 +187,68 @@ it.each([401, 403])(
 
     expect(await screen.findByText('로그인 권한이 없습니다.')).toBeInTheDocument();
     expect(screen.queryByText('관측 대시보드')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '연결 다시 확인' })).not.toBeInTheDocument();
+    expect(await screen.findByText('공개 관측 홈')).toBeVisible();
 
     mocks.session.mockRejectedValue(new TypeError('Failed to fetch'));
     await act(async () => client.refetchQueries({ queryKey: ['session'], exact: true }));
-    expect(await screen.findByText('Failed to fetch')).toBeInTheDocument();
+    expect(await screen.findByText(/공개 차트와 뉴스는 계속 이용할 수 있습니다/)).toBeVisible();
     expect(screen.queryByText('관측 대시보드')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '연결 다시 확인' })).not.toBeInTheDocument();
+    expect(screen.getByText('공개 관측 홈')).toBeVisible();
     client.clear();
   },
 );
+
+it('preserves the account approval screen when its session recheck loses connection', async () => {
+  mocks.session.mockResolvedValue({
+    ...administrator,
+    canAccess: false,
+    user: { ...administrator.user!, provider: 'KAKAO', role: 'VIEWER', status: 'PENDING' },
+  });
+  const client = show('/login');
+  const account = await screen.findByText('가입 신청이 접수되었습니다');
+  mocks.session.mockRejectedValue(
+    new ApiError(503, 'UNAVAILABLE', '일시적으로 연결할 수 없습니다.'),
+  );
+  await act(async () => client.refetchQueries({ queryKey: ['session'], exact: true }));
+  expect(await screen.findByRole('button', { name: '연결 다시 확인' })).toBeVisible();
+  expect(screen.getByText('가입 신청이 접수되었습니다')).toBe(account);
+  expect(screen.queryByText('관측 대시보드')).not.toBeInTheDocument();
+  client.clear();
+});
+
+it('recovers active transient page failures after session recovery without retrying access denial', async () => {
+  const client = show();
+  await screen.findByText('관측 대시보드');
+  const unavailable = new ApiError(502, 'HTTP_ERROR', '일시적인 서버 오류');
+  const loadPage = vi.fn().mockRejectedValue(unavailable);
+  const deniedPage = vi.fn().mockRejectedValue(new ApiError(403, 'DENIED', '권한 없음'));
+  const inactivePage = vi.fn().mockRejectedValue(unavailable);
+  const pageObserver = new QueryObserver(client, { queryKey: ['outage-page'], queryFn: loadPage });
+  const deniedObserver = new QueryObserver(client, {
+    queryKey: ['denied-page'],
+    queryFn: deniedPage,
+  });
+  const stopPage = pageObserver.subscribe(() => undefined);
+  const stopDenied = deniedObserver.subscribe(() => undefined);
+  await client
+    .fetchQuery({ queryKey: ['inactive-page'], queryFn: inactivePage })
+    .catch(() => undefined);
+  await waitFor(() => expect(pageObserver.getCurrentResult().isError).toBe(true));
+  mocks.session.mockRejectedValue(unavailable);
+  await act(async () => client.refetchQueries({ queryKey: ['session'], exact: true }));
+  await screen.findByRole('button', { name: '연결 다시 확인' });
+
+  loadPage.mockResolvedValue({ recovered: true });
+  mocks.session.mockResolvedValue(administrator);
+  fireEvent.click(screen.getByRole('button', { name: '연결 다시 확인' }));
+  await waitFor(() => expect(client.getQueryData(['outage-page'])).toEqual({ recovered: true }));
+  expect(loadPage).toHaveBeenCalledTimes(2);
+  expect(deniedPage).toHaveBeenCalledOnce();
+  expect(inactivePage).toHaveBeenCalledOnce();
+  stopPage();
+  stopDenied();
+  client.clear();
+});
 
 it('removes private content when a recovered session check confirms logout', async () => {
   const client = show();
@@ -185,9 +260,7 @@ it('removes private content when a recovered session check confirms logout', asy
 
   mocks.session.mockResolvedValue(anonymous);
   fireEvent.click(screen.getByRole('button', { name: '연결 다시 확인' }));
-  await waitFor(() =>
-    expect(screen.getByRole('button', { name: '카카오 로그인' })).toBeInTheDocument(),
-  );
+  expect(await screen.findByText('공개 관측 홈')).toBeVisible();
   expect(screen.queryByText('관측 대시보드')).not.toBeInTheDocument();
   expect(client.getQueryData(['news', 'private'])).toBeUndefined();
   client.clear();
@@ -200,7 +273,7 @@ it('rechecks the session when the application returns to the foreground', async 
   mocks.session.mockResolvedValue(anonymous);
   act(() => focusManager.setFocused(true));
 
-  expect(await screen.findByRole('button', { name: '카카오 로그인' })).toBeInTheDocument();
+  expect(await screen.findByText('공개 관측 홈')).toBeVisible();
   expect(screen.queryByText('관측 대시보드')).not.toBeInTheDocument();
   client.clear();
 });
@@ -230,14 +303,19 @@ it('serves public logo attribution without requiring a session or a working auth
 it('logs out through the mounted App without losing its session subscription', async () => {
   const client = show();
   client.setQueryData(['operation-runs'], { private: true });
+  client.setQueryData(['public', 'news', 'latest'], { items: [], nextCursor: null });
   sessionStorage.setItem('orsem-news-edit-v1:admin:article', 'private draft');
   expect(await screen.findByText('관측 대시보드')).toBeInTheDocument();
   await act(async () => fireEvent.click(screen.getByRole('button', { name: '로그아웃' })));
-  expect(await screen.findByRole('button', { name: '카카오 로그인' })).toBeInTheDocument();
+  expect(await screen.findByText('공개 관측 홈')).toBeVisible();
   expect(screen.queryByLabelText('관리자 이메일')).not.toBeInTheDocument();
   expect(screen.queryByText('관측 대시보드')).not.toBeInTheDocument();
   await waitFor(() => expect(client.getQueryData(['session'])).toEqual(anonymous));
   expect(client.getQueryData(['operation-runs'])).toBeUndefined();
+  expect(client.getQueryData(['public', 'news', 'latest'])).toEqual({
+    items: [],
+    nextCursor: null,
+  });
   expect(sessionStorage.getItem('orsem-news-edit-v1:admin:article')).toBeNull();
   client.clear();
 });
@@ -387,6 +465,94 @@ it('keeps an identified pending member outside the application shell', async () 
   expect(await screen.findByText('가입 신청이 접수되었습니다')).toBeInTheDocument();
   expect(screen.queryByRole('navigation', { name: '주 메뉴' })).not.toBeInTheDocument();
   expect(screen.queryByText('관측 대시보드')).not.toBeInTheDocument();
+  client.clear();
+});
+
+it.each([
+  ['/', '공개 관측 홈'],
+  ['/markets', '공개 시장 차트'],
+  ['/markets/us2y', '공개 시장 상세'],
+  ['/companies?q=삼성', '공개 종목 검색'],
+  ['/companies/NASDAQ:AAPL', '공개 종목 차트'],
+  ['/news', '공개 뉴스 목록'],
+  ['/news/12345678-1234-4234-8234-123456789abc', '공개 뉴스 상세'],
+])('opens the public route %s without mounting private services', async (path, label) => {
+  mocks.session.mockResolvedValue(anonymous);
+  const client = show(path);
+  expect(await screen.findByText(label)).toBeVisible();
+  expect(mocks.suggestions).not.toHaveBeenCalled();
+  expect(mocks.sourceFreshness).not.toHaveBeenCalled();
+  expect(screen.queryByRole('button', { name: '로그아웃' })).not.toBeInTheDocument();
+  expect(screen.queryByText('관측 대시보드')).not.toBeInTheDocument();
+  client.clear();
+});
+
+it('allows public browsing before the session responds and during an initial outage', async () => {
+  mocks.session.mockImplementation(() => new Promise(() => undefined));
+  const client = show('/news');
+  expect(await screen.findByText('공개 뉴스 목록')).toBeVisible();
+  cleanup();
+  client.clear();
+  mocks.session.mockRejectedValue(new TypeError('Failed to fetch'));
+  const unavailable = show('/markets');
+  expect(await screen.findByText('공개 시장 차트')).toBeVisible();
+  expect(await screen.findByText(/공개 차트와 뉴스는 계속 이용할 수 있습니다/)).toBeVisible();
+  expect(screen.queryByText('관측 대시보드')).not.toBeInTheDocument();
+  unavailable.clear();
+});
+
+it.each(['PENDING', 'REJECTED'] as const)(
+  'lets a %s account browse public pages',
+  async (status) => {
+    mocks.session.mockResolvedValue({
+      ...administrator,
+      canAccess: false,
+      user: { ...administrator.user!, provider: 'KAKAO', role: 'VIEWER', status },
+    });
+    const client = show('/companies');
+    expect(await screen.findByText('공개 종목 검색')).toBeVisible();
+    expect(screen.queryByText('관측 대시보드')).not.toBeInTheDocument();
+    client.clear();
+  },
+);
+
+it.each(['/analysis', '/watchlist', '/settings/notifications', '/news/naver'])(
+  'requires authentication for %s and remembers the destination',
+  async (path) => {
+    mocks.session.mockResolvedValue(anonymous);
+    const client = show(path);
+    expect(await screen.findByRole('button', { name: '카카오 로그인' })).toBeVisible();
+    expect(sessionStorage.getItem('orsem-login-return-v1')).toContain(path);
+    expect(screen.queryByText('관측 대시보드')).not.toBeInTheDocument();
+    client.clear();
+  },
+);
+
+it('cancels pending private responses on revocation while retaining public cache', async () => {
+  const client = show();
+  await screen.findByText('관측 대시보드');
+  let resolvePrivate!: (value: unknown) => void;
+  let privateSignal!: AbortSignal;
+  const pending = client
+    .fetchQuery({
+      queryKey: ['private-company'],
+      queryFn: ({ signal }) => {
+        privateSignal = signal;
+        return new Promise((resolve) => {
+          resolvePrivate = resolve;
+        });
+      },
+    })
+    .catch(() => undefined);
+  client.setQueryData(['public', 'news'], { items: [{ title: '공개 자료' }] });
+  mocks.session.mockResolvedValue(anonymous);
+  await act(async () => client.setQueryData(['session'], anonymous));
+  expect(await screen.findByText('공개 관측 홈')).toBeVisible();
+  expect(privateSignal.aborted).toBe(true);
+  resolvePrivate({ title: '회원 전용 자료' });
+  await pending;
+  expect(client.getQueryData(['private-company'])).toBeUndefined();
+  expect(client.getQueryData(['public', 'news'])).toEqual({ items: [{ title: '공개 자료' }] });
   client.clear();
 });
 

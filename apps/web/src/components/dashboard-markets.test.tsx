@@ -101,7 +101,7 @@ it('honors a direct URL within its current window and catches a missed boundary 
 it('keeps two slim global rows visible while switching the selected regional market', () => {
   vi.useRealTimers();
   const view = showMarkets();
-  expect(screen.getByRole('link', { name: 'S&P500 상세 차트' })).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'S&P500 ETF · SPY 상세 차트' })).toBeInTheDocument();
   expect(screen.queryByRole('link', { name: '코스피 상세 차트' })).not.toBeInTheDocument();
   expect(screen.getByRole('link', { name: '금 상세 차트' })).toBeInTheDocument();
   expect(screen.queryByRole('heading', { name: '미국' })).not.toBeInTheDocument();
@@ -121,7 +121,9 @@ it('keeps two slim global rows visible while switching the selected regional mar
   );
   fireEvent.click(screen.getByRole('button', { name: '국내' }));
   expect(screen.getByRole('link', { name: '코스피 상세 차트' })).toBeInTheDocument();
-  expect(screen.queryByRole('link', { name: 'S&P500 상세 차트' })).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole('link', { name: 'S&P500 ETF · SPY 상세 차트' }),
+  ).not.toBeInTheDocument();
   expect(screen.getByRole('link', { name: '금 상세 차트' })).toBeInTheDocument();
   const timestamp = view.container.querySelector('.market-card--compact time');
   expect(timestamp).toHaveAttribute('dateTime', marketFixtureTime);
@@ -178,13 +180,13 @@ it('orders the full market screen by Korea, US, commodities and crypto with sepa
   view.client.clear();
 });
 
-it('shows a compact basis date and time beside native names and retains official TradingView attribution', () => {
+it('shows a compact basis date and time beside native names including both US ETFs', () => {
   vi.useRealTimers();
   const view = showMarkets(false);
   for (const item of marketFixtures) {
     const card = screen.getByRole('link', { name: `${item.name} 상세 차트` }).closest('article')!;
     const time = card.querySelector('.market-card__heading time');
-    if (item.region === 'us' && item.category === 'INDEX') {
+    if (item.displayKind === 'WIDGET') {
       expect(time).toBeNull();
       expect(card.querySelector('.market-card__meta')).toBeNull();
       expect(within(card).getByText(`${item.widgetSymbol} 공식 위젯`)).toBeInTheDocument();
@@ -229,19 +231,21 @@ it('preserves date-only and observed-time provenance in headings without adding 
       ? { ...item, providerAt: null, valueDate: '2026-09-02' }
       : item.id === 'sp500'
         ? { ...item, providerAt: marketFixtureTime }
-        : item.id === 'gold'
-          ? { ...item, providerAt: null, valueDate: null, observedAt: '2026-09-04T15:05:00.000Z' }
-          : item,
+        : item.id === 'nasdaq'
+          ? { ...item, providerAt: null, observedAt: null, valueDate: null }
+          : item.id === 'gold'
+            ? { ...item, providerAt: null, valueDate: null, observedAt: '2026-09-04T15:05:00.000Z' }
+            : item,
   );
   const view = showMarkets(true, items);
   const bond = screen.getByRole('link', { name: '미국 국채 2년 상세 차트' });
   expect(bond.querySelector('time')).toHaveTextContent('09.02');
   expect(bond.querySelector('time')).toHaveAttribute('dateTime', '2026-09-02');
   expect(
-    screen.getByRole('link', { name: 'S&P500 상세 차트' }).querySelector('time'),
+    screen.getByRole('link', { name: 'S&P500 ETF · SPY 상세 차트' }).querySelector('time'),
   ).toHaveTextContent('09.03 17:42');
   expect(
-    screen.getByRole('link', { name: '나스닥종합 상세 차트' }).querySelector('time'),
+    screen.getByRole('link', { name: '나스닥종합 ETF · ONEQ 상세 차트' }).querySelector('time'),
   ).toBeNull();
   const gold = screen.getByRole('link', { name: '금 상세 차트' });
   const observed = gold.querySelector('.dashboard-global-quote__heading time');

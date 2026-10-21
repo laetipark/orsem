@@ -1,0 +1,81 @@
+import { ArrowRight, ChartNoAxesCombined, Building2, Moon, Newspaper, Sun } from 'lucide-react';
+import { Suspense, useEffect, useRef } from 'react';
+import { Link, NavLink, Outlet, useLocation, useNavigationType } from 'react-router-dom';
+import type { Session } from '../types';
+import { useTheme } from '../theme';
+import { loginUrl } from '../lib/login-return';
+import { BrandLogo } from './brand-logo';
+import { Button, LoadingState, cn } from './ui';
+import './guest-shell.css';
+
+export function GuestShell({ session }: { session?: Session }) {
+  const { theme, toggle } = useTheme();
+  const location = useLocation();
+  const navigationType = useNavigationType();
+  const previousPath = useRef(location.pathname);
+  const login = loginUrl('/login', `${location.pathname}${location.search}`);
+  useEffect(() => {
+    if (previousPath.current !== location.pathname && navigationType !== 'POP')
+      window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+    previousPath.current = location.pathname;
+  }, [location.pathname, navigationType]);
+  return (
+    <div className="guest-shell">
+      <a className="skip-link" href="#main-content">
+        본문으로 건너뛰기
+      </a>
+      <header className="guest-header">
+        <div className="guest-header__inner">
+          <Link to="/" className="brand" aria-label="오르셈 홈">
+            <BrandLogo />
+          </Link>
+          <nav aria-label="공개 메뉴" className="guest-navigation">
+            {[
+              { to: '/markets', label: '시장', icon: ChartNoAxesCombined },
+              { to: '/companies', label: '종목', icon: Building2 },
+              { to: '/news', label: '뉴스', icon: Newspaper },
+            ].map(({ to, label, icon: Icon }) => (
+              <NavLink
+                key={to}
+                to={to}
+                className={({ isActive }) => cn('guest-navigation__link', isActive && 'is-active')}
+              >
+                <Icon size={17} aria-hidden="true" />
+                {label}
+              </NavLink>
+            ))}
+          </nav>
+          <div className="guest-header__actions">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggle}
+              aria-label={theme === 'dark' ? '밝은 테마로 전환' : '어두운 테마로 전환'}
+            >
+              {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+            </Button>
+            <Link className="button button--primary button--sm" to={login}>
+              {session?.authenticated ? '계정 상태' : '로그인'}
+              <ArrowRight size={15} aria-hidden="true" />
+            </Link>
+          </div>
+        </div>
+      </header>
+      <main id="main-content" className="guest-main" tabIndex={-1}>
+        {session?.authenticated && !session.canAccess ? (
+          <p className="guest-account-notice" role="status">
+            공개 차트와 뉴스는 계속 볼 수 있습니다. <Link to={login}>회원 이용 상태 확인</Link>
+          </p>
+        ) : null}
+        <Suspense fallback={<LoadingState label="공개 화면을 불러오는 중입니다." />}>
+          <Outlet />
+        </Suspense>
+      </main>
+      <footer className="guest-footer">
+        <span>오르셈 · 시장과 기업을 관찰하는 공간</span>
+        <span>표시 시각은 한국 시간(KST)입니다.</span>
+        <Link to="/logo-sources">로고 출처·이용 안내</Link>
+      </footer>
+    </div>
+  );
+}

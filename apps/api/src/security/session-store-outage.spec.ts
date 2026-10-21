@@ -43,6 +43,14 @@ class FixtureController {
   }
 }
 
+@Controller('api/v1/public')
+class PublicFixtureController {
+  @Get('news')
+  news(@Req() request: Request) {
+    return { items: [], loadedSession: Boolean(request.session) };
+  }
+}
+
 test('a session-store outage returns 503 without replacing the cookie or turning a member anonymous', async (t) => {
   const config = loadAppConfig({
     NODE_ENV: 'test',
@@ -52,7 +60,7 @@ test('a session-store outage returns 503 without replacing the cookie or turning
   const store = new IntermittentStore();
   let memberLookups = 0;
   const module = await Test.createTestingModule({
-    controllers: [AuthController, FixtureController],
+    controllers: [AuthController, FixtureController, PublicFixtureController],
     providers: [
       {
         provide: AuthService,
@@ -100,6 +108,23 @@ test('a session-store outage returns 503 without replacing the cookie or turning
   );
   const failure = await failed.text();
   assert.doesNotMatch(failure, /synthetic|private connection|authenticated/u);
+
+  const publicRead = await fetch(`${baseUrl}/api/v1/public/news`, { headers: { Cookie: cookie } });
+  assert.equal(publicRead.status, 200, 'public reads remain available during a session outage');
+  assert.deepEqual(await publicRead.json(), { items: [], loadedSession: false });
+  assert.equal(publicRead.headers.get('set-cookie'), null);
+  assert.equal(store.writes, writesBeforeFailure);
+  assert.equal(memberLookups, 1);
+  const publicHead = await fetch(`${baseUrl}/api/v1/public/news`, {
+    method: 'HEAD',
+    headers: { Cookie: cookie },
+  });
+  assert.equal(publicHead.status, 200);
+  const mutation = await fetch(`${baseUrl}/api/v1/public/news`, {
+    method: 'POST',
+    headers: { Cookie: cookie },
+  });
+  assert.equal(mutation.status, 503, 'mutations still pass through the session store');
 
   store.failReads = false;
   const recovered = await read();
