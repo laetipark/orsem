@@ -2,7 +2,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
 
-// Keep every icon derived from the full character used by the header and footer.
+// Keep every icon derived from the praying hands and ascending bars used by the header and footer.
 // Run `npm run brand:generate -w @orsem/web` after editing the source SVG, then
 // update the public icon URL version in index.html, both manifests, and sw.js.
 const webRoot = new URL('../', import.meta.url);
@@ -36,7 +36,7 @@ function squareSvg(side, opaque = false) {
 const favicon = squareSvg(Math.max(width, height));
 const installed = squareSvg(Math.max(width, height) / 0.88, true);
 // Fit the complete source rectangle inside the central 80%-diameter safe circle.
-// This preserves the arrow tip and feet under circular and rounded launchers.
+// This preserves the complete hands and ascending bars under circular and rounded launchers.
 const maskable = squareSvg(Math.hypot(width, height) / 0.8, true);
 const outputs = new Map([
   ['src/assets/orsem-icon.svg', Buffer.from(favicon)],

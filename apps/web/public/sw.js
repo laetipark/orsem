@@ -52,7 +52,7 @@ pushWorker.addEventListener('push', (event) => {
   event.waitUntil(
     pushWorker.registration.showNotification(title, {
       body,
-      icon: '/icons/icon-192.png?v=fullmark-20260906',
+      icon: '/icons/icon-192.png?v=praying-hands-20261028',
       ...(typeof payload.tag === 'string' ? { tag: payload.tag.slice(0, 120) } : {}),
       data: { url: safeNotificationDestination(payload.url) },
     }),
