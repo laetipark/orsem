@@ -69,7 +69,7 @@ export function normalizeMarketOverview(data: Awaited<ReturnType<typeof api.mark
 export function marketOverviewQuery(region: Region) {
   return queryOptions({
     queryKey: ['markets', region],
-    queryFn: () => api.markets(region),
+    queryFn: ({ signal }) => api.markets(region, signal),
     select: normalizeMarketOverview,
     refetchInterval: 60_000,
   });

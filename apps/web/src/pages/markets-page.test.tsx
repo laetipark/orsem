@@ -59,12 +59,13 @@ function show(id: string) {
 
 it.each(['sp500', 'nasdaq'])(
   'shows %s ETF history with native range controls and Toss attribution',
-  (id) => {
+  async (id) => {
     const item = marketFixtures.find((quote) => quote.id === id)!;
     client.setQueryData(['market-history', id, '1y'], marketHistoryFixture(id));
+    vi.useRealTimers();
     const { container } = show(id);
     expect(screen.getByRole('heading', { name: item.name })).toBeInTheDocument();
-    const chart = screen.getByRole('img', { name: `${item.name} 자체 차트` });
+    const chart = await screen.findByRole('img', { name: `${item.name} 자체 차트` });
     expect(chart).toHaveAttribute('data-currency', 'USD');
     const count = Number(chart.getAttribute('data-count'));
     expect(count).toBeGreaterThan(31);

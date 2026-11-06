@@ -12,6 +12,8 @@ import { useCompanyChart, type CompanyChartType } from '../lib/use-company-chart
 import { CompanyChartControls } from './company-chart-controls';
 import './company-chart.css';
 
+const volumeFormatter = new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 6 });
+
 export function CompanyChart({
   timeline,
   livePrice,
@@ -75,11 +77,7 @@ export function CompanyChart({
   const candleVolume = (
     <dl className="candle-volume">
       <dt>거래량 (주)</dt>
-      <dd>
-        {selected
-          ? new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 6 }).format(selected.volume)
-          : '—'}
-      </dd>
+      <dd>{selected ? volumeFormatter.format(selected.volume) : '—'}</dd>
     </dl>
   );
 

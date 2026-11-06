@@ -4,12 +4,12 @@
 
 ## 기본 기준
 
-| 대상 | 경로 | 보관 기간 | 용량 상한 | 최소 보존 |
-| --- | --- | --- | --- | --- |
-| 배포 백업 | `DATA_DIR/backups` | 30일 | 8 GiB | 최신 3개, 최근 7일 |
-| 워커 릴리스 | `DATA_DIR/worker/releases` | 30일 | 1 GiB | 최신 3개, 최근 7일 |
+| 대상        | 경로                       | 보관 기간 | 용량 상한 | 최소 보존          |
+| ----------- | -------------------------- | --------- | --------- | ------------------ |
+| 배포 백업   | `DATA_DIR/backups`         | 30일      | 8 GiB     | 최신 3개, 최근 7일 |
+| 워커 릴리스 | `DATA_DIR/worker/releases` | 30일      | 1 GiB     | 최신 3개, 최근 7일 |
 
-`DATA_DIR`는 `--data-dir`로 지정한 절대 경로입니다. 생략하면 `ORSEM_DATA_DIR`, 그 값도 없으면 `/home/laeti/orsem-data`를 사용합니다. 운영에서는 다른 설치와 혼동하지 않도록 절대 경로를 명시합니다. 데이터와 비밀 설정은 계속 저장소 밖에 둡니다.
+`DATA_DIR`는 `--data-dir`로 지정한 절대 경로입니다. 생략하면 `ORSEM_DATA_DIR`, 그 값도 없으면 스크립트에 지정된 운영 기본 경로를 사용합니다. 운영에서는 다른 설치와 혼동하지 않도록 설치 환경의 절대 경로를 명시합니다. 데이터와 비밀 설정은 계속 저장소 밖에 둡니다.
 
 보호 조건이 기간·용량 기준보다 우선합니다. 먼저 보호되지 않은 30일 초과 항목을 정리하고, 남은 합계가 용량 상한을 넘으면 7일 이상 지난 항목을 오래된 순서로 추가 정리합니다. 최신 항목이나 보호 항목 때문에 상한을 맞출 수 없으면 해당 항목을 유지하고 남은 초과 상태를 보고합니다. 용량 상한을 맞추기 위해 최근 자료나 복구 후보를 강제로 지우지 않습니다.
 
@@ -30,20 +30,21 @@
 프로젝트 루트에서 우선 모의 실행을 확인합니다.
 
 ```bash
-python3 scripts/storage-retention.py --data-dir /home/laeti/orsem-data
+export ORSEM_DATA_DIR="$(realpath ../orsem-data)"
+python3 scripts/storage-retention.py --data-dir "$ORSEM_DATA_DIR"
 ```
 
 삭제 후보와 보호 사유, 정리 후에도 남는 용량을 확인한 뒤 같은 기준으로 적용합니다.
 
 ```bash
-python3 scripts/storage-retention.py --data-dir /home/laeti/orsem-data --apply
+python3 scripts/storage-retention.py --data-dir "$ORSEM_DATA_DIR" --apply
 ```
 
 설치별 기준은 다음 인자로 조정할 수 있습니다. 아래 예시는 기본 기준을 모두 명시합니다.
 
 ```bash
 python3 scripts/storage-retention.py \
-  --data-dir /home/laeti/orsem-data \
+  --data-dir "$ORSEM_DATA_DIR" \
   --backup-days 30 --backup-max-gib 8 \
   --release-days 30 --release-max-gib 1 \
   --min-age-days 7 --keep 3
@@ -53,11 +54,11 @@ python3 scripts/storage-retention.py \
 
 ## 정기 실행 예시
 
-매시간 점검하려면 모의 실행과 첫 적용을 검토한 뒤 운영 계정의 기존 crontab에 다음 항목을 추가할 수 있습니다. 이 문서나 스크립트를 추가하는 것만으로 정기 실행이 등록되지는 않습니다.
+매시간 점검하려면 모의 실행과 첫 적용을 검토한 뒤 운영 계정의 기존 crontab에 다음 항목을 추가할 수 있습니다. crontab의 환경 변수에는 `ORSEM_REPO_ROOT`를 프로젝트 루트의 `pwd` 결과로, `ORSEM_DATA_DIR`를 `realpath ../orsem-data` 결과로 설정합니다. 셸에서 export한 값은 cron에 자동 전달되지 않습니다. 이 문서나 스크립트를 추가하는 것만으로 정기 실행이 등록되지는 않습니다.
 
 ```cron
 CRON_TZ=Asia/Seoul
-15 * * * * /usr/bin/flock -n /home/laeti/orsem-data/storage-retention.lock /usr/bin/python3 /home/laeti/orsem/scripts/storage-retention.py --data-dir /home/laeti/orsem-data --apply
+15 * * * * cd "$ORSEM_REPO_ROOT" && flock -n "$ORSEM_DATA_DIR/storage-retention.lock" python3 scripts/storage-retention.py --data-dir "$ORSEM_DATA_DIR" --apply
 ```
 
 위 예시는 매시 15분 KST에 실행하며 `flock`으로 이전 정리 실행과 겹치지 않게 합니다. 경로와 실행 계정의 권한, 설치된 cron의 `CRON_TZ` 지원을 확인합니다. 기존 Orsem 항목은 하나씩만 유지하고, 등록 전에 현재 crontab을 저장소 밖에 백업합니다. 별도 실행 기록을 파일로 남기면 그 파일에도 회전 정책을 적용합니다.

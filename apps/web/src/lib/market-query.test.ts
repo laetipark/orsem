@@ -1,6 +1,38 @@
-import { expect, it } from 'vitest';
+import { QueryObserver } from '@tanstack/react-query';
+import { afterEach, expect, it, vi } from 'vitest';
 import { marketFixtures, marketHistoryFixture } from './market-fixtures';
-import { normalizeMarketHistory, normalizeMarketOverview } from './market-query';
+import {
+  marketOverviewQuery,
+  normalizeMarketHistory,
+  normalizeMarketOverview,
+} from './market-query';
+import { createQueryClient } from './query-client';
+
+afterEach(() => vi.unstubAllGlobals());
+
+it('keeps a shared market request until its final viewer leaves, then aborts the fetch', () => {
+  let signal: AbortSignal | undefined;
+  const fetch = vi.fn((_url: string, init: RequestInit) => {
+    signal = init.signal ?? undefined;
+    return new Promise<Response>((_resolve, reject) => {
+      signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+    });
+  });
+  vi.stubGlobal('fetch', fetch);
+  const client = createQueryClient();
+  const first = new QueryObserver(client, marketOverviewQuery('all'));
+  const second = new QueryObserver(client, marketOverviewQuery('all'));
+  const leaveFirst = first.subscribe(() => undefined);
+  const leaveSecond = second.subscribe(() => undefined);
+  expect(fetch).toHaveBeenCalledOnce();
+  expect(signal?.aborted).toBe(false);
+  leaveFirst();
+  expect(signal?.aborted).toBe(false);
+  leaveSecond();
+  expect(signal?.aborted).toBe(true);
+  expect(client.getQueryData(['markets', 'all'])).toBeUndefined();
+  client.clear();
+});
 
 it.each([
   ['sp500', 'FRED', 'SP500'],

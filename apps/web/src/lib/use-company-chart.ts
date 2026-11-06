@@ -68,6 +68,7 @@ export function useCompanyChart({
   const smaRefs = useRef(new Map<number, ISeriesApi<'Line'>>());
   const volumeRef = useRef<ISeriesApi<'Histogram'> | null>(null);
   const rsiRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const rsiThresholdRefs = useRef<IPriceLine[]>([]);
   const fittedRef = useRef(false);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [latestVisible, setLatestVisible] = useState(true);
@@ -78,7 +79,9 @@ export function useCompanyChart({
   const resizeChartRef = useRef<(() => void) | null>(null);
   const [rsiTop, setRsiTop] = useState<number | null>(null);
   const { theme } = useTheme();
-  const hasCandles = hasChartCandles(timeline.prices);
+  const themeRef = useRef(theme);
+  themeRef.current = theme;
+  const hasCandles = useMemo(() => hasChartCandles(timeline.prices), [timeline.prices]);
   const minute = timeline.interval === '1m';
   const indicators = useMemo(() => {
     const prices = [...(timeline.indicatorWarmupPrices ?? []), ...timeline.prices];
@@ -104,15 +107,20 @@ export function useCompanyChart({
       ? timeline.prices.length - 1
       : (priceIndex.get(selectedKey) ?? timeline.prices.length - 1);
   const selected = timeline.prices[selectedIndex];
-  const indicatorValue = (rows: Array<{ time: Time; value?: number }> | undefined) =>
-    selected
-      ? rows?.find((row) => timeKey(row.time) === timeKey(chartTime(selected.time)))?.value
-      : undefined;
+  const indicatorValues = useMemo(() => {
+    const index = (rows: Array<{ time: Time; value?: number }>) =>
+      new Map(rows.map((row) => [timeKey(row.time), row.value]));
+    return {
+      sma: new Map([...indicators.sma].map(([period, rows]) => [period, index(rows)])),
+      rsi: index(indicators.rsi),
+    };
+  }, [indicators]);
+  const selectedTime = selected ? timeKey(chartTime(selected.time)) : null;
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container || !hasCandles) return;
-    const dark = theme === 'dark';
+    const dark = themeRef.current === 'dark';
     const chart = createChart(container, {
       width: container.clientWidth,
       height: chartHeight(container.clientWidth < 640, sizingRef.current.rsi),
@@ -243,8 +251,9 @@ export function useCompanyChart({
       smaRefs.current.clear();
       volumeRef.current = null;
       rsiRef.current = null;
+      rsiThresholdRefs.current = [];
     };
-  }, [theme, timeline.companyId, timeline.currency, timeline.provider, minute, hasCandles]);
+  }, [timeline.companyId, timeline.currency, timeline.provider, minute, hasCandles]);
 
   useEffect(() => {
     const chart = chartRef.current;
@@ -257,6 +266,7 @@ export function useCompanyChart({
     for (const series of smaRefs.current.values()) chart.removeSeries(series);
     smaRefs.current.clear();
     rsiRef.current = null;
+    rsiThresholdRefs.current = [];
     volumeRef.current = null;
     for (const period of settings.sma) {
       smaRefs.current.set(
@@ -293,7 +303,7 @@ export function useCompanyChart({
       rsiRef.current = chart.addSeries(
         LineSeries,
         {
-          color: theme === 'dark' ? '#c69bea' : '#8351ad',
+          color: themeRef.current === 'dark' ? '#c69bea' : '#8351ad',
           lineWidth: 2,
           priceLineVisible: false,
           lastValueVisible: false,
@@ -303,23 +313,44 @@ export function useCompanyChart({
         },
         settings.volume ? 2 : 1,
       );
-      for (const price of [30, 70])
-        rsiRef.current.createPriceLine({
+      const rsi = rsiRef.current;
+      rsiThresholdRefs.current = [30, 70].map((price) =>
+        rsi.createPriceLine({
           price,
-          color: theme === 'dark' ? '#738087' : '#87979f',
+          color: themeRef.current === 'dark' ? '#738087' : '#87979f',
           lineWidth: 1,
           lineStyle: 2,
           axisLabelVisible: true,
           title: '',
-        });
+        }),
+      );
       rsiRef.current.getPane().setStretchFactor(1.25);
     }
     candles.getPane().setStretchFactor(4);
     resizeChartRef.current?.();
     if (visible) chart.timeScale().setVisibleLogicalRange(visible);
+  }, [settings, timeline.companyId, timeline.currency, timeline.provider, minute, hasCandles]);
+
+  useEffect(() => {
+    const dark = theme === 'dark';
+    chartRef.current?.applyOptions({
+      layout: {
+        textColor: dark ? '#aab9bd' : '#4f6268',
+        panes: {
+          separatorColor: dark ? '#34454b' : '#d6e0df',
+          separatorHoverColor: dark ? '#496169' : '#b4c8c5',
+        },
+      },
+      grid: { horzLines: { color: dark ? '#203035' : '#e7eceb' } },
+      rightPriceScale: { borderColor: dark ? '#34454b' : '#dbe2e0' },
+      timeScale: { borderColor: dark ? '#34454b' : '#dbe2e0' },
+    });
+    rsiRef.current?.applyOptions({ color: dark ? '#c69bea' : '#8351ad' });
+    for (const line of rsiThresholdRefs.current)
+      line.applyOptions({ color: dark ? '#738087' : '#87979f' });
   }, [
-    settings,
     theme,
+    settings,
     timeline.companyId,
     timeline.currency,
     timeline.provider,
@@ -359,15 +390,7 @@ export function useCompanyChart({
       observer.disconnect();
       cancelAnimationFrame(frame);
     };
-  }, [
-    settings,
-    theme,
-    timeline.companyId,
-    timeline.currency,
-    timeline.provider,
-    minute,
-    hasCandles,
-  ]);
+  }, [settings, timeline.companyId, timeline.currency, timeline.provider, minute, hasCandles]);
 
   useEffect(() => {
     const series = seriesRef.current;
@@ -381,9 +404,26 @@ export function useCompanyChart({
           : { time: chartTime(price.time), value: price.close },
       ),
     );
+    if (!fittedRef.current) {
+      chart.timeScale().fitContent();
+      fittedRef.current = true;
+    }
+  }, [
+    timeline.prices,
+    timeline.companyId,
+    timeline.currency,
+    timeline.provider,
+    minute,
+    hasCandles,
+  ]);
+
+  useEffect(() => {
     for (const [period, data] of indicators.sma) smaRefs.current.get(period)?.setData(data);
     volumeRef.current?.setData(indicators.volume);
     rsiRef.current?.setData(indicators.rsi);
+  }, [indicators, timeline.companyId, timeline.currency, timeline.provider, minute, hasCandles]);
+
+  useEffect(() => {
     // 날짜만 있는 공시 이벤트는 일봉 차트에 표시하며, 분 단위 시각을 만들어내지 않습니다.
     const markers: Array<SeriesMarker<Time>> = minute
       ? []
@@ -395,11 +435,14 @@ export function useCompanyChart({
         }));
     markersRef.current?.setMarkers(markers);
     closeMarkersRef.current?.setMarkers(markers);
-    if (!fittedRef.current) {
-      chart.timeScale().fitContent();
-      fittedRef.current = true;
-    }
-  }, [timeline, indicators, minute, hasCandles, theme]);
+  }, [
+    timeline.markers,
+    timeline.companyId,
+    timeline.currency,
+    timeline.provider,
+    minute,
+    hasCandles,
+  ]);
 
   useEffect(() => {
     const series = seriesRef.current;
@@ -425,28 +468,12 @@ export function useCompanyChart({
     else priceLineRef.current = series.createPriceLine(options);
     if (closePriceLineRef.current) closePriceLineRef.current.applyOptions(options);
     else closePriceLineRef.current = closeRef.current?.createPriceLine(options) ?? null;
-  }, [
-    livePrice,
-    theme,
-    timeline.companyId,
-    timeline.currency,
-    timeline.provider,
-    minute,
-    hasCandles,
-  ]);
+  }, [livePrice, timeline.companyId, timeline.currency, timeline.provider, minute, hasCandles]);
 
   useEffect(() => {
     seriesRef.current?.applyOptions({ visible: chartType === 'candle' });
     closeRef.current?.applyOptions({ visible: chartType === 'line' });
-  }, [
-    chartType,
-    theme,
-    timeline.companyId,
-    timeline.currency,
-    timeline.provider,
-    minute,
-    hasCandles,
-  ]);
+  }, [chartType, timeline.companyId, timeline.currency, timeline.provider, minute, hasCandles]);
   useEffect(() => {
     resizeChartRef.current?.();
   }, [expanded]);
@@ -493,9 +520,12 @@ export function useCompanyChart({
     latestVisible,
     selectedIndicators: {
       sma: new Map(
-        settings.sma.map((period) => [period, indicatorValue(indicators.sma.get(period))]),
+        settings.sma.map((period) => [
+          period,
+          selectedTime === null ? undefined : indicatorValues.sma.get(period)?.get(selectedTime),
+        ]),
       ),
-      rsi: indicatorValue(indicators.rsi),
+      rsi: selectedTime === null ? undefined : indicatorValues.rsi.get(selectedTime),
     },
     rsiTop,
     selectWithKeyboard,

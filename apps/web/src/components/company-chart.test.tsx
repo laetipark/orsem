@@ -13,6 +13,10 @@ const chartMocks = vi.hoisted(() => ({
   closeData: vi.fn(),
   candleOptions: vi.fn(),
   closeOptions: vi.fn(),
+  indicatorOptions: vi.fn(),
+  thresholdOptions: vi.fn(),
+  chartOptions: vi.fn(),
+  theme: 'dark',
   remove: vi.fn(),
   fitContent: vi.fn(),
   setMarkers: vi.fn(),
@@ -41,7 +45,7 @@ vi.mock('lightweight-charts', () => ({
   createSeriesMarkers: () => ({ setMarkers: chartMocks.setMarkers }),
 }));
 
-vi.mock('../theme', () => ({ useTheme: () => ({ theme: 'dark' }) }));
+vi.mock('../theme', () => ({ useTheme: () => ({ theme: chartMocks.theme }) }));
 
 const noTradePrice: PricePoint = Object.freeze({
   time: '2026-09-02',
@@ -68,6 +72,7 @@ function timeline(prices: PricePoint[]): CompanyTimeline {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  chartMocks.theme = 'dark';
   localStorage.clear();
   localStorage.setItem(
     'orsem-chart-indicators-v1',
@@ -86,8 +91,11 @@ beforeEach(() => {
         ? chartMocks.candleOptions
         : options.title === '종가'
           ? chartMocks.closeOptions
-          : vi.fn(),
-    createPriceLine: definition.type === 'candlestick' ? chartMocks.createPriceLine : vi.fn(),
+          : chartMocks.indicatorOptions,
+    createPriceLine:
+      definition.type === 'candlestick'
+        ? chartMocks.createPriceLine
+        : vi.fn(() => ({ applyOptions: chartMocks.thresholdOptions })),
     removePriceLine: chartMocks.removePriceLine,
     options: () => options,
     getPane: () => ({ setStretchFactor: vi.fn(), setHeight: vi.fn(), getHTMLElement: () => null }),
@@ -107,7 +115,7 @@ beforeEach(() => {
     subscribeClick: chartMocks.subscribeClick,
     unsubscribeClick: chartMocks.unsubscribeClick,
     removeSeries: chartMocks.removeSeries,
-    applyOptions: vi.fn(),
+    applyOptions: chartMocks.chartOptions,
     remove: chartMocks.remove,
   });
   chartMocks.createPriceLine.mockReturnValue({ applyOptions: chartMocks.updatePriceLine });
@@ -185,7 +193,99 @@ describe('Toss chart updates', () => {
     );
     expect(input.prices[0]?.close).toBe(101.25);
     rerender(<CompanyChart timeline={input} livePrice={{ ...live, status: 'STALE' }} />);
-    expect(chartMocks.removePriceLine).toHaveBeenCalledOnce();
+    // Both the candle and close-line series must remove the stale quote.
+    expect(chartMocks.removePriceLine).toHaveBeenCalledTimes(2);
+  });
+
+  it('updates only changed chart data and skips metadata-only polling responses', () => {
+    const input = timeline([{ ...price, time: '2026-09-04' }]);
+    const view = render(<CompanyChart timeline={input} />);
+    const indicatorWrites = chartMocks.indicatorData.mock.calls.length;
+    const markerWrites = chartMocks.setMarkers.mock.calls.length;
+
+    view.rerender(
+      <CompanyChart timeline={{ ...input, returns: { ...input.returns, oneDay: 1.2 } }} />,
+    );
+    expect(chartMocks.setData).toHaveBeenCalledTimes(1);
+    expect(chartMocks.closeData).toHaveBeenCalledTimes(1);
+    expect(chartMocks.indicatorData).toHaveBeenCalledTimes(indicatorWrites);
+    expect(chartMocks.setMarkers).toHaveBeenCalledTimes(markerWrites);
+
+    const updated = { ...input, prices: [{ ...input.prices[0]!, close: 101.75 }] };
+    view.rerender(<CompanyChart timeline={updated} />);
+    expect(chartMocks.setData).toHaveBeenCalledTimes(2);
+    expect(chartMocks.indicatorData).toHaveBeenCalledTimes(indicatorWrites * 2);
+    expect(chartMocks.setMarkers).toHaveBeenCalledTimes(markerWrites);
+
+    view.rerender(
+      <CompanyChart
+        timeline={{
+          ...updated,
+          markers: [
+            {
+              time: '2026-09-04',
+              kind: 'FILING',
+              eventId: 'filing-1',
+              label: '공시',
+              detailType: 'D002',
+              returnWindows: { pre1d: null, post1d: null, post5d: null, post20d: null },
+            },
+          ],
+        }}
+      />,
+    );
+    expect(chartMocks.setData).toHaveBeenCalledTimes(2);
+    expect(chartMocks.indicatorData).toHaveBeenCalledTimes(indicatorWrites * 2);
+    expect(chartMocks.setMarkers).toHaveBeenLastCalledWith([
+      expect.objectContaining({ time: '2026-09-04', text: 'F' }),
+    ]);
+    expect(chartMocks.fitContent).toHaveBeenCalledOnce();
+  });
+
+  it('fills replacement charts even when the new company shares the same price arrays', () => {
+    const input = timeline([price]);
+    const view = render(<CompanyChart timeline={input} />);
+    const indicatorWrites = chartMocks.indicatorData.mock.calls.length;
+    const markerWrites = chartMocks.setMarkers.mock.calls.length;
+    view.rerender(<CompanyChart timeline={{ ...input, companyId: 'other-company' }} />);
+    expect(chartMocks.createChart).toHaveBeenCalledTimes(2);
+    expect(chartMocks.setData).toHaveBeenCalledTimes(2);
+    expect(chartMocks.indicatorData).toHaveBeenCalledTimes(indicatorWrites * 2);
+    expect(chartMocks.setMarkers).toHaveBeenCalledTimes(markerWrites * 2);
+    expect(chartMocks.fitContent).toHaveBeenCalledTimes(2);
+  });
+
+  it('changes theme without rebuilding charts, resetting zoom or losing candle selection', () => {
+    localStorage.setItem(
+      'orsem-chart-indicators-v1',
+      JSON.stringify({ volume: true, sma: [20], rsi: true, rsiPeriod: 14 }),
+    );
+    const input = timeline([
+      { ...price, time: '2026-09-01', close: 100.75 },
+      { ...price, time: '2026-09-02', close: 101.25 },
+    ]);
+    const view = render(<CompanyChart timeline={{ ...input, currency: 'USD' }} />);
+    const legend = screen.getByRole('group', { name: '봉별 가격과 지표 범례' });
+    fireEvent.keyDown(legend, { key: 'ArrowLeft' });
+    const seriesCount = chartMocks.addSeries.mock.calls.length;
+    const indicatorWrites = chartMocks.indicatorData.mock.calls.length;
+    chartMocks.setVisibleLogicalRange.mockClear();
+    chartMocks.theme = 'light';
+    view.rerender(<CompanyChart timeline={{ ...input, currency: 'USD' }} />);
+
+    expect(chartMocks.createChart).toHaveBeenCalledOnce();
+    expect(chartMocks.remove).not.toHaveBeenCalled();
+    expect(chartMocks.addSeries).toHaveBeenCalledTimes(seriesCount);
+    expect(chartMocks.fitContent).toHaveBeenCalledOnce();
+    expect(chartMocks.setVisibleLogicalRange).not.toHaveBeenCalled();
+    expect(chartMocks.setData).toHaveBeenCalledOnce();
+    expect(chartMocks.indicatorData).toHaveBeenCalledTimes(indicatorWrites);
+    expect(within(legend).getByText('100.75')).toBeInTheDocument();
+    expect(chartMocks.chartOptions).toHaveBeenLastCalledWith(
+      expect.objectContaining({ layout: expect.objectContaining({ textColor: '#4f6268' }) }),
+    );
+    expect(chartMocks.indicatorOptions).toHaveBeenLastCalledWith({ color: '#8351ad' });
+    expect(chartMocks.thresholdOptions).toHaveBeenLastCalledWith({ color: '#87979f' });
   });
 
   it('shows the pointed candle values and preserves selection when fresh data arrives', () => {
@@ -238,6 +338,7 @@ describe('Toss chart updates', () => {
     );
     expect(chartMocks.createChart).toHaveBeenCalledOnce();
     expect(chartMocks.fitContent).toHaveBeenCalledOnce();
+    expect(chartMocks.setData).toHaveBeenCalledOnce();
     expect(chartMocks.setVisibleLogicalRange).toHaveBeenLastCalledWith({ from: 0, to: 40 });
     expect(JSON.parse(localStorage.getItem('orsem-chart-indicators-v1')!)).toMatchObject({
       volume: false,

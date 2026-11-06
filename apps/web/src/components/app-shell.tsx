@@ -7,15 +7,13 @@ import {
   FileSearch,
   LayoutDashboard,
   LogOut,
-  Moon,
   Newspaper,
   ShieldCheck,
   Star,
-  Sun,
 } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { NavLink, Outlet, useLocation, useNavigate, useNavigationType } from 'react-router-dom';
+import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { disconnectPushOnLogout } from '../lib/web-push';
 import { clearNewsEditDrafts } from '../lib/news-edit-drafts';
 import { api, isFixtureMode } from '../lib/api';
@@ -23,8 +21,9 @@ import { BrandLogo } from './brand-logo';
 import orsemMark from '../assets/orsem-mark.svg';
 import { HeaderSearch } from './search-autocomplete';
 import { StockSidebar } from './stock-sidebar';
-import { useTheme } from '../theme';
 import { Badge, Button, LoadingState, cn } from './ui';
+import { ThemeButton } from './theme-button';
+import { usePageNavigation } from './page-navigation';
 import type { Session } from '../types';
 import './app-shell.css';
 
@@ -41,48 +40,13 @@ const administration = [
   { to: '/reviews', label: '검토함', icon: ShieldCheck },
   { to: '/operations', label: '운영', icon: Activity },
 ];
-const routeTitles: Array<[RegExp, string]> = [
-  [/^\/$/, '오늘의 관측'],
-  [/^\/settings\/notifications/, '알림 설정'],
-  [/^\/sources$/, '데이터 출처·신선도'],
-  [/^\/markets/, '시장 지표'],
-  [/^\/search/, '통합 검색'],
-  [/^\/news$/, '시장 뉴스'],
-  [/^\/news\//, '뉴스 상세'],
-  [/^\/events\/[^/]+$/, '이벤트 근거'],
-  [/^\/events/, '이벤트 탐색'],
-  [/^\/analysis/, '공시 분석실'],
-  [/^\/companies$/, '종목 탐색'],
-  [/^\/companies\//, '종목 정보'],
-  [/^\/watchlist/, '관심 종목'],
-  [/^\/reviews/, '검토함'],
-  [/^\/operations/, '수집 운영'],
-];
-
-export function ThemeButton() {
-  const { theme, toggle } = useTheme();
-  return (
-    <Button
-      variant="ghost"
-      size="icon"
-      onClick={toggle}
-      title={theme === 'dark' ? '밝은 테마로 전환' : '어두운 테마로 전환'}
-      aria-label={theme === 'dark' ? '밝은 테마로 전환' : '어두운 테마로 전환'}
-    >
-      {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
-    </Button>
-  );
-}
-
 export function AppShell({ session }: { session: Session }) {
   useNewsCacheExpiry();
   const [stockSidebarExpanded, setStockSidebarExpanded] = useState(false);
-  const location = useLocation();
   const navigate = useNavigate();
-  const navigationType = useNavigationType();
-  const previousPathname = useRef(location.pathname);
+  const { main, pathname, title } = usePageNavigation();
+  const navigationRef = useRef<HTMLElement>(null);
   const isAdmin = session.user?.role === 'ADMIN';
-  const pathname = location.pathname.replace(/\/+$/, '') || '/';
   const isCompanyDetailPage = /^\/companies\/[^/]+$/.test(pathname);
   const queryClient = useQueryClient();
   const audienceIdentity = `${session.user?.role ?? ''}:${session.user?.id ?? ''}`;
@@ -95,7 +59,6 @@ export function AppShell({ session }: { session: Session }) {
       previousAudience.current = audienceIdentity;
     }
   }, [audienceIdentity, queryClient]);
-  const title = routeTitles.find(([pattern]) => pattern.test(pathname))?.[1] ?? '오르셈';
   const logout = useMutation({
     mutationFn: async () => {
       await disconnectPushOnLogout(session.user?.id, api.unsubscribeNotifications);
@@ -112,11 +75,23 @@ export function AppShell({ session }: { session: Session }) {
     },
   });
   useEffect(() => {
-    if (previousPathname.current !== location.pathname && navigationType !== 'POP') {
-      window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
-    }
-    previousPathname.current = location.pathname;
-  }, [location.pathname, navigationType]);
+    const element = navigationRef.current;
+    if (!element) return;
+    const revealActiveLink = () => {
+      const active = element.querySelector<HTMLElement>('[aria-current="page"]');
+      if (!active || element.scrollWidth <= element.clientWidth) return;
+      const bounds = element.getBoundingClientRect();
+      const activeBounds = active.getBoundingClientRect();
+      if (activeBounds.left < bounds.left) element.scrollLeft += activeBounds.left - bounds.left;
+      else if (activeBounds.right > bounds.right)
+        element.scrollLeft += activeBounds.right - bounds.right;
+    };
+    revealActiveLink();
+    const observer =
+      typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(revealActiveLink);
+    observer?.observe(element);
+    return () => observer?.disconnect();
+  }, [pathname]);
   return (
     <div className="app-shell" data-stock-sidebar={stockSidebarExpanded ? 'expanded' : 'collapsed'}>
       <a className="skip-link" href="#main-content">
@@ -127,7 +102,7 @@ export function AppShell({ session }: { session: Session }) {
           <NavLink to="/" className="brand" aria-label="오르셈 홈">
             <BrandLogo />
           </NavLink>
-          <nav className="header-navigation" aria-label="주 메뉴">
+          <nav ref={navigationRef} className="header-navigation" aria-label="주 메뉴">
             {navigation.map(({ to, label, icon: Icon, end }) => (
               <NavLink
                 key={to}
@@ -165,7 +140,7 @@ export function AppShell({ session }: { session: Session }) {
           </div>
         </div>
       </header>
-      <main id="main-content" className="main-content" tabIndex={-1}>
+      <main ref={main} id="main-content" className="main-content" tabIndex={-1}>
         {!isCompanyDetailPage ? (
           <div className="workspace-heading">
             <h1>{title}</h1>

@@ -69,3 +69,58 @@ it('reschedules on new query data and purges immediately when a sleeping tab bec
   unmount();
   client.clear();
 });
+
+it('preserves server freshness when expiring results so returning to stale news still refetches', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(now);
+  const client = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000 } } });
+  const key = ['news', 'market'];
+  const value = { items: [{ id: 'stored' }], providerResultSets: [resultSet()] };
+  const fetchedAt = now - 40_000;
+  client.setQueryData(key, value, { updatedAt: fetchedAt });
+  const { unmount } = renderHook(useNewsCacheExpiry, {
+    wrapper: ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    ),
+  });
+  act(() => vi.advanceTimersByTime(10_000));
+  expect(client.getQueryData(key)).toEqual({ items: value.items, providerResultSets: [] });
+  expect(client.getQueryState(key)?.dataUpdatedAt).toBe(fetchedAt);
+  const fetch = vi.fn(async () => ({ ...value, providerResultSets: [resultSet(now + 60_000)] }));
+  await act(async () => {
+    await client.fetchQuery({ queryKey: key, queryFn: fetch });
+  });
+  expect(fetch).toHaveBeenCalledOnce();
+  expect(client.getQueryState(key)?.dataUpdatedAt).toBe(now + 10_000);
+  unmount();
+  client.clear();
+});
+
+it('immediately strips expired incoming results without a cache update loop and keeps the next deadline', () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(now);
+  const client = new QueryClient();
+  const key = ['watchlist-v2', 'member', 'group-news', 'group'];
+  const { unmount } = renderHook(useNewsCacheExpiry, {
+    wrapper: ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    ),
+  });
+  const updates = vi.fn();
+  const stop = client.getQueryCache().subscribe((event) => {
+    if (event.type === 'updated' && event.action.type === 'success') updates();
+  });
+  const current = resultSet(now + 10_000);
+  act(() => {
+    client.setQueryData(key, { providerResultSets: [resultSet(now - 1), current] });
+  });
+  expect(client.getQueryData(key)).toEqual({ providerResultSets: [current] });
+  expect(updates).toHaveBeenCalledTimes(2);
+  act(() => vi.advanceTimersByTime(10_000));
+  expect(client.getQueryData(key)).toEqual({ providerResultSets: [] });
+  expect(updates).toHaveBeenCalledTimes(3);
+  expect(client.getQueryState(key)?.dataUpdatedAt).toBe(now);
+  stop();
+  unmount();
+  client.clear();
+});

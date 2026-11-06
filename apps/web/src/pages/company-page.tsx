@@ -659,7 +659,10 @@ export function CompanyPage() {
                 {data.sector && data.sector !== '미분류' ? <span>{data.sector}</span> : null}
               </div>
               <CompanyInformation companyId={data.id} />
-              <Link className="button button--secondary button--sm" to={`/analysis?companyId=${encodeURIComponent(data.id)}`}>
+              <Link
+                className="button button--secondary button--sm"
+                to={`/analysis?companyId=${encodeURIComponent(data.id)}`}
+              >
                 공시 분석실에서 기간별 재무 비교
               </Link>
               <dl className="identity-list">

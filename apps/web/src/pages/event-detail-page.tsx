@@ -104,7 +104,10 @@ export function EventDetailPage() {
             공식 원문 <ArrowUpRight size={16} />
           </a>
           {data.companyId ? (
-            <Link className="button button--secondary button--md" to={`/analysis?companyId=${encodeURIComponent(data.companyId)}&eventId=${encodeURIComponent(data.id)}&tab=documents`}>
+            <Link
+              className="button button--secondary button--md"
+              to={`/analysis?companyId=${encodeURIComponent(data.companyId)}&eventId=${encodeURIComponent(data.id)}&tab=documents`}
+            >
               공시 분석실
             </Link>
           ) : null}

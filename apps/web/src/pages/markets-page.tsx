@@ -5,7 +5,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { MarketOverview } from '../components/market-overview';
 import { MarketSelection } from '../components/market-selection';
 import { MarketValue } from '../components/market-value';
-import { MarketChart } from '../components/market-chart';
+import { MarketChart } from '../components/lazy-market-chart';
 import { AssetNews, isNewsAsset } from '../components/asset-news';
 import { RegionTabs, useRegion } from '../components/region-tabs';
 import { MarketWidget } from '../components/market-widget';

@@ -29,15 +29,15 @@ export function useNewsCacheExpiry() {
     let updating = false;
     const matches = (key: readonly unknown[]) =>
       key[0] === 'news' || key.includes('personal-news') || key.includes('group-news');
-    const nextExpiry = (value: unknown): number => {
+    const nextExpiry = (value: unknown, now: number): number => {
       if (!value || typeof value !== 'object') return Infinity;
       const own =
         'expiresAt' in value && typeof value.expiresAt === 'string'
           ? Date.parse(value.expiresAt)
           : Infinity;
       return Math.min(
-        Number.isFinite(own) && own > Date.now() ? own : Infinity,
-        ...Object.values(value).map(nextExpiry),
+        Number.isFinite(own) && own > now ? own : Infinity,
+        ...Object.values(value).map((item) => nextExpiry(item, now)),
       );
     };
     const expire = () => {
@@ -45,13 +45,16 @@ export function useNewsCacheExpiry() {
       updating = true;
       if (timer !== undefined) window.clearTimeout(timer);
       let nextAt = Infinity;
+      const now = Date.now();
       for (const query of client.getQueryCache().findAll({
         predicate: (query) => matches(query.queryKey),
       })) {
         const data = query.state.data,
-          next = expireNews(data, Date.now());
-        if (data !== next) client.setQueryData(query.queryKey, next);
-        nextAt = Math.min(nextAt, nextExpiry(next));
+          next = expireNews(data, now);
+        // Removing expired provider results is not a successful server refresh.
+        if (data !== next)
+          client.setQueryData(query.queryKey, next, { updatedAt: query.state.dataUpdatedAt });
+        nextAt = Math.min(nextAt, nextExpiry(next, now));
       }
       updating = false;
       if (Number.isFinite(nextAt))
@@ -61,7 +64,14 @@ export function useNewsCacheExpiry() {
         );
     };
     const unsubscribe = client.getQueryCache().subscribe((event) => {
-      if (matches(event.query.queryKey) && ['added', 'updated', 'removed'].includes(event.type))
+      if (!matches(event.query.queryKey)) return;
+      // Fetch/retry/invalidation transitions leave the payload and its expiry unchanged.
+      if (
+        event.type === 'added' ||
+        event.type === 'removed' ||
+        (event.type === 'updated' &&
+          (event.action.type === 'success' || event.action.type === 'setState'))
+      )
         expire();
     });
     expire();

@@ -1,3 +1,9 @@
+.market-chart-loading {
+  min-height: 380px;
+  display: grid;
+  align-items: center;
+}
+
 .market-chart__readout {
   display: flex;
   flex-wrap: wrap;

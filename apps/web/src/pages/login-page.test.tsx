@@ -21,7 +21,7 @@ vi.mock('../lib/api', () => ({
     logout: mocks.logout,
   },
 }));
-vi.mock('../components/app-shell', () => ({ ThemeButton: () => null }));
+vi.mock('../components/theme-button', () => ({ ThemeButton: () => null }));
 
 const anonymous: Session = {
   authenticated: false,

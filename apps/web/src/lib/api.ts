@@ -517,9 +517,10 @@ export const api = {
   companyLivePrice: (id: string, signal?: AbortSignal) =>
     request<CompanyLivePrice>(`/companies/${encodeURIComponent(id)}/live-price`, { signal }),
   sourceFreshness: () => request<{ asOf: string; items: SourceFreshness[] }>('/sources/freshness'),
-  markets: (region: Region = 'all') =>
+  markets: (region: Region = 'all', signal?: AbortSignal) =>
     request<{ asOf: string; items: MarketQuote[]; histories?: Record<string, MarketHistory> }>(
       `/markets/overview${queryString({ region, historyRange: '1m' })}`,
+      { signal },
     ),
   marketHistory: (id: string, range: '1m' | '3m' | '1y', signal?: AbortSignal) =>
     request<MarketHistory>(`/markets/${encodeURIComponent(id)}/history${queryString({ range })}`, {

@@ -1,24 +1,18 @@
-import { ArrowRight, ChartNoAxesCombined, Building2, Moon, Newspaper, Sun } from 'lucide-react';
-import { Suspense, useEffect, useRef } from 'react';
-import { Link, NavLink, Outlet, useLocation, useNavigationType } from 'react-router-dom';
+import { ArrowRight, ChartNoAxesCombined, Building2, Newspaper } from 'lucide-react';
+import { Suspense } from 'react';
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import type { Session } from '../types';
-import { useTheme } from '../theme';
 import { loginUrl } from '../lib/login-return';
 import { BrandLogo } from './brand-logo';
-import { Button, LoadingState, cn } from './ui';
+import { LoadingState, cn } from './ui';
+import { ThemeButton } from './theme-button';
+import { usePageNavigation } from './page-navigation';
 import './guest-shell.css';
 
 export function GuestShell({ session }: { session?: Session }) {
-  const { theme, toggle } = useTheme();
   const location = useLocation();
-  const navigationType = useNavigationType();
-  const previousPath = useRef(location.pathname);
+  const { main } = usePageNavigation();
   const login = loginUrl('/login', `${location.pathname}${location.search}`);
-  useEffect(() => {
-    if (previousPath.current !== location.pathname && navigationType !== 'POP')
-      window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
-    previousPath.current = location.pathname;
-  }, [location.pathname, navigationType]);
   return (
     <div className="guest-shell">
       <a className="skip-link" href="#main-content">
@@ -46,14 +40,7 @@ export function GuestShell({ session }: { session?: Session }) {
             ))}
           </nav>
           <div className="guest-header__actions">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={toggle}
-              aria-label={theme === 'dark' ? '밝은 테마로 전환' : '어두운 테마로 전환'}
-            >
-              {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
-            </Button>
+            <ThemeButton />
             <Link className="button button--primary button--sm" to={login}>
               {session?.authenticated ? '계정 상태' : '로그인'}
               <ArrowRight size={15} aria-hidden="true" />
@@ -61,7 +48,7 @@ export function GuestShell({ session }: { session?: Session }) {
           </div>
         </div>
       </header>
-      <main id="main-content" className="guest-main" tabIndex={-1}>
+      <main ref={main} id="main-content" className="guest-main" tabIndex={-1}>
         {session?.authenticated && !session.canAccess ? (
           <p className="guest-account-notice" role="status">
             공개 차트와 뉴스는 계속 볼 수 있습니다. <Link to={login}>회원 이용 상태 확인</Link>

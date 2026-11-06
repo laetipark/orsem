@@ -4,11 +4,13 @@ import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom';
 import { ApiError, isTemporaryApiError } from './lib/api';
 import { sessionQueryOptions } from './lib/session-query';
 import { postWatchlistPopoutMessage, watchlistPictureInPictureOwner } from './lib/watchlist-popout';
-import { AppShell } from './components/app-shell';
 import { Button, ErrorState, LoadingState } from './components/ui';
 import './app-session.css';
 
 const GuestRoutes = lazy(() => import('./guest-routes'));
+const AppShell = lazy(() =>
+  import('./components/app-shell').then((module) => ({ default: module.AppShell })),
+);
 
 const LoginPage = lazy(() =>
   import('./pages/login-page').then((module) => ({ default: module.LoginPage })),

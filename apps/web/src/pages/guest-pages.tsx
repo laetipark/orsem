@@ -1,10 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, ArrowUpRight, LockKeyhole, Search } from 'lucide-react';
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import type { PublicCompany, PublicNewsItem } from '@orsem/contracts';
 import { MarketCard } from '../components/market-card';
-import { MarketChart } from '../components/market-chart';
+import { MarketChart } from '../components/lazy-market-chart';
 import { MarketValue } from '../components/market-value';
 import {
   PublicStockWidget,
@@ -302,14 +302,20 @@ export function GuestMarketDetailPage() {
     enabled: publicMarketIds.has(id) && Boolean(item),
     staleTime: 60_000,
   });
-  const available = availableHistoryRanges(
-    history.data?.points ?? [],
-    history.data?.asOf ?? new Date().toISOString(),
+  const available = useMemo(
+    () =>
+      availableHistoryRanges(
+        history.data?.points ?? [],
+        history.data?.asOf ?? new Date().toISOString(),
+      ),
+    [history.data],
   );
   const activeRange = available.includes(range) ? range : '1m';
-  const points = history.data
-    ? historyForRange(history.data.points, activeRange, history.data.asOf)
-    : [];
+  const points = useMemo(
+    () =>
+      history.data ? historyForRange(history.data.points, activeRange, history.data.asOf) : [],
+    [history.data, activeRange],
+  );
   if (!publicMarketIds.has(id))
     return (
       <div className="guest-page">

@@ -2,7 +2,7 @@ import { Shield } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { BrandLogo } from './brand-logo';
-import { ThemeButton } from './app-shell';
+import { ThemeButton } from './theme-button';
 
 export function LoginLayout({
   title,
